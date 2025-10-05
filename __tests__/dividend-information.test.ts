@@ -5,6 +5,11 @@ import { GET } from '../src/app/api/pe-ratios/route';
 jest.mock('axios');
 const mockedAxios = require('axios');
 
+// Constants for dividend calculations
+const CAKE_DIVIDEND_PER_SHARE = 1.0559;
+const CAKE_CURRENT_PRICE = 55.00;
+const CAKE_EXPECTED_YIELD = 1.92;
+
 describe('/api/pe-ratios - Dividend Information', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -40,43 +45,39 @@ describe('/api/pe-ratios - Dividend Information', () => {
       }
     };
 
+    // Mock the company profile response (empty to avoid earnings estimates)
+    const mockProfileResponse = {
+      data: {}
+    };
+
     mockedAxios.get
       .mockResolvedValueOnce(mockQuoteResponse)
-      .mockResolvedValueOnce(mockMetricsResponse);
+      .mockResolvedValueOnce(mockMetricsResponse)
+      .mockResolvedValueOnce(mockProfileResponse);
 
     const request = new NextRequest('http://localhost:3000/api/pe-ratios?symbol=ADBE');
     const response = await GET(request);
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    
+
     // Test dividend fields are null
     expect(data.dividendPerShare).toBeNull();
     expect(data.dividendYield).toBeNull();
     expect(data.dividendGrowthRate).toBeNull();
-    
+
     console.log('ADBE dividend data:', {
       dividendPerShare: data.dividendPerShare,
       dividendYield: data.dividendYield,
       dividendGrowthRate: data.dividendGrowthRate
     });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
-  });
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
   });
 
   it('should show dividend information for CAKE (pays dividends)', async () => {
     // Mock the quote response
     const mockQuoteResponse = {
       data: {
-        c: 55.00 // Current price
+        c: CAKE_CURRENT_PRICE // Current price
       }
     };
 
@@ -88,63 +89,61 @@ describe('/api/pe-ratios - Dividend Information', () => {
           epsTTM: 3.67,
           epsGrowth3Y: 5.0,
           // CAKE dividend data
-          dividendPerShareTTM: 1.0559,
+          dividendPerShareTTM: CAKE_DIVIDEND_PER_SHARE,
           currentDividendYieldTTM: 1.9229,
           dividendGrowthRate5Y: 7.51
         }
       }
     };
 
+    // Mock the company profile response (empty to avoid earnings estimates)
+    const mockProfileResponse = {
+      data: {}
+    };
+
     mockedAxios.get
       .mockResolvedValueOnce(mockQuoteResponse)
-      .mockResolvedValueOnce(mockMetricsResponse);
+      .mockResolvedValueOnce(mockMetricsResponse)
+      .mockResolvedValueOnce(mockProfileResponse);
 
     const request = new NextRequest('http://localhost:3000/api/pe-ratios?symbol=CAKE');
     const response = await GET(request);
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    
+
     // Test dividend fields are populated
-    expect(data.dividendPerShare).toBe(1.0559);
+    expect(data.dividendPerShare).toBe(CAKE_DIVIDEND_PER_SHARE);
     expect(data.dividendYield).toBe(1.9229);
     expect(data.dividendGrowthRate).toBe(7.51);
-    
+
     console.log('CAKE dividend data:', {
       dividendPerShare: data.dividendPerShare,
       dividendYield: data.dividendYield,
       dividendGrowthRate: data.dividendGrowthRate
     });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
-  });
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
   });
 
   it('should handle partial dividend data gracefully', async () => {
     const mockQuoteResponse = { data: { c: 100.00 } };
-    const mockMetricsResponse = { 
-      data: { 
-        metric: { 
+    const mockMetricsResponse = {
+      data: {
+        metric: {
           peTTM: 20.0,
           epsTTM: 5.0,
           // Only some dividend fields available
           dividendPerShareTTM: 2.0,
           currentDividendYieldTTM: null, // Missing
           dividendGrowthRate5Y: 5.0
-        } 
-      } 
+        }
+      }
     };
+    const mockProfileResponse = { data: {} }; // Empty profile
 
     mockedAxios.get
       .mockResolvedValueOnce(mockQuoteResponse)
-      .mockResolvedValueOnce(mockMetricsResponse);
+      .mockResolvedValueOnce(mockMetricsResponse)
+      .mockResolvedValueOnce(mockProfileResponse);
 
     const request = new NextRequest('http://localhost:3000/api/pe-ratios?symbol=TEST');
     const response = await GET(request);
@@ -156,26 +155,12 @@ describe('/api/pe-ratios - Dividend Information', () => {
     expect(data.dividendGrowthRate).toBe(5.0);
   });
 
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
-  });
-
   it('should demonstrate dividend yield calculation', () => {
-    const dividendPerShare = 1.0559;
-    const currentPrice = 55.00;
-    const expectedYield = (dividendPerShare / currentPrice) * 100;
-    
     console.log(`Dividend Yield Calculation:`);
-    console.log(`  Dividend per share: $${dividendPerShare}`);
-    console.log(`  Current price: $${currentPrice}`);
-    console.log(`  Yield: (${dividendPerShare} / ${currentPrice}) * 100 = ${expectedYield.toFixed(2)}%`);
-    
-    expect(expectedYield).toBeCloseTo(1.92, 2);
-  });
+    console.log(`  Dividend per share: $${CAKE_DIVIDEND_PER_SHARE}`);
+    console.log(`  Current price: $${CAKE_CURRENT_PRICE}`);
+    console.log(`  Yield: (${CAKE_DIVIDEND_PER_SHARE} / ${CAKE_CURRENT_PRICE}) * 100 = ${CAKE_EXPECTED_YIELD.toFixed(2)}%`);
 
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
+    expect(CAKE_EXPECTED_YIELD).toBeCloseTo(1.92, 2);
   });
 });

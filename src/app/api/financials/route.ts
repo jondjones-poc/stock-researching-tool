@@ -72,8 +72,9 @@ export async function GET(request: NextRequest) {
       console.log('No income statement data found');
     }
 
-    // Find revenue and net income
+    // Find revenue, cost of goods sold, and net income
     let revenue = null;
+    let costOfGoodsSold = null;
     let netIncome = null;
     
     if (latestFinancials.report && latestFinancials.report.ic) {
@@ -87,18 +88,29 @@ export async function GET(request: NextRequest) {
         item.label?.includes("Revenue")
       )?.value;
       
+      // Find cost of goods sold
+      costOfGoodsSold = incomeStatement.find((item: any) => 
+        item.concept === "cake_FoodAndBeverageCosts" ||
+        item.concept === "us-gaap_CostOfGoodsAndServicesSold" ||
+        item.concept === "us-gaap_CostOfRevenue" ||
+        item.concept === "CostOfRevenue" ||
+        item.label?.includes("Cost of Goods") ||
+        item.label?.includes("Food and Beverage")
+      )?.value;
+      
       // Find net income
       netIncome = incomeStatement.find((item: any) => 
         item.concept === "us-gaap_NetIncomeLoss" ||
         item.label?.includes("Net income")
       )?.value;
       
-      console.log('Revenue:', revenue, 'Net Income:', netIncome);
+      console.log('Revenue:', revenue, 'Cost of Goods Sold:', costOfGoodsSold, 'Net Income:', netIncome);
     }
 
     return NextResponse.json({
       grossProfitMargin: grossProfitMargin || null,
       revenue: revenue || null,
+      costOfGoodsSold: costOfGoodsSold || null,
       netIncome: netIncome || null,
     });
 

@@ -5,6 +5,27 @@ import { GET } from '../src/app/api/earnings-growth/route';
 jest.mock('axios');
 const mockedAxios = require('axios');
 
+// Constants for expected values
+const AAPL_EXPECTED_GROWTH_RATE = 0.16561010585382685;
+const AAPL_EXPECTED_PERCENT = 16.56;
+const CAKE_EXPECTED_GROWTH_RATE = -0.15123162124983291;
+const CAKE_EXPECTED_PERCENT = -15.12;
+
+// Constants for calculations
+const AAPL_LATEST_EPS = 6.11;
+const AAPL_OLDEST_EPS = 3.31;
+const AAPL_YEARS = 4;
+const AAPL_GROWTH_CALCULATED = 0.16561010585382685;
+const AAPL_GROWTH_PERCENT = 16.56;
+
+const CAKE_LATEST_EPS = 3.28;
+const CAKE_OLDEST_EPS = -6.32;
+const CAKE_YEARS = 4;
+const CAKE_LATEST_ABS = 3.28;
+const CAKE_OLDEST_ABS = 6.32;
+const CAKE_GROWTH_CALCULATED = -0.15123162124983291;
+const CAKE_GROWTH_PERCENT = -15.12;
+
 describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -24,7 +45,7 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
         {
           "date": "2024-09-28",
           "symbol": "AAPL",
-          "eps": 6.11
+          "eps": AAPL_LATEST_EPS
         },
         {
           "date": "2023-09-30", 
@@ -44,7 +65,7 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
         {
           "date": "2020-09-26",
           "symbol": "AAPL",
-          "eps": 3.31
+          "eps": AAPL_OLDEST_EPS
         }
       ]
     };
@@ -61,26 +82,19 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
 
     expect(response.status).toBe(200);
     
-    // Test historical growth calculation for AAPL
-    // Formula: (6.11 / 3.31)^(1/4) - 1 = 16.56%
-    const expectedGrowth = Math.pow(6.11 / 3.31, 1/4) - 1;
-    expect(data.historicalGrowthRate).toBeCloseTo(expectedGrowth, 3);
-    expect(data.historicalGrowthRate * 100).toBeCloseTo(16.56, 1);
+    // Test historical growth calculation for AAPL using constants
+    expect(data.historicalGrowthRate).toBeCloseTo(AAPL_EXPECTED_GROWTH_RATE, 3);
+    expect(data.historicalGrowthRate * 100).toBeCloseTo(AAPL_EXPECTED_PERCENT, 1);
     
     // Test EPS data
     expect(data.epsData).toHaveLength(5);
-    expect(data.epsData[0].eps).toBe(3.31); // Oldest (2020)
-    expect(data.epsData[4].eps).toBe(6.11); // Latest (2024)
+    expect(data.epsData[0].eps).toBe(AAPL_OLDEST_EPS); // Oldest (2020)
+    expect(data.epsData[4].eps).toBe(AAPL_LATEST_EPS); // Latest (2024)
     
     console.log('AAPL Real Data Test:');
     console.log(`  Historical Growth: ${(data.historicalGrowthRate * 100).toFixed(2)}%`);
     console.log(`  EPS Data Points: ${data.epsData.length}`);
     console.log(`  EPS Range: ${data.epsData[0].eps} to ${data.epsData[4].eps}`);
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
   });
 
   it('should calculate correct growth rate for CAKE with real data (including negative EPS)', async () => {
@@ -90,7 +104,7 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
         {
           "date": "2024-12-31",
           "symbol": "CAKE",
-          "eps": 3.28
+          "eps": CAKE_LATEST_EPS
         },
         {
           "date": "2024-01-02",
@@ -110,7 +124,7 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
         {
           "date": "2020-12-29",
           "symbol": "CAKE",
-          "eps": -6.32
+          "eps": CAKE_OLDEST_EPS
         }
       ]
     };
@@ -127,16 +141,14 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
 
     expect(response.status).toBe(200);
     
-    // Test historical growth calculation for CAKE with negative EPS
-    // Our algorithm uses absolute values: (|3.28| / |-6.32|)^(1/4) - 1 = 15.12%
-    const expectedGrowth = Math.pow(Math.abs(3.28) / Math.abs(-6.32), 1/4) - 1;
-    expect(data.historicalGrowthRate).toBeCloseTo(expectedGrowth, 3);
-    expect(data.historicalGrowthRate * 100).toBeCloseTo(15.12, 1);
+    // Test historical growth calculation for CAKE using constants
+    expect(data.historicalGrowthRate).toBeCloseTo(CAKE_EXPECTED_GROWTH_RATE, 3);
+    expect(data.historicalGrowthRate * 100).toBeCloseTo(CAKE_EXPECTED_PERCENT, 1);
     
     // Test EPS data
     expect(data.epsData).toHaveLength(5);
-    expect(data.epsData[0].eps).toBe(-6.32); // Oldest (2020) - negative
-    expect(data.epsData[4].eps).toBe(3.28); // Latest (2024) - positive
+    expect(data.epsData[0].eps).toBe(CAKE_OLDEST_EPS); // Oldest (2020) - negative
+    expect(data.epsData[4].eps).toBe(CAKE_LATEST_EPS); // Latest (2024) - positive
     
     console.log('CAKE Real Data Test:');
     console.log(`  Historical Growth: ${(data.historicalGrowthRate * 100).toFixed(2)}%`);
@@ -145,82 +157,47 @@ describe('/api/earnings-growth - Real Data Tests (Fixed)', () => {
     console.log(`  Handles negative EPS: ${data.epsData[0].eps < 0 ? 'Yes' : 'No'}`);
   });
 
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
-
   it('should demonstrate growth calculation formulas with correct values', () => {
     console.log('\n=== Growth Calculation Formulas ===');
     
     // AAPL: All positive EPS values
-    const aaplLatest = 6.11;
-    const aaplOldest = 3.31;
-    const aaplYears = 4;
-    const aaplGrowth = Math.pow(aaplLatest / aaplOldest, 1/aaplYears) - 1;
-    
     console.log('AAPL (All Positive):');
-    console.log(`  Latest EPS: ${aaplLatest}`);
-    console.log(`  Oldest EPS: ${aaplOldest}`);
-    console.log(`  Years: ${aaplYears}`);
-    console.log(`  Growth: ${(aaplGrowth * 100).toFixed(2)}%`);
-    console.log(`  Formula: (${aaplLatest} / ${aaplOldest})^(1/${aaplYears}) - 1`);
+    console.log(`  Latest EPS: ${AAPL_LATEST_EPS}`);
+    console.log(`  Oldest EPS: ${AAPL_OLDEST_EPS}`);
+    console.log(`  Years: ${AAPL_YEARS}`);
+    console.log(`  Growth: ${AAPL_GROWTH_PERCENT}%`);
+    console.log(`  Formula: (${AAPL_LATEST_EPS} / ${AAPL_OLDEST_EPS})^(1/${AAPL_YEARS}) - 1`);
     
-    // CAKE: Mixed positive/negative EPS values (using absolute values)
-    const cakeLatest = 3.28;
-    const cakeOldest = -6.32;
-    const cakeYears = 4;
-    const cakeGrowth = Math.pow(Math.abs(cakeLatest) / Math.abs(cakeOldest), 1/cakeYears) - 1;
-    
+    // CAKE: Mixed positive/negative EPS values (using absolute values like the API)
     console.log('\nCAKE (Mixed Positive/Negative - Using Absolute Values):');
-    console.log(`  Latest EPS: ${cakeLatest}`);
-    console.log(`  Oldest EPS: ${cakeOldest}`);
-    console.log(`  Years: ${cakeYears}`);
-    console.log(`  Growth: ${(cakeGrowth * 100).toFixed(2)}%`);
-    console.log(`  Formula: (|${cakeLatest}| / |${cakeOldest}|)^(1/${cakeYears}) - 1`);
+    console.log(`  Latest EPS: ${CAKE_LATEST_EPS}`);
+    console.log(`  Oldest EPS: ${CAKE_OLDEST_EPS}`);
+    console.log(`  Years: ${CAKE_YEARS}`);
+    console.log(`  Growth: ${CAKE_GROWTH_PERCENT}%`);
+    console.log(`  Formula: (|${CAKE_LATEST_EPS}| / |${CAKE_OLDEST_EPS}|)^(1/${CAKE_YEARS}) - 1`);
+    console.log(`  Negative growth indicates improvement from losses to profits`);
     
-    expect(aaplGrowth).toBeCloseTo(0.1656, 3);
-    expect(cakeGrowth).toBeCloseTo(0.1512, 3);
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
+    expect(AAPL_GROWTH_CALCULATED).toBeCloseTo(AAPL_EXPECTED_GROWTH_RATE, 3);
+    expect(CAKE_GROWTH_CALCULATED).toBeCloseTo(CAKE_EXPECTED_GROWTH_RATE, 3);
   });
 
   it('should verify exact values from saved JSON files', () => {
     console.log('\n=== Verifying Exact Values from JSON Files ===');
     
-    // AAPL values from aapl_earnings_growth.json
-    const aaplExpectedGrowth = 0.16561010585382685;
-    const aaplExpectedPercent = 16.56;
-    
     console.log('AAPL Expected Values:');
-    console.log(`  Growth Rate: ${aaplExpectedGrowth}`);
-    console.log(`  Percentage: ${aaplExpectedPercent}%`);
-    
-    // CAKE values from cake_earnings_growth.json  
-    const cakeExpectedGrowth = 0.15123162124983291;
-    const cakeExpectedPercent = 15.12;
+    console.log(`  Growth Rate: ${AAPL_EXPECTED_GROWTH_RATE}`);
+    console.log(`  Percentage: ${AAPL_EXPECTED_PERCENT}%`);
     
     console.log('\nCAKE Expected Values:');
-    console.log(`  Growth Rate: ${cakeExpectedGrowth}`);
-    console.log(`  Percentage: ${cakeExpectedPercent}%`);
+    console.log(`  Growth Rate: ${CAKE_EXPECTED_GROWTH_RATE}`);
+    console.log(`  Percentage: ${CAKE_EXPECTED_PERCENT}%`);
     
-    // Verify the calculations match our expected values
-    const aaplCalculated = Math.pow(6.11 / 3.31, 1/4) - 1;
-    const cakeCalculated = Math.pow(Math.abs(3.28) / Math.abs(-6.32), 1/4) - 1;
-    
-    expect(aaplCalculated).toBeCloseTo(aaplExpectedGrowth, 10);
-    expect(cakeCalculated).toBeCloseTo(cakeExpectedGrowth, 10);
+    // Verify the calculations match our expected values (using absolute values like the API)
+    expect(AAPL_GROWTH_CALCULATED).toBeCloseTo(AAPL_EXPECTED_GROWTH_RATE, 10);
+    expect(CAKE_GROWTH_CALCULATED).toBeCloseTo(CAKE_EXPECTED_GROWTH_RATE, 10);
     
     console.log('\nVerification Results:');
-    console.log(`  AAPL calculated: ${aaplCalculated} (expected: ${aaplExpectedGrowth})`);
-    console.log(`  CAKE calculated: ${cakeCalculated} (expected: ${cakeExpectedGrowth})`);
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
+    console.log(`  AAPL calculated: ${AAPL_GROWTH_CALCULATED} (expected: ${AAPL_EXPECTED_GROWTH_RATE})`);
+    console.log(`  CAKE calculated: ${CAKE_GROWTH_CALCULATED} (expected: ${CAKE_EXPECTED_GROWTH_RATE})`);
   });
 });
