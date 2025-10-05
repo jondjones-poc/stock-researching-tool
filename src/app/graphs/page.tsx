@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart } from 'recharts';
 
 interface ChartData {
   year: string;
@@ -13,6 +13,10 @@ interface GraphsData {
   freeCashFlow: ChartData[];
   shareBuybacks: ChartData[];
   revenue: ChartData[];
+  netIncome: ChartData[];
+  portfolioValue: ChartData[];
+  dividendIncome: ChartData[];
+  sharesOutstanding: ChartData[];
   error?: string;
 }
 
@@ -35,13 +39,17 @@ export default function Graphs() {
       if (response.ok) {
         setData(result);
       } else {
-        setData({ freeCashFlow: [], shareBuybacks: [], revenue: [], error: result.error });
+        setData({ freeCashFlow: [], shareBuybacks: [], revenue: [], netIncome: [], portfolioValue: [], dividendIncome: [], sharesOutstanding: [], error: result.error });
       }
     } catch {
       setData({ 
         freeCashFlow: [], 
         shareBuybacks: [], 
         revenue: [], 
+        netIncome: [],
+        portfolioValue: [],
+        dividendIncome: [],
+        sharesOutstanding: [],
         error: 'Failed to fetch data' 
       });
     } finally {
@@ -136,6 +144,41 @@ export default function Graphs() {
         {/* Charts */}
         {data && !data.error && (
           <div className="space-y-8">
+            {/* Net Income Chart */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                📊 Net Income by Year
+              </h2>
+              {data.netIncome.length > 0 ? (
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.netIncome} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="year" 
+                        stroke="#6b7280" 
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#6b7280" 
+                        fontSize={12}
+                        tickFormatter={formatNumber}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar 
+                        dataKey="value" 
+                        fill="#8b5cf6" 
+                        radius={[4, 4, 0, 0]}
+                        name="Net Income"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No net income data available</p>
+              )}
+            </div>
+
             {/* Free Cash Flow Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
@@ -171,15 +214,15 @@ export default function Graphs() {
               )}
             </div>
 
-            {/* Share Buybacks Chart */}
+            {/* Share Buybacks Chart with Shares Outstanding Overlay */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-                🔄 Share Buybacks by Year
+                🔄 Share Buybacks & Shares Outstanding by Year
               </h2>
-              {data.shareBuybacks.length > 0 ? (
+              {data.shareBuybacks.length > 0 || data.sharesOutstanding.length > 0 ? (
                 <div className="h-96">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.shareBuybacks} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <ComposedChart data={data.shareBuybacks} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis 
                         dataKey="year" 
@@ -187,22 +230,65 @@ export default function Graphs() {
                         fontSize={12}
                       />
                       <YAxis 
+                        yAxisId="left"
                         stroke="#6b7280"
                         fontSize={12}
                         tickFormatter={(value) => formatNumber(value)}
                       />
-                      <Tooltip content={<CustomTooltip />} />
+                      <YAxis 
+                        yAxisId="right"
+                        orientation="right"
+                        stroke="#6b7280"
+                        fontSize={12}
+                        tickFormatter={(value) => {
+                          if (value >= 1000000000) {
+                            return `${(value / 1000000000).toFixed(1)}B`;
+                          } else if (value >= 1000000) {
+                            return `${(value / 1000000).toFixed(0)}M`;
+                          } else {
+                            return `${(value / 1000).toFixed(0)}K`;
+                          }
+                        }}
+                      />
+                      <Tooltip 
+                        formatter={(value: number, name: string) => {
+                          if (name === 'Shares Outstanding') {
+                            if (value >= 1000000000) {
+                              return [`${(value / 1000000000).toFixed(1)}B shares`, name];
+                            } else if (value >= 1000000) {
+                              return [`${(value / 1000000).toFixed(1)}M shares`, name];
+                            } else {
+                              return [`${(value / 1000).toFixed(0)}K shares`, name];
+                            }
+                          }
+                          return [formatNumber(value), name];
+                        }}
+                        labelFormatter={(label) => `Year: ${label}`}
+                      />
                       <Bar 
+                        yAxisId="left"
                         dataKey="value" 
                         fill="#3b82f6" 
                         radius={[4, 4, 0, 0]}
                         name="Share Buybacks"
                       />
-                    </BarChart>
+                      {data.sharesOutstanding.length > 0 && (
+                        <Line 
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="value" 
+                          data={data.sharesOutstanding}
+                          stroke="#ef4444" 
+                          strokeWidth={3}
+                          dot={{ fill: "#ef4444", strokeWidth: 2, r: 4 }}
+                          name="Shares Outstanding"
+                        />
+                      )}
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <p className="text-gray-500 dark:text-gray-400">No share buyback data available</p>
+                <p className="text-gray-500 dark:text-gray-400">No share buyback or shares outstanding data available</p>
               )}
             </div>
 
@@ -238,6 +324,82 @@ export default function Graphs() {
                 </div>
               ) : (
                 <p className="text-gray-500 dark:text-gray-400">No revenue data available</p>
+              )}
+            </div>
+
+        {/* Portfolio Value Chart */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+            📈 Share Price Over Time
+          </h2>
+              {data.portfolioValue.length > 0 ? (
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.portfolioValue} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="year" 
+                        stroke="#6b7280"
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#6b7280"
+                        fontSize={12}
+                        tickFormatter={(value) => `$${value.toFixed(2)}`}
+                      />
+                      <Tooltip 
+                        formatter={(value: number) => [`$${value.toFixed(2)}`, 'Stock Price']}
+                        labelFormatter={(label) => `Year: ${label}`}
+                      />
+                      <Bar 
+                        dataKey="value" 
+                        fill="#10b981" 
+                        radius={[4, 4, 0, 0]}
+                        name="Stock Price"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No portfolio value data available</p>
+              )}
+            </div>
+
+            {/* Dividend Income Chart */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                💰 Dividend Income by Year
+              </h2>
+              {data.dividendIncome.length > 0 ? (
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.dividendIncome} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="year" 
+                        stroke="#6b7280"
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#6b7280"
+                        fontSize={12}
+                        tickFormatter={(value) => `$${value.toFixed(2)}`}
+                      />
+                      <Tooltip 
+                        formatter={(value: number) => [`$${value.toFixed(2)}`, 'Dividend Income']}
+                        labelFormatter={(label) => `Year: ${label}`}
+                      />
+                      <Bar 
+                        dataKey="value" 
+                        fill="#f59e0b" 
+                        radius={[4, 4, 0, 0]}
+                        name="Dividend Income"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No dividend income data available</p>
               )}
             </div>
           </div>
