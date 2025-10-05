@@ -1,0 +1,6 @@
+# Stop Cursor editing test files
+tests/
+__tests__/
+*.test.*
+*.spec.*
+*.snap

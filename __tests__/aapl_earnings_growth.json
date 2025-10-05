@@ -1,0 +1,27 @@
+{
+  "historicalGrowthRate": 0.16561010585382685,
+  "analystGrowthRate": null,
+  "epsData": [
+    {
+      "date": "2020-09-26",
+      "eps": 3.31
+    },
+    {
+      "date": "2021-09-25",
+      "eps": 5.67
+    },
+    {
+      "date": "2022-09-24",
+      "eps": 6.15
+    },
+    {
+      "date": "2023-09-30",
+      "eps": 6.16
+    },
+    {
+      "date": "2024-09-28",
+      "eps": 6.11
+    }
+  ],
+  "analystData": null
+}

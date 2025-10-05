@@ -1,0 +1,26 @@
+[
+  {
+    "symbol": "ADBE",
+    "name": "Adobe Inc.",
+    "price": 346.74,
+    "changesPercentage": -1.34858,
+    "change": -4.74,
+    "dayLow": 346.305,
+    "dayHigh": 352.5926,
+    "yearHigh": 557.9,
+    "yearLow": 330.04,
+    "marketCap": 145146407341,
+    "priceAvg50": 353.5018,
+    "priceAvg200": 392.73306,
+    "exchange": "NASDAQ",
+    "volume": 3111281,
+    "avgVolume": 4226990,
+    "open": 351.735,
+    "previousClose": 351.48,
+    "eps": 16.03,
+    "pe": 21.63,
+    "earningsAnnouncement": "2025-12-10T05:00:00.000+0000",
+    "sharesOutstanding": 418603009,
+    "timestamp": 1759521601
+  }
+]

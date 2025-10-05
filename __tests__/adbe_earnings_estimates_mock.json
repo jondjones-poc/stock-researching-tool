@@ -1,0 +1,8 @@
+{
+  "symbol": "ADBE",
+  "estimates": [
+    { "period": "2024-11-30", "epsAvg": 18.9 },
+    { "period": "2025-11-30", "epsAvg": 20.3 },
+    { "period": "2026-11-30", "epsAvg": 21.1 }
+  ]
+}
