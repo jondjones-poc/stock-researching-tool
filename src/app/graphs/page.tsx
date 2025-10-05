@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface ChartData {
   year: string;
@@ -37,7 +37,7 @@ export default function Graphs() {
       } else {
         setData({ freeCashFlow: [], shareBuybacks: [], revenue: [], error: result.error });
       }
-    } catch (error) {
+    } catch {
       setData({ 
         freeCashFlow: [], 
         shareBuybacks: [], 

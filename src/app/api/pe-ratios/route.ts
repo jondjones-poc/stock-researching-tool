@@ -140,8 +140,8 @@ export async function GET(request: NextRequest) {
       // Process earnings estimates if available
       if (profile.estimates && profile.estimates.length > 0) {
         // Find 2025 and 2026 EPS estimates
-        const eps2025 = profile.estimates.find(est => est.period && est.period.includes('2025'))?.epsAvg;
-        const eps2026 = profile.estimates.find(est => est.period && est.period.includes('2026'))?.epsAvg;
+        const eps2025 = profile.estimates.find((est: any) => est.period && est.period.includes('2025'))?.epsAvg;
+        const eps2026 = profile.estimates.find((est: any) => est.period && est.period.includes('2026'))?.epsAvg;
         
         if (eps2025 && result.currentPrice) {
           result.eps2025 = eps2025;

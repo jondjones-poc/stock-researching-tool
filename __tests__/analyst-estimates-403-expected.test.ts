@@ -38,11 +38,6 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
             }
           ]
         });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
       }
       if (url.includes('analyst-estimates/CAKE')) {
         // Simulate 403 error from FMP analyst estimates API
@@ -56,19 +51,9 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
           },
           message: 'Request failed with status code 403'
         });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
       }
       return Promise.reject(new Error('not found'));
     });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
 
     const request = new NextRequest('http://localhost:3000/api/earnings-growth?symbol=CAKE');
     const response = await GET(request);
@@ -85,11 +70,6 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
     expect(data.analystGrowthRate).toBeNull(); // Analyst should be null due to 403
     expect(data.analystData).toBeNull(); // Analyst data should be null
     expect(data.epsData).toBeDefined(); // EPS data should still be present
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
   });
 
   it('should handle 403 error from analyst estimates API gracefully for AAPL', async () => {
@@ -110,11 +90,6 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
             }
           ]
         });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
       }
       if (url.includes('analyst-estimates/AAPL')) {
         // Simulate 403 error from FMP analyst estimates API
@@ -128,19 +103,9 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
           },
           message: 'Request failed with status code 403'
         });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
       }
       return Promise.reject(new Error('not found'));
     });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
 
     const request = new NextRequest('http://localhost:3000/api/earnings-growth?symbol=AAPL');
     const response = await GET(request);
@@ -159,11 +124,6 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
     expect(data.epsData).toBeDefined(); // EPS data should still be present
   });
 
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
-  });
-
   it('should document that 403 errors are expected and not a bug', async () => {
     console.log('\n=== Analyst Estimates 403 Error Analysis ===');
     console.log('This test confirms that 403 errors from FMP analyst estimates API are expected behavior.');
@@ -177,10 +137,5 @@ describe('/api/earnings-growth - Analyst Estimates 403 Error is Expected', () =>
     
     // This test passes if we reach this point, confirming the behavior is expected
     expect(true).toBe(true);
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FMP_API_KEY;
   });
 });

@@ -34,9 +34,15 @@ describe('/api/pe-ratios - Earnings Estimates', () => {
       }
     };
 
+    // Mock the company profile response (empty to avoid earnings estimates)
+    const mockProfileResponse = {
+      data: {}
+    };
+
     mockedAxios.get
       .mockResolvedValueOnce(mockQuoteResponse)  // First call for quote
-      .mockResolvedValueOnce(mockMetricsResponse); // Second call for metrics
+      .mockResolvedValueOnce(mockMetricsResponse) // Second call for metrics
+      .mockResolvedValueOnce(mockProfileResponse); // Third call for company profile
 
     const request = new NextRequest('http://localhost:3000/api/pe-ratios?symbol=ADBE');
     const response = await GET(request);
@@ -52,11 +58,6 @@ describe('/api/pe-ratios - Earnings Estimates', () => {
     
     // Verify the calculation
     expect(expectedEPS).toBeCloseTo(16.62, 1); // 346.74 / 20.86 = 16.62
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
   });
 
   it('should demonstrate EPS growth calculation from historical data', () => {
@@ -123,11 +124,6 @@ describe('/api/pe-ratios - Earnings Estimates', () => {
     expect(forwardPE2026).toBeCloseTo(22.45, 1); // Projected forward PE
   });
 
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
-  });
-
   it('should handle missing earnings estimates gracefully', async () => {
     const mockQuoteResponse = {
       data: {
@@ -143,9 +139,15 @@ describe('/api/pe-ratios - Earnings Estimates', () => {
       }
     };
 
+    // Mock the company profile response (empty)
+    const mockProfileResponse = {
+      data: {}
+    };
+
     mockedAxios.get
       .mockResolvedValueOnce(mockQuoteResponse)
-      .mockResolvedValueOnce(mockMetricsResponse);
+      .mockResolvedValueOnce(mockMetricsResponse)
+      .mockResolvedValueOnce(mockProfileResponse);
 
     const request = new NextRequest('http://localhost:3000/api/pe-ratios?symbol=TEST');
     const response = await GET(request);
@@ -156,10 +158,5 @@ describe('/api/pe-ratios - Earnings Estimates', () => {
     expect(data.currentPrice).toBe(100.00);
     expect(data.forwardPE2Year).toBeNull(); // No forward estimates available
     expect(data.eps2026).toBeNull();
-  });
-
-  afterEach(() => {
-    // Restore original environment
-    delete process.env.FINNHUB_API_KEY;
   });
 });
