@@ -645,6 +645,7 @@ export default function Home() {
           )}
 
           {/* DCF Projections - New Section */}
+          {data && (data.peRatios || data.fmp || data.earningsGrowth) && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
             <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white flex items-center gap-2">
               <span>📈</span> DCF Projections
@@ -933,6 +934,7 @@ export default function Home() {
               </table>
             </div>
           </div>
+          )}
         </div>
       </main>
     </div>
