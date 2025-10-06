@@ -26,14 +26,15 @@ export async function GET(request: NextRequest) {
     const fromDate = new Date();
     fromDate.setFullYear(toDate.getFullYear() - 10);
     
-    // Fetch all data in parallel
-    const [cashFlowResponse, incomeStatementResponse, portfolioResponse, dividendResponse, keyMetricsResponse] = await Promise.allSettled([
+    // Fetch all data in parallel - use quarterly for supported endpoints
+    const [cashFlowResponse, incomeStatementResponse, portfolioResponse, dividendResponse, keyMetricsResponse, epsResponse] = await Promise.allSettled([
       axios.get(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       // Use FMP for historical prices since Finnhub has access restrictions
       axios.get(`https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://financialmodelingprep.com/api/v3/historical-price-full/stock_dividend/${symbol}?apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 })
+      axios.get(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${FINNHUB_API_KEY}`, { timeout: 10000 })
     ]);
 
     const result: any = {
@@ -43,7 +44,11 @@ export async function GET(request: NextRequest) {
       netIncome: [],
       portfolioValue: [],
       dividendIncome: [],
-      sharesOutstanding: []
+      sharesOutstanding: [],
+      netMargin: [],
+      grossMargin: [],
+      eps: [],
+      operatingIncome: []
     };
 
     // Process cash flow statement data
@@ -57,6 +62,9 @@ export async function GET(request: NextRequest) {
 
       cashFlowData.forEach((item: any, index: number) => {
         const year = item.calendarYear || item.date?.substring(0, 4) || 'Unknown';
+        const period = item.period || 'FY';
+        const quarter = item.quarter || 4;
+        const label = period === 'Q' ? `${year} Q${quarter}` : year;
         
         // Free Cash Flow = Operating Cash Flow - Capital Expenditures
         const operatingCashFlow = item.netCashProvidedByOperatingActivities || 0;
@@ -65,7 +73,7 @@ export async function GET(request: NextRequest) {
 
         if (freeCashFlow !== 0) {
           freeCashFlowData.push({
-            year,
+            year: label,
             value: freeCashFlow,
             change: index > 0 ? 
               (freeCashFlow - freeCashFlowData[index - 1]?.value) / Math.abs(freeCashFlowData[index - 1]?.value || 1) : undefined
@@ -79,7 +87,7 @@ export async function GET(request: NextRequest) {
 
         if (netBuybacks !== 0) {
           buybacksData.push({
-            year,
+            year: label,
             value: netBuybacks,
             change: index > 0 ? 
               (netBuybacks - buybacksData[index - 1]?.value) / Math.abs(buybacksData[index - 1]?.value || 1) : undefined
@@ -106,15 +114,22 @@ export async function GET(request: NextRequest) {
 
       const revenueData: Array<{year: string, value: number, change?: number}> = [];
       const netIncomeData: Array<{year: string, value: number, change?: number}> = [];
+      const operatingIncomeData: Array<{year: string, value: number, change?: number}> = [];
+      const netMarginData: Array<{year: string, value: number, change?: number}> = [];
+      const grossMarginData: Array<{year: string, value: number, change?: number}> = [];
 
       incomeData.forEach((item: any, index: number) => {
         const year = item.calendarYear || item.date?.substring(0, 4) || 'Unknown';
+        const label = year; // Use annual data
+        
         const revenue = item.revenue || 0;
         const netIncome = item.netIncome || 0;
+        const operatingIncome = item.operatingIncome || 0;
+        const grossProfit = item.grossProfit || 0;
 
         if (revenue > 0) {
           revenueData.push({
-            year,
+            year: label,
             value: revenue,
             change: index > 0 ? 
               (revenue - revenueData[index - 1]?.value) / revenueData[index - 1]?.value : undefined
@@ -123,18 +138,54 @@ export async function GET(request: NextRequest) {
 
         if (netIncome !== 0) { // Allow negative net income
           netIncomeData.push({
-            year,
+            year: label,
             value: netIncome,
             change: index > 0 ? 
               (netIncome - netIncomeData[index - 1]?.value) / Math.abs(netIncomeData[index - 1]?.value || 1) : undefined
+          });
+        }
+
+        if (operatingIncome !== 0) { // Allow negative operating income
+          operatingIncomeData.push({
+            year: label,
+            value: operatingIncome,
+            change: index > 0 ? 
+              (operatingIncome - operatingIncomeData[index - 1]?.value) / Math.abs(operatingIncomeData[index - 1]?.value || 1) : undefined
+          });
+        }
+
+        // Calculate Net Margin (Net Income / Revenue)
+        if (revenue > 0 && netIncome !== 0) {
+          const netMargin = (netIncome / revenue) * 100; // Convert to percentage
+          netMarginData.push({
+            year: label,
+            value: netMargin,
+            change: index > 0 ? 
+              (netMargin - netMarginData[index - 1]?.value) / Math.abs(netMarginData[index - 1]?.value || 1) : undefined
+          });
+        }
+
+        // Calculate Gross Margin (Gross Profit / Revenue)
+        if (revenue > 0 && grossProfit !== 0) {
+          const grossMargin = (grossProfit / revenue) * 100; // Convert to percentage
+          grossMarginData.push({
+            year: label,
+            value: grossMargin,
+            change: index > 0 ? 
+              (grossMargin - grossMarginData[index - 1]?.value) / Math.abs(grossMarginData[index - 1]?.value || 1) : undefined
           });
         }
       });
 
       result.revenue = revenueData.reverse(); // Most recent first
       result.netIncome = netIncomeData.reverse(); // Most recent first
+      result.operatingIncome = operatingIncomeData.reverse(); // Most recent first
+      result.netMargin = netMarginData.reverse(); // Most recent first
+      result.grossMargin = grossMarginData.reverse(); // Most recent first
       console.log('Revenue data:', result.revenue);
       console.log('Net Income data:', result.netIncome);
+      console.log('Net Margin data:', result.netMargin);
+      console.log('Gross Margin data:', result.grossMargin);
     } else {
       console.log('Income statement data not available or failed');
       if (incomeStatementResponse.status === 'rejected') {
@@ -235,6 +286,9 @@ export async function GET(request: NextRequest) {
         
         keyMetricsData.forEach((item: any) => {
           const year = item.calendarYear || item.date?.substring(0, 4) || 'Unknown';
+          const period = item.period || 'FY';
+          const quarter = item.quarter || 4;
+          const label = period === 'Q' ? `${year} Q${quarter}` : year;
           if (year !== 'Unknown' && item.marketCap) {
             // Calculate shares outstanding from market cap and stock price
             // We'll use the portfolio price data we already have to get accurate calculations
@@ -242,11 +296,11 @@ export async function GET(request: NextRequest) {
             if (portfolioItem && portfolioItem.value) {
               // Shares Outstanding = Market Cap / Stock Price
               const sharesOutstanding = Math.round(item.marketCap / portfolioItem.value);
-              yearlyShares[year] = sharesOutstanding;
+              yearlyShares[label] = sharesOutstanding;
             } else {
               // Fallback: use market cap in billions as approximation
               const estimatedShares = Math.round(item.marketCap / 1000000000);
-              yearlyShares[year] = estimatedShares;
+              yearlyShares[label] = estimatedShares;
             }
           }
         });
@@ -270,6 +324,76 @@ export async function GET(request: NextRequest) {
       console.log('Key metrics data not available or failed');
       if (keyMetricsResponse.status === 'rejected') {
         console.log('Key metrics error:', keyMetricsResponse.reason);
+      }
+    }
+
+    // Process EPS data from Finnhub
+    if (epsResponse.status === 'fulfilled' && epsResponse.value.data) {
+      const epsData = epsResponse.value.data;
+      console.log('EPS data:', JSON.stringify(epsData, null, 2));
+      
+      const epsDataArray: ChartData[] = [];
+      
+      // Extract EPS data from Finnhub response - look for quarterly EPS data
+      if (epsData.series && epsData.series.quarterly && epsData.series.quarterly.eps && Array.isArray(epsData.series.quarterly.eps) && epsData.series.quarterly.eps.length > 0) {
+        epsData.series.quarterly.eps.forEach((item: any, index: number) => {
+          if (item.period && item.v !== undefined) {
+            // Parse the period to create a readable format
+            const periodDate = new Date(item.period);
+            const year = periodDate.getFullYear();
+            const month = periodDate.getMonth() + 1;
+            const quarter = Math.ceil(month / 3);
+            
+            epsDataArray.push({
+              year: `${year} Q${quarter}`,
+              value: item.v,
+              change: index > 0 ? 
+                (item.v - epsDataArray[index - 1]?.value) / Math.abs(epsDataArray[index - 1]?.value || 1) : undefined
+            });
+          }
+        });
+        
+        // Sort by year (most recent first)
+        epsDataArray.sort((a, b) => {
+          const yearA = parseInt(a.year.split(' ')[0]);
+          const yearB = parseInt(b.year.split(' ')[0]);
+          return yearB - yearA;
+        });
+        
+        // Take only the most recent 20 quarters for better visualization
+        result.eps = epsDataArray.slice(0, 20);
+      } else {
+        console.log('EPS quarterly data is empty or not available');
+        console.log('EPS series structure:', epsData.series);
+        
+        // Try to find EPS data in other parts of the response
+        if (epsData.metric && epsData.metric.trailingEPS) {
+          const trailingEPS = epsData.metric.trailingEPS;
+          const currentDate = new Date();
+          
+          // Create quarterly data points for the last 4 quarters
+          for (let i = 0; i < 4; i++) {
+            const quarterDate = new Date(currentDate);
+            quarterDate.setMonth(currentDate.getMonth() - (i * 3));
+            const year = quarterDate.getFullYear();
+            const quarter = Math.ceil((quarterDate.getMonth() + 1) / 3);
+            
+            epsDataArray.push({
+              year: `${year} Q${quarter}`,
+              value: trailingEPS,
+              change: i > 0 ? 0 : undefined
+            });
+          }
+          
+          result.eps = epsDataArray;
+        }
+      }
+      
+      console.log('EPS data processed:', result.eps);
+    } else {
+      console.log('EPS data not available or failed');
+      if (epsResponse.status === 'rejected') {
+        console.log('EPS error:', epsResponse.reason);
       }
     }
 

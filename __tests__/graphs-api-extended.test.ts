@@ -185,7 +185,8 @@ describe('/api/graphs - Extended with Portfolio, Dividend, and Shares Outstandin
       .mockResolvedValueOnce({ data: mockIncomeStatementData }) // Income statement
       .mockResolvedValueOnce({ data: portfolioData }) // Portfolio data (from saved JSON)
       .mockResolvedValueOnce({ data: dividendData }) // Dividend data (from saved JSON)
-      .mockResolvedValueOnce({ data: mockKeyMetricsData }); // Key metrics data
+      .mockResolvedValueOnce({ data: mockKeyMetricsData }) // Key metrics data
+      .mockResolvedValueOnce({ data: { series: [] } }); // EPS data (empty for now)
 
     const request = new NextRequest('http://localhost:3000/api/graphs?symbol=AAPL');
     const response = await GET(request);
@@ -235,7 +236,8 @@ describe('/api/graphs - Extended with Portfolio, Dividend, and Shares Outstandin
       .mockResolvedValueOnce({ data: [] }) // Income statement
       .mockResolvedValueOnce({ data: portfolioData }) // Portfolio data
       .mockResolvedValueOnce({ data: { historical: [] } }) // Dividend data
-      .mockResolvedValueOnce({ data: mockKeyMetricsData }); // Key metrics data
+      .mockResolvedValueOnce({ data: mockKeyMetricsData }) // Key metrics data
+      .mockResolvedValueOnce({ data: { series: [] } }); // EPS data (empty for now)
 
     const request = new NextRequest('http://localhost:3000/api/graphs?symbol=AAPL');
     const response = await GET(request);

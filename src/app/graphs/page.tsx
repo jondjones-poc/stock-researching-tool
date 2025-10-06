@@ -17,6 +17,10 @@ interface GraphsData {
   portfolioValue: ChartData[];
   dividendIncome: ChartData[];
   sharesOutstanding: ChartData[];
+  netMargin: ChartData[];
+  grossMargin: ChartData[];
+  eps: ChartData[];
+  operatingIncome: ChartData[];
   error?: string;
 }
 
@@ -39,7 +43,7 @@ export default function Graphs() {
       if (response.ok) {
         setData(result);
       } else {
-        setData({ freeCashFlow: [], shareBuybacks: [], revenue: [], netIncome: [], portfolioValue: [], dividendIncome: [], sharesOutstanding: [], error: result.error });
+        setData({ freeCashFlow: [], shareBuybacks: [], revenue: [], netIncome: [], portfolioValue: [], dividendIncome: [], sharesOutstanding: [], netMargin: [], grossMargin: [], eps: [], operatingIncome: [], error: result.error });
       }
     } catch {
       setData({ 
@@ -50,6 +54,10 @@ export default function Graphs() {
         portfolioValue: [],
         dividendIncome: [],
         sharesOutstanding: [],
+        netMargin: [],
+        grossMargin: [],
+        eps: [],
+        operatingIncome: [],
         error: 'Failed to fetch data' 
       });
     } finally {
@@ -144,15 +152,142 @@ export default function Graphs() {
         {/* Charts */}
         {data && !data.error && (
           <div className="space-y-8">
+            {/* Revenue Chart */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                📊 Revenue
+              </h2>
+              {data.revenue.length > 0 ? (
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.revenue} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="year" 
+                        stroke="#6b7280"
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#6b7280"
+                        fontSize={12}
+                        tickFormatter={(value) => formatNumber(value)}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Line 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#8b5cf6" 
+                        strokeWidth={3}
+                        dot={{ fill: "#8b5cf6", strokeWidth: 2, r: 4 }}
+                        name="Revenue"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No revenue data available</p>
+              )}
+            </div>
+
+            {/* Margins Section */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                📊 Net & Gross Margins
+              </h2>
+              {(data.netMargin.length > 0 || data.grossMargin.length > 0) ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {data.netMargin.length > 0 && (
+                    <div className="h-96">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-center">
+                        Net Margin
+                      </h3>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data.netMargin} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis 
+                            dataKey="year" 
+                            stroke="#6b7280" 
+                            fontSize={12}
+                          />
+                          <YAxis 
+                            stroke="#6b7280" 
+                            fontSize={12}
+                            tickFormatter={(value) => `${value.toFixed(1)}%`}
+                            domain={['dataMin - 5', 'dataMax + 5']}
+                          />
+                          <Tooltip 
+                            formatter={(value: number, name: string) => {
+                              const formattedValue = value.toFixed(2);
+                              const sign = value >= 0 ? '+' : '';
+                              return [`${sign}${formattedValue}%`, name];
+                            }}
+                            labelFormatter={(label) => `Period: ${label}`}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="value" 
+                            stroke="#ef4444" 
+                            strokeWidth={3}
+                            dot={{ fill: "#ef4444", strokeWidth: 2, r: 4 }}
+                            name="Net Margin"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {data.grossMargin.length > 0 && (
+                    <div className="h-96">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-center">
+                        Gross Margin
+                      </h3>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data.grossMargin} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis 
+                            dataKey="year" 
+                            stroke="#6b7280" 
+                            fontSize={12}
+                          />
+                          <YAxis 
+                            stroke="#6b7280" 
+                            fontSize={12}
+                            tickFormatter={(value) => `${value.toFixed(1)}%`}
+                            domain={['dataMin - 5', 'dataMax + 5']}
+                          />
+                          <Tooltip 
+                            formatter={(value: number, name: string) => {
+                              const formattedValue = value.toFixed(2);
+                              const sign = value >= 0 ? '+' : '';
+                              return [`${sign}${formattedValue}%`, name];
+                            }}
+                            labelFormatter={(label) => `Period: ${label}`}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="value" 
+                            stroke="#10b981" 
+                            strokeWidth={3}
+                            dot={{ fill: "#10b981", strokeWidth: 2, r: 4 }}
+                            name="Gross Margin"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No margins data available</p>
+              )}
+            </div>
             {/* Net Income Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-                📊 Net Income by Year
+                📊 Net Income 
               </h2>
               {data.netIncome.length > 0 ? (
                 <div className="h-96">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.netIncome} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <LineChart data={data.netIncome} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis 
                         dataKey="year" 
@@ -165,13 +300,15 @@ export default function Graphs() {
                         tickFormatter={formatNumber}
                       />
                       <Tooltip content={<CustomTooltip />} />
-                      <Bar 
+                      <Line 
+                        type="monotone" 
                         dataKey="value" 
-                        fill="#8b5cf6" 
-                        radius={[4, 4, 0, 0]}
+                        stroke="#8b5cf6" 
+                        strokeWidth={3}
+                        dot={{ fill: "#8b5cf6", strokeWidth: 2, r: 4 }}
                         name="Net Income"
                       />
-                    </BarChart>
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
@@ -179,10 +316,50 @@ export default function Graphs() {
               )}
             </div>
 
+            {/* EPS Over Time Chart */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                📈 EPS Over Time
+              </h2>
+              {data.eps.length > 0 ? (
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.eps} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="year" 
+                        stroke="#6b7280" 
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#6b7280" 
+                        fontSize={12}
+                        tickFormatter={(value) => `$${value.toFixed(2)}`}
+                      />
+                      <Tooltip 
+                        formatter={(value: number, name: string) => [`$${value.toFixed(2)}`, name]}
+                        labelFormatter={(label) => `Period: ${label}`}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#f59e0b" 
+                        strokeWidth={3}
+                        dot={{ fill: "#f59e0b", strokeWidth: 2, r: 4 }}
+                        name="EPS"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No EPS data available</p>
+              )}
+            </div>
+
             {/* Free Cash Flow Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-                💰 Free Cash Flow by Year
+                💰 Free Cash Flow
               </h2>
               {data.freeCashFlow.length > 0 ? (
                 <div className="h-96">
@@ -217,7 +394,7 @@ export default function Graphs() {
             {/* Share Buybacks Chart with Shares Outstanding Overlay */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-                🔄 Share Buybacks & Shares Outstanding by Year
+                🔄 Share Buybacks & Shares Outstandinng
               </h2>
               {data.shareBuybacks.length > 0 || data.sharesOutstanding.length > 0 ? (
                 <div className="h-96">
@@ -265,13 +442,17 @@ export default function Graphs() {
                         }}
                         labelFormatter={(label) => `Year: ${label}`}
                       />
-                      <Bar 
-                        yAxisId="left"
-                        dataKey="value" 
-                        fill="#3b82f6" 
-                        radius={[4, 4, 0, 0]}
-                        name="Share Buybacks"
-                      />
+                      {data.shareBuybacks.length > 0 && (
+                        <Line 
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="value" 
+                          stroke="#3b82f6" 
+                          strokeWidth={3}
+                          dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
+                          name="Share Buybacks"
+                        />
+                      )}
                       {data.sharesOutstanding.length > 0 && (
                         <Line 
                           yAxisId="right"
@@ -289,41 +470,6 @@ export default function Graphs() {
                 </div>
               ) : (
                 <p className="text-gray-500 dark:text-gray-400">No share buyback or shares outstanding data available</p>
-              )}
-            </div>
-
-            {/* Revenue Chart */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-                📊 Revenue by Year
-              </h2>
-              {data.revenue.length > 0 ? (
-                <div className="h-96">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.revenue} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis 
-                        dataKey="year" 
-                        stroke="#6b7280"
-                        fontSize={12}
-                      />
-                      <YAxis 
-                        stroke="#6b7280"
-                        fontSize={12}
-                        tickFormatter={(value) => formatNumber(value)}
-                      />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Bar 
-                        dataKey="value" 
-                        fill="#8b5cf6" 
-                        radius={[4, 4, 0, 0]}
-                        name="Revenue"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="text-gray-500 dark:text-gray-400">No revenue data available</p>
               )}
             </div>
 
@@ -368,7 +514,7 @@ export default function Graphs() {
             {/* Dividend Income Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-                💰 Dividend Income by Year
+                💰 Dividend Income 
               </h2>
               {data.dividendIncome.length > 0 ? (
                 <div className="h-96">
@@ -400,6 +546,43 @@ export default function Graphs() {
                 </div>
               ) : (
                 <p className="text-gray-500 dark:text-gray-400">No dividend income data available</p>
+              )}
+            </div>
+
+            {/* Operating Income Chart */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                📊 Operating Income
+              </h2>
+              {data.operatingIncome.length > 0 ? (
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.operatingIncome} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="year" 
+                        stroke="#6b7280"
+                        fontSize={12}
+                      />
+                      <YAxis 
+                        stroke="#6b7280"
+                        fontSize={12}
+                        tickFormatter={(value) => formatNumber(value)}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Line 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#3b82f6" 
+                        strokeWidth={3}
+                        dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
+                        name="Operating Income"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No operating income data available</p>
               )}
             </div>
           </div>
