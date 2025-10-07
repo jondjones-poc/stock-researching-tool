@@ -15,6 +15,11 @@ interface InsiderData {
     netIncome: number;
     eps?: number;
   };
+  keyMetrics?: {
+    sharesOutstanding: number;
+    marketCap: number;
+    enterpriseValue: number;
+  };
   peRatios?: {
     currentPE: number;
     forwardPE1Year: number;
@@ -56,13 +61,14 @@ export default function Home() {
     setData(null);
 
     try {
-      // Fetch data from Finnhub, Financials, PE Ratios, FMP, and Earnings Growth
-      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes] = await Promise.allSettled([
+      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, and Key Metrics
+      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes] = await Promise.allSettled([
         fetch(`/api/finnhub?symbol=${symbol.toUpperCase()}`),
         fetch(`/api/financials?symbol=${symbol.toUpperCase()}`),
         fetch(`/api/pe-ratios?symbol=${symbol.toUpperCase()}`),
         fetch(`/api/fmp?symbol=${symbol.toUpperCase()}`),
-        fetch(`/api/earnings-growth?symbol=${symbol.toUpperCase()}`)
+        fetch(`/api/earnings-growth?symbol=${symbol.toUpperCase()}`),
+        fetch(`/api/key-metrics?symbol=${symbol.toUpperCase()}`)
       ]);
 
       const result: InsiderData = { symbol: symbol.toUpperCase() };
@@ -122,6 +128,19 @@ export default function Home() {
         if (earningsGrowthRes.status === 'fulfilled') {
           console.log('Earnings Growth response status:', earningsGrowthRes.value?.status);
           console.log('Earnings Growth response text:', await earningsGrowthRes.value?.text());
+        }
+      }
+
+      // Process Key Metrics data
+      if (keyMetricsRes.status === 'fulfilled' && keyMetricsRes.value.ok) {
+        result.keyMetrics = await keyMetricsRes.value.json();
+        console.log('Key Metrics data received:', result.keyMetrics);
+        console.log('Shares Outstanding:', result.keyMetrics?.sharesOutstanding);
+      } else {
+        console.log('Key Metrics request failed:', keyMetricsRes);
+        if (keyMetricsRes.status === 'fulfilled') {
+          console.log('Key Metrics response status:', keyMetricsRes.value?.status);
+          console.log('Key Metrics response text:', await keyMetricsRes.value?.text());
         }
       }
 
@@ -207,7 +226,7 @@ export default function Home() {
         // Financial data
         revenue: data.financials?.revenue || 0,
         netIncome: data.financials?.netIncome || 0,
-        sharesOutstanding: data.fmp?.sharesOutstanding || 0,
+        sharesOutstanding: data.keyMetrics?.sharesOutstanding || data.fmp?.sharesOutstanding || 0,
         stockPrice: data.peRatios?.currentPrice || data.fmp?.price || 0,
         currentEps: data.financials?.eps || (data.financials?.netIncome && data.fmp?.sharesOutstanding 
           ? data.financials.netIncome / data.fmp.sharesOutstanding 
@@ -298,14 +317,15 @@ export default function Home() {
                     )}
 
                     {/* Shares Outstanding */}
-                    {data.fmp && (
+                    {(data.keyMetrics || data.fmp) && (
                       <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
                         <div className="flex justify-between items-start mb-1">
                           <p className="text-sm text-gray-600 dark:text-gray-400">Shares Outstanding</p>
                           <button
                             onClick={() => {
-                              if (data.fmp?.sharesOutstanding) {
-                                navigator.clipboard.writeText(data.fmp.sharesOutstanding.toString());
+                              const sharesOutstanding = data.keyMetrics?.sharesOutstanding || data.fmp?.sharesOutstanding;
+                              if (sharesOutstanding) {
+                                navigator.clipboard.writeText(sharesOutstanding.toString());
                               }
                             }}
                             className="text-xs bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-700 transition-colors"
@@ -314,9 +334,10 @@ export default function Home() {
                           </button>
                         </div>
                         <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                          {data.fmp.sharesOutstanding ? data.fmp.sharesOutstanding.toLocaleString() : 'N/A'}
+                          {data.keyMetrics?.sharesOutstanding ? data.keyMetrics.sharesOutstanding.toLocaleString() : 
+                           data.fmp?.sharesOutstanding ? data.fmp.sharesOutstanding.toLocaleString() : 'N/A'}
                         </p>
-                        {data.fmp.marketCap && (
+                        {data.fmp?.marketCap && (
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                             Market Cap: ${(data.fmp.marketCap / 1000000000).toFixed(1)}B
                           </p>

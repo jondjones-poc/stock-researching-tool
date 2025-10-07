@@ -41,8 +41,6 @@ export default function DCFExample() {
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-4">DCF Calculation for {dcfData.symbol}</h1>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Revenue Growth */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-2">Revenue Growth</h3>
           <div className="space-y-2">
@@ -51,8 +49,6 @@ export default function DCFExample() {
             <p>Bull: {(dcfData.revenueGrowth.bull * 100).toFixed(2)}%</p>
           </div>
         </div>
-
-        {/* Net Income Growth */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-2">Net Income Growth</h3>
           <div className="space-y-2">
@@ -61,8 +57,6 @@ export default function DCFExample() {
             <p>Bull: {(dcfData.netIncomeGrowth.bull * 100).toFixed(2)}%</p>
           </div>
         </div>
-
-        {/* PE Low Estimates */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-2">PE Low Estimates</h3>
           <div className="space-y-2">
@@ -71,8 +65,6 @@ export default function DCFExample() {
             <p>Bull: {dcfData.peLow.bull.toFixed(2)}x</p>
           </div>
         </div>
-
-        {/* PE High Estimates */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-2">PE High Estimates</h3>
           <div className="space-y-2">
