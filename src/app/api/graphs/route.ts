@@ -5,8 +5,9 @@ const FMP_API_KEY = process.env.FMP_API_KEY;
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 
 interface ChartData {
-  date: string;
+  year: string;
   value: number;
+  change?: number;
 }
 
 export async function GET(request: NextRequest) {

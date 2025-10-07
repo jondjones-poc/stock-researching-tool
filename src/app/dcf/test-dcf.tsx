@@ -32,6 +32,7 @@ export default function TestDCF() {
       revenue: 40195000000,      // $40.195B
       netIncome: 7873970000,     // $7.874B
       sharesOutstanding: 962000000, // 962M shares
+      stockPrice: 250.00,  // $250 per share
       symbol: 'CRM',
       timestamp: new Date().toISOString()
     };
