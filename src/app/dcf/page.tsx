@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getDCFData, DCFData, hasDCFData, storeDCFData } from '../utils/dcfData';
 import Decimal from 'decimal.js';
+import Link from 'next/link';
 
 interface DCFProjections {
   revenue: { bear: number[]; base: number[]; bull: number[] };
@@ -17,7 +18,6 @@ interface DCFProjections {
 export default function DCFCalculator() {
   const [dcfData, setDcfData] = useState<DCFData | null>(null);
   const [projections, setProjections] = useState<DCFProjections | null>(null);
-  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     revenueGrowth: { bear: 0, base: 0, bull: 0 },
     netIncomeGrowth: { bear: 0, base: 0, bull: 0 },
@@ -28,6 +28,7 @@ export default function DCFCalculator() {
 
   useEffect(() => {
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Debug projections state changes
@@ -267,18 +268,6 @@ export default function DCFCalculator() {
   };
 
 
-  if (loading) {
-    return (
-      <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600 dark:text-gray-300">Loading DCF data...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (!dcfData) {
     return (
@@ -292,14 +281,14 @@ export default function DCFCalculator() {
               <p className="text-yellow-700 dark:text-yellow-300 mb-6 text-lg">
                 Please search for a stock symbol on the Company Research page first to populate the DCF data.
                 <br />
-                <span className="text-sm">If you just cleared the data, you'll need to reload the Company Research page to get fresh data.</span>
+                <span className="text-sm">If you just cleared the data, you&apos;ll need to reload the Company Research page to get fresh data.</span>
               </p>
-              <a
+              <Link
                 href="/"
                 className="inline-block px-8 py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-300 font-bold text-lg shadow-lg hover:shadow-xl transform hover:scale-105"
               >
                 Go to Company Research
-              </a>
+              </Link>
             </div>
           </div>
         </div>

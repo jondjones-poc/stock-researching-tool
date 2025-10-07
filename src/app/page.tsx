@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Decimal from 'decimal.js';
 
 interface InsiderData {
@@ -150,16 +150,6 @@ export default function Home() {
         return;
       }
 
-      // Safely get DOM elements with fallbacks
-      const getElementValue = (id: string, defaultValue: string): string => {
-        try {
-          const element = document.getElementById(id) as HTMLInputElement;
-          return element?.value || defaultValue;
-        } catch (error) {
-          console.warn(`Could not access element ${id}:`, error);
-          return defaultValue;
-        }
-      };
 
       // Calculate Revenue Growth projections - use default values
       const revenueGrowthBear = 0.03; // 3%
