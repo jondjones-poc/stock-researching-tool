@@ -22,6 +22,16 @@ export default function Navigation() {
               📊 Company Research
             </Link>
             <Link 
+              href="/dcf" 
+              className={`text-lg font-semibold transition-colors ${
+                pathname === '/dcf' 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              💰 DCF Calculator
+            </Link>
+            <Link 
               href="/graphs" 
               className={`text-lg font-semibold transition-colors ${
                 pathname === '/graphs' 

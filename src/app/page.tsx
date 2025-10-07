@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import Decimal from 'decimal.js';
 
 interface InsiderData {
+  symbol?: string;
   finnhub?: {
     transactions: any[];
     ownership: any[];
@@ -11,6 +13,7 @@ interface InsiderData {
     grossProfitMargin: number;
     revenue: number;
     netIncome: number;
+    eps?: number;
   };
   peRatios?: {
     currentPE: number;
@@ -62,7 +65,7 @@ export default function Home() {
         fetch(`/api/earnings-growth?symbol=${symbol.toUpperCase()}`)
       ]);
 
-      const result: InsiderData = {};
+      const result: InsiderData = { symbol: symbol.toUpperCase() };
 
       // Process Finnhub data
       if (finnhubRes.status === 'fulfilled' && finnhubRes.value.ok) {
@@ -124,10 +127,9 @@ export default function Home() {
 
       setData(result);
       
-      // Calculate DCF Projections after data is set
-      setTimeout(() => {
-        calculateDCFProjections(result);
-      }, 100);
+      // Store data in localStorage for DCF calculation page
+      storeDataForDCF(result);
+      
     } catch (error) {
       console.error('Error fetching data:', error);
       setData({ error: 'Failed to fetch data. Please try again.' });
@@ -136,76 +138,102 @@ export default function Home() {
     }
   };
 
-  // Function to calculate DCF Projections
-  const calculateDCFProjections = (data: any) => {
+
+  // Function to store data in localStorage for DCF calculation page
+  const storeDataForDCF = (data: any) => {
     if (!data) return;
 
-    // Get Bear/Bull adjustments from input fields
-    const bearAdjustment = parseFloat((document.getElementById('bearAdjustment') as HTMLInputElement)?.value || '-5') / 100;
-    const bullAdjustment = parseFloat((document.getElementById('bullAdjustment') as HTMLInputElement)?.value || '5') / 100;
-
-    console.log('Calculating DCF Projections with Bear:', bearAdjustment, 'Bull:', bullAdjustment);
-
-    // Calculate Revenue Growth projections using 5-Year Growth Rate from Financial Information
-    const baseRevenueGrowth = (data.peRatios?.dividendGrowthRate || 0) / 100; // Convert percentage to decimal
-    const revenueGrowthBear = baseRevenueGrowth + bearAdjustment;
-    const revenueGrowthBase = baseRevenueGrowth;
-    const revenueGrowthBull = baseRevenueGrowth + bullAdjustment;
-
-    // Calculate Net Income Growth projections (using same logic as revenue for now)
-    const baseNetIncomeGrowth = data.earningsGrowth?.historicalGrowthRate || 0;
-    const netIncomeGrowthBear = baseNetIncomeGrowth + bearAdjustment;
-    const netIncomeGrowthBase = baseNetIncomeGrowth;
-    const netIncomeGrowthBull = baseNetIncomeGrowth + bullAdjustment;
-
-    // Calculate PE estimates based on current PE ratios
-    const currentPE = data.peRatios?.currentPE || data.fmp?.fmpPE || 0;
-    const peLowBase = currentPE * 0.8; // 20% below current
-    const peHighBase = currentPE * 1.2; // 20% above current
-
-    const peLowBear = peLowBase * (1 + bearAdjustment);
-    const peLowBull = peLowBase * (1 + bullAdjustment);
-    const peHighBear = peHighBase * (1 + bearAdjustment);
-    const peHighBull = peHighBase * (1 + bullAdjustment);
-
-    // Update the DOM elements
-    const updateElement = (id: string, value: number, format: string = 'percentage') => {
-      const element = document.getElementById(id);
-      if (element) {
-        if (format === 'percentage') {
-          element.textContent = `${(value * 100).toFixed(2)}%`;
-        } else if (format === 'number') {
-          element.textContent = value.toFixed(2);
-        }
+    try {
+      // Check if localStorage is available
+      if (typeof window === 'undefined' || !window.localStorage) {
+        console.warn('localStorage not available');
+        return;
       }
-    };
 
-    // Update Revenue Growth
-    updateElement('revenueGrowthBear', revenueGrowthBear);
-    updateElement('revenueGrowthBase', revenueGrowthBase);
-    updateElement('revenueGrowthBull', revenueGrowthBull);
+      // Safely get DOM elements with fallbacks
+      const getElementValue = (id: string, defaultValue: string): string => {
+        try {
+          const element = document.getElementById(id) as HTMLInputElement;
+          return element?.value || defaultValue;
+        } catch (error) {
+          console.warn(`Could not access element ${id}:`, error);
+          return defaultValue;
+        }
+      };
 
-    // Update Net Income Growth
-    updateElement('netIncomeGrowthBear', netIncomeGrowthBear);
-    updateElement('netIncomeGrowthBase', netIncomeGrowthBase);
-    updateElement('netIncomeGrowthBull', netIncomeGrowthBull);
+      // Calculate Revenue Growth projections - use default values
+      const revenueGrowthBear = 0.03; // 3%
+      const revenueGrowthBase = 0.04; // 4%
+      const revenueGrowthBull = 0.12; // 12%
+      
+      console.log('Revenue Growth Rates:');
+      console.log('Bear:', revenueGrowthBear * 100 + '%');
+      console.log('Base:', revenueGrowthBase * 100 + '%');
+      console.log('Bull:', revenueGrowthBull * 100 + '%');
 
-    // Update PE Low Estimates
-    updateElement('peLowBear', peLowBear, 'number');
-    updateElement('peLowBase', peLowBase, 'number');
-    updateElement('peLowBull', peLowBull, 'number');
+      // Calculate Net Income Growth projections - use historical growth rate as base
+      const baseNetIncomeGrowth = data.earningsGrowth?.historicalGrowthRate || 0.2; // Default to 20%
+      const netIncomeGrowthBear = new Decimal(baseNetIncomeGrowth).mul(0.75).toNumber(); // 25% below base
+      const netIncomeGrowthBase = baseNetIncomeGrowth;
+      const netIncomeGrowthBull = new Decimal(baseNetIncomeGrowth).mul(1.25).toNumber(); // 25% above base
 
-    // Update PE High Estimates
-    updateElement('peHighBear', peHighBear, 'number');
-    updateElement('peHighBase', peHighBase, 'number');
-    updateElement('peHighBull', peHighBull, 'number');
+      // Calculate PE estimates using current P/E ratio as base case
+      const currentPE = data.peRatios?.currentPE || data.fmp?.fmpPE || 16; // Default to 16 if no PE available
+      
+      // PE Low: Base case is current PE, Bear is 10% below, Bull is 10% above
+      const peLowBase = currentPE;
+      const peLowBear = new Decimal(currentPE).mul(0.9).toNumber(); // 10% below
+      const peLowBull = new Decimal(currentPE).mul(1.1).toNumber(); // 10% above
+      
+      // PE High: Base case is current PE, Bear is 20% below, Bull is 20% above
+      const peHighBase = currentPE;
+      const peHighBear = new Decimal(currentPE).mul(0.8).toNumber(); // 20% below
+      const peHighBull = new Decimal(currentPE).mul(1.2).toNumber(); // 20% above
 
-    console.log('DCF Projections calculated:', {
-      revenueGrowth: { bear: revenueGrowthBear, base: revenueGrowthBase, bull: revenueGrowthBull },
-      netIncomeGrowth: { bear: netIncomeGrowthBear, base: netIncomeGrowthBase, bull: netIncomeGrowthBull },
-      peLow: { bear: peLowBear, base: peLowBase, bull: peLowBull },
-      peHigh: { bear: peHighBear, base: peHighBase, bull: peHighBull }
-    });
+      // Prepare data for storage
+      const dcfData = {
+        // Growth rates
+        revenueGrowth: {
+          bear: revenueGrowthBear,
+          base: revenueGrowthBase,
+          bull: revenueGrowthBull
+        },
+        netIncomeGrowth: {
+          bear: netIncomeGrowthBear,
+          base: netIncomeGrowthBase,
+          bull: netIncomeGrowthBull
+        },
+        // PE estimates
+        peLow: {
+          bear: peLowBear,
+          base: peLowBase,
+          bull: peLowBull
+        },
+        peHigh: {
+          bear: peHighBear,
+          base: peHighBase,
+          bull: peHighBull
+        },
+        // Financial data
+        revenue: data.financials?.revenue || 0,
+        netIncome: data.financials?.netIncome || 0,
+        sharesOutstanding: data.fmp?.sharesOutstanding || 0,
+        stockPrice: data.peRatios?.currentPrice || data.fmp?.price || 0,
+        currentEps: data.financials?.eps || (data.financials?.netIncome && data.fmp?.sharesOutstanding 
+          ? data.financials.netIncome / data.fmp.sharesOutstanding 
+          : 0),
+        // Additional context
+        symbol: data.symbol || 'UNKNOWN',
+        timestamp: new Date().toISOString()
+      };
+
+      // Store in localStorage with additional error handling
+      localStorage.setItem('dcfData', JSON.stringify(dcfData));
+      console.log('DCF data stored in localStorage:', dcfData);
+    } catch (error) {
+      console.error('Error storing DCF data:', error);
+      // Don't throw the error, just log it to prevent the page from breaking
+    }
   };
 
   return (
@@ -256,13 +284,25 @@ export default function Home() {
                     <span>💰</span> Financial Information
                   </h2>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     {/* Gross Profit Margin */}
                     {data.financials && (
                       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Gross Profit Margin</p>
                         <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                           {data.financials.grossProfitMargin ? `${(data.financials.grossProfitMargin * 100).toFixed(2)}%` : 'N/A'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* EPS */}
+                    {data.financials && (
+                      <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">EPS (Earnings Per Share)</p>
+                        <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                          {data.financials.eps ? `$${data.financials.eps.toFixed(2)}` : 
+                           (data.financials.netIncome && data.fmp?.sharesOutstanding) ? 
+                           `$${(data.financials.netIncome / data.fmp.sharesOutstanding).toFixed(2)}` : 'N/A'}
                         </p>
                       </div>
                     )}
@@ -359,15 +399,32 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* 5-Year Growth Rate - Bottom of Financial Information */}
-                  {data.peRatios && data.peRatios.dividendGrowthRate && (
-                    <div className="grid grid-cols-1 gap-4">
-                      <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">5-Year Growth Rate</p>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                          {data.peRatios.dividendGrowthRate.toFixed(1)}%
+                  {/* Stock Price and 5-Year Growth Rate - Bottom of Financial Information */}
+                  {(data.peRatios || data.fmp) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Stock Price - Left Side (50% width) */}
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Stock Price</p>
+                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                          {data.peRatios?.currentPrice ? `$${data.peRatios.currentPrice.toFixed(2)}` : 
+                           data.fmp?.price ? `$${data.fmp.price.toFixed(2)}` : 'N/A'}
                         </p>
+                        {data.peRatios?.currentPrice && data.fmp?.price && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {Math.abs(data.peRatios.currentPrice - data.fmp.price) < 0.01 ? 'Price consistent' : 'Price varies by source'}
+                          </p>
+                        )}
                       </div>
+
+                      {/* 5-Year Growth Rate - Right Side (50% width) */}
+                      {data.peRatios && data.peRatios.dividendGrowthRate && (
+                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">5-Year Growth Rate</p>
+                          <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                            {data.peRatios.dividendGrowthRate.toFixed(1)}%
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -644,297 +701,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* DCF Projections - New Section */}
-          {data && (data.peRatios || data.fmp || data.earningsGrowth) && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-            <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white flex items-center gap-2">
-              <span>📈</span> DCF Projections
-            </h2>
-            
-            {/* Bear/Bull Input Controls */}
-            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Bear Case Adjustment (%)
-                  </label>
-                  <input
-                    type="number"
-                    id="bearAdjustment"
-                    defaultValue="-5"
-                    onChange={() => {
-                      if (data) {
-                        calculateDCFProjections(data);
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
-                    placeholder="-5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Bull Case Adjustment (%)
-                  </label>
-                  <input
-                    type="number"
-                    id="bullAdjustment"
-                    defaultValue="5"
-                    onChange={() => {
-                      if (data) {
-                        calculateDCFProjections(data);
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
-                    placeholder="5"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* DCF Projections Table */}
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-700">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Metric
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Bear Case
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Base Case
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Bull Case
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {/* Revenue Growth Row */}
-                  <tr>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      Revenue Growth
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="revenueGrowthBear">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('revenueGrowthBear')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-1 rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="revenueGrowthBase">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('revenueGrowthBase')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="revenueGrowthBull">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('revenueGrowthBull')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* Net Income Growth Row */}
-                  <tr>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      Net Income Growth
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="netIncomeGrowthBear">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('netIncomeGrowthBear')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-1 rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="netIncomeGrowthBase">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('netIncomeGrowthBase')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="netIncomeGrowthBull">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('netIncomeGrowthBull')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* PE Low Estimate Row */}
-                  <tr>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      PE Low Estimate
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="peLowBear">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('peLowBear')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-1 rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="peLowBase">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('peLowBase')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="peLowBull">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('peLowBull')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* PE High Estimate Row */}
-                  <tr>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      PE High Estimate
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="peHighBear">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('peHighBear')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-1 rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="peHighBase">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('peHighBase')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span id="peHighBull">-</span>
-                        <button
-                          onClick={() => {
-                            const value = document.getElementById('peHighBull')?.textContent;
-                            if (value && value !== '-') {
-                              navigator.clipboard.writeText(value);
-                            }
-                          }}
-                          className="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          )}
         </div>
       </main>
     </div>
