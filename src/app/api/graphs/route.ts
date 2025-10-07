@@ -4,6 +4,11 @@ import axios from 'axios';
 const FMP_API_KEY = process.env.FMP_API_KEY;
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 
+interface ChartData {
+  date: string;
+  value: number;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const symbol = searchParams.get('symbol');
