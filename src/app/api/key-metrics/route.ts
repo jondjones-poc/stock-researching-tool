@@ -18,26 +18,39 @@ export async function GET(request: NextRequest) {
   try {
     console.log(`Fetching key metrics for ${symbol}`);
     
-    // Fetch key metrics data from FMP
-    const response = await axios.get(
-      `https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=10&apikey=${FMP_API_KEY}`,
-      { timeout: 10000 }
-    );
+    // Fetch key metrics and financial ratios data from FMP in parallel
+    const [metricsResponse, ratiosResponse] = await Promise.allSettled([
+      axios.get(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/api/v3/ratios/${symbol}?limit=1&apikey=${FMP_API_KEY}`, { timeout: 10000 })
+    ]);
 
-    if (response.data && response.data.length > 0) {
-      const latestMetrics = response.data[0];
+    if (metricsResponse.status === 'fulfilled' && metricsResponse.value.data && metricsResponse.value.data.length > 0) {
+      const latestMetrics = metricsResponse.value.data[0];
       
       // Extract shares outstanding (number of shares)
       const sharesOutstanding = latestMetrics.numberOfShares;
       
       console.log(`Shares outstanding for ${symbol}:`, sharesOutstanding);
+      console.log(`ROIC for ${symbol}:`, latestMetrics.roic);
+      
+      // Get annual payout ratio from financial ratios endpoint only (full-year data)
+      let payoutRatio = null;
+      if (ratiosResponse.status === 'fulfilled' && ratiosResponse.value.data && ratiosResponse.value.data.length > 0) {
+        const latestRatios = ratiosResponse.value.data[0];
+        payoutRatio = latestRatios.payoutRatio || latestRatios.dividendPayoutRatio;
+        console.log(`Annual Payout Ratio from ratios endpoint for ${symbol}:`, payoutRatio);
+      } else {
+        console.log(`No annual payout ratio available for ${symbol}`);
+      }
       
       return NextResponse.json({
         sharesOutstanding: sharesOutstanding || null,
         symbol: symbol.toUpperCase(),
         date: latestMetrics.date,
         marketCap: latestMetrics.marketCap,
-        enterpriseValue: latestMetrics.enterpriseValue
+        enterpriseValue: latestMetrics.enterpriseValue,
+        roic: latestMetrics.roic || null,
+        payoutRatio: payoutRatio || null
       });
     } else {
       console.log(`No key metrics data found for ${symbol}`);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Decimal from 'decimal.js';
 
 interface InsiderData {
@@ -19,6 +19,8 @@ interface InsiderData {
     sharesOutstanding: number;
     marketCap: number;
     enterpriseValue: number;
+    roic?: number;
+    payoutRatio?: number;
   };
   peRatios?: {
     currentPE: number;
@@ -45,6 +47,14 @@ interface InsiderData {
     epsData: Array<{date: string, eps: number}>;
     analystData: any;
   };
+  dividendHistory?: {
+    symbol: string;
+    historicalDividends: Array<{date: string, dividend: number, adjustedDividend: number}>;
+    dividendsByYear: { [year: string]: number };
+    currentYearProjected: boolean;
+    dividendGrowthRate: number | null;
+    latestDividend: number | null;
+  };
   error?: string;
 }
 
@@ -53,25 +63,44 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<InsiderData | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!symbol.trim()) return;
+  // Auto-load data if symbol exists in localStorage
+  useEffect(() => {
+    const loadFromStorage = async () => {
+      try {
+        const dcfData = localStorage.getItem('dcfData');
+        if (dcfData) {
+          const parsedData = JSON.parse(dcfData);
+          if (parsedData.symbol) {
+            setSymbol(parsedData.symbol);
+            await fetchData(parsedData.symbol);
+          }
+        }
+      } catch (error) {
+        console.log('Error loading symbol from localStorage:', error);
+      }
+    };
 
+    loadFromStorage();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchData = async (symbolToFetch: string) => {
     setLoading(true);
     setData(null);
 
     try {
-      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, and Key Metrics
-      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes] = await Promise.allSettled([
-        fetch(`/api/finnhub?symbol=${symbol.toUpperCase()}`),
-        fetch(`/api/financials?symbol=${symbol.toUpperCase()}`),
-        fetch(`/api/pe-ratios?symbol=${symbol.toUpperCase()}`),
-        fetch(`/api/fmp?symbol=${symbol.toUpperCase()}`),
-        fetch(`/api/earnings-growth?symbol=${symbol.toUpperCase()}`),
-        fetch(`/api/key-metrics?symbol=${symbol.toUpperCase()}`)
+      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, Key Metrics, and Dividend History
+      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes, dividendHistoryRes] = await Promise.allSettled([
+        fetch(`/api/finnhub?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/financials?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/pe-ratios?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/fmp?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/earnings-growth?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/key-metrics?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/dividend-history?symbol=${symbolToFetch.toUpperCase()}`)
       ]);
 
-      const result: InsiderData = { symbol: symbol.toUpperCase() };
+      const result: InsiderData = { symbol: symbolToFetch.toUpperCase() };
 
       // Process Finnhub data
       if (finnhubRes.status === 'fulfilled' && finnhubRes.value.ok) {
@@ -144,6 +173,20 @@ export default function Home() {
         }
       }
 
+      // Process Dividend History data
+      if (dividendHistoryRes.status === 'fulfilled' && dividendHistoryRes.value.ok) {
+        result.dividendHistory = await dividendHistoryRes.value.json();
+        console.log('Dividend History data received:', result.dividendHistory);
+        console.log('Dividend History dividendsByYear:', result.dividendHistory?.dividendsByYear);
+        console.log('Dividend History currentYearProjected:', result.dividendHistory?.currentYearProjected);
+      } else {
+        console.log('Dividend History request failed:', dividendHistoryRes);
+        if (dividendHistoryRes.status === 'fulfilled') {
+          console.log('Dividend History response status:', dividendHistoryRes.value?.status);
+          console.log('Dividend History response text:', await dividendHistoryRes.value?.text());
+        }
+      }
+
       setData(result);
       
       // Store data in localStorage for DCF calculation page
@@ -157,6 +200,19 @@ export default function Home() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!symbol.trim()) return;
+    await fetchData(symbol);
+  };
+
+  const handleReset = () => {
+    // Clear localStorage
+    localStorage.clear();
+    // Reset state
+    setSymbol('');
+    setData(null);
+  };
 
   // Function to store data in localStorage for DCF calculation page
   const storeDataForDCF = (data: any) => {
@@ -233,7 +289,9 @@ export default function Home() {
           : 0),
         // Additional context
         symbol: data.symbol || 'UNKNOWN',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        // Dividend data for DDM page
+        dividendHistory: data.dividendHistory || null
       };
 
       // Store in localStorage with additional error handling
@@ -274,6 +332,14 @@ export default function Home() {
                 className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
               >
                 {loading ? 'Loading...' : 'Submit'}
+              </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                disabled={loading}
+                className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                Reset
               </button>
             </div>
           </form>
@@ -348,15 +414,10 @@ export default function Home() {
                     {/* FMP PE Ratio */}
                     {data.fmp && (
                       <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">FMP P/E Ratio</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">P/E Ratio</p>
                         <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
                           {data.fmp.fmpPE ? `${data.fmp.fmpPE.toFixed(2)}x` : 'N/A'}
                         </p>
-                        {data.fmp.price && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            Price: ${data.fmp.price.toFixed(2)}
-                          </p>
-                        )}
                       </div>
                     )}
                   </div>
@@ -438,6 +499,53 @@ export default function Home() {
                       )}
                     </div>
                   )}
+
+                  {/* ROIC - 50% width section at bottom */}
+                  {data.keyMetrics && data.keyMetrics.roic !== null && data.keyMetrics.roic !== undefined && (() => {
+                    const roicPercent = data.keyMetrics.roic * 100;
+                    const isHigh = roicPercent >= 20;
+                    const isMedium = roicPercent > 12.5 && roicPercent < 20;
+                    const isLow = roicPercent <= 12.5;
+                    
+                    const bgColor = isHigh 
+                      ? 'bg-green-50 dark:bg-green-900/20' 
+                      : isMedium 
+                        ? 'bg-orange-50 dark:bg-orange-900/20'
+                        : 'bg-red-50 dark:bg-red-900/20';
+                    
+                    const textColor = isHigh
+                      ? 'text-green-600 dark:text-green-400'
+                      : isMedium
+                        ? 'text-orange-600 dark:text-orange-400'
+                        : 'text-red-500 dark:text-red-400';
+                    
+                    return (
+                      <div className="mt-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className={`${bgColor} p-4 rounded-lg`}>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">ROIC (Return on Invested Capital)</p>
+                            <p className={`text-2xl font-bold ${textColor}`}>
+                              {roicPercent.toFixed(2)}%
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                              20%+ = Wide moat, efficient compounding
+                            </p>
+                            <div className="mt-2 text-xs font-medium">
+                              {isHigh && (
+                                <span className={textColor}>✅ Excellent capital efficiency</span>
+                              )}
+                              {isMedium && (
+                                <span className={textColor}>⚠️ Moderate capital efficiency</span>
+                              )}
+                              {isLow && (
+                                <span className={textColor}>⚠️ Below average capital efficiency</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -584,7 +692,7 @@ export default function Home() {
                     <span>💰</span> Dividend Information
                   </h2>
                   
-                  <div className="grid grid-cols-1 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Dividend Per Share */}
                     <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Dividend Per Share</p>
@@ -596,8 +704,80 @@ export default function Home() {
                           Yield: {data.peRatios.dividendYield.toFixed(2)}%
                         </p>
                       )}
+                      
+                      {/* Payout Ratio */}
+                      {data.keyMetrics && data.keyMetrics.payoutRatio !== null && data.keyMetrics.payoutRatio !== undefined && (
+                        <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Payout Ratio</p>
+                          <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
+                            {(data.keyMetrics.payoutRatio * 100).toFixed(1)}%
+                          </p>
+                          <div className="mt-2 p-2 bg-white dark:bg-gray-700 rounded text-xs">
+                            <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                              Recommended Valuation:
+                            </p>
+                            {(data.keyMetrics.payoutRatio * 100) > 70 ? (
+                              <p className="text-red-600 dark:text-red-400">📊 1-Stage DDM</p>
+                            ) : (data.keyMetrics.payoutRatio * 100) >= 40 ? (
+                              <p className="text-orange-600 dark:text-orange-400">📈 2-Stage DDM</p>
+                            ) : (data.keyMetrics.payoutRatio * 100) >= 20 ? (
+                              <p className="text-blue-600 dark:text-blue-400">💰 Buffett / Owner-Earnings DCF</p>
+                            ) : (
+                              <p className="text-green-600 dark:text-green-400">💵 Free-Cash-Flow DCF</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
+                    {/* Historical Dividends */}
+                    {data.dividendHistory && data.dividendHistory.dividendsByYear && (() => {
+                      // Use pre-aggregated dividends by year from API (includes projected current year)
+                      const dividendsByYear = data.dividendHistory.dividendsByYear;
+                      const currentYear = new Date().getFullYear().toString();
+                      const isCurrentYearProjected = data.dividendHistory.currentYearProjected || false;
+                      
+                      console.log('Dividends by year:', dividendsByYear);
+                      console.log('Current year projected:', isCurrentYearProjected);
+                      
+                      // Get last 6 years sorted (most recent first) - 2020 to current year
+                      const sortedYears = Object.keys(dividendsByYear).sort((a, b) => parseInt(b) - parseInt(a)).slice(0, 6);
+                      
+                      return (
+                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            Historical Dividends (2020-Current)
+                            {isCurrentYearProjected && (
+                              <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">
+                                *{currentYear} projected
+                              </span>
+                            )}
+                          </p>
+                          <div className="space-y-1">
+                            {sortedYears.map((year, index) => (
+                              <div key={index} className="flex justify-between items-center text-sm">
+                                <span className="text-gray-600 dark:text-gray-400">
+                                  {year}{year === currentYear && isCurrentYearProjected ? '*' : ''}
+                                </span>
+                                <span className="font-semibold text-green-600 dark:text-green-400">
+                                  ${dividendsByYear[year].toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          {data.dividendHistory.dividendGrowthRate && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                              Avg Growth: {(data.dividendHistory.dividendGrowthRate * 100).toFixed(1)}%
+                            </p>
+                          )}
+                          {isCurrentYearProjected && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 italic">
+                              *Projected based on average growth of last 4 years
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}

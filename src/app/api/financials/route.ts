@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
 
     // Calculate EPS from FMP income statement API
     let eps = null;
+    
     if (FMP_API_KEY) {
       try {
         // Fetch income statement data from FMP to get EPS directly

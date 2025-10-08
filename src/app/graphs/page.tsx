@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart } from 'recharts';
 
 interface ChartData {
@@ -29,15 +29,33 @@ export default function Graphs() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<GraphsData | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!symbol.trim()) return;
+  // Auto-load data if symbol exists in localStorage
+  useEffect(() => {
+    const loadFromStorage = async () => {
+      try {
+        const dcfData = localStorage.getItem('dcfData');
+        if (dcfData) {
+          const parsedData = JSON.parse(dcfData);
+          if (parsedData.symbol) {
+            setSymbol(parsedData.symbol);
+            await fetchGraphData(parsedData.symbol);
+          }
+        }
+      } catch (error) {
+        console.log('Error loading symbol from localStorage:', error);
+      }
+    };
 
+    loadFromStorage();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchGraphData = async (symbolToFetch: string) => {
     setLoading(true);
     setData(null);
 
     try {
-      const response = await fetch(`/api/graphs?symbol=${symbol.toUpperCase()}`);
+      const response = await fetch(`/api/graphs?symbol=${symbolToFetch.toUpperCase()}`);
       const result = await response.json();
 
       if (response.ok) {
@@ -63,6 +81,12 @@ export default function Graphs() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!symbol.trim()) return;
+    await fetchGraphData(symbol);
   };
 
   const formatNumber = (value: number) => {
