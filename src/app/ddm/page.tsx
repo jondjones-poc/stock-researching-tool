@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 interface DividendProjection {
   year: string;
@@ -338,12 +339,12 @@ export default function DDMPage() {
                 <p className="text-gray-600 dark:text-gray-400 mb-2">
                   No dividend data loaded. Please search for a dividend-paying stock on the Company Research page first.
                 </p>
-                <a 
+                <Link 
                   href="/"
                   className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
                 >
                   Go to Company Research →
-                </a>
+                </Link>
               </div>
             ) : (
               <div className="overflow-x-auto">
