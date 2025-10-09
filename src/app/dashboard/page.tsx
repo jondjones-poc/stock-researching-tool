@@ -160,6 +160,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchWatchlistData();
     fetchChartData(selectedSymbol, selectedPeriod);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSymbol, selectedPeriod, customSymbols, categoryFilter]);
 
   // Close context menu on click outside
@@ -473,7 +474,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex-1">
                     <div className="text-sm font-medium text-green-800 dark:text-green-300">Very low volatility</div>
-                    <div className="text-xs text-green-600 dark:text-green-400">Market calm, often complacent — "too quiet."</div>
+                    <div className="text-xs text-green-600 dark:text-green-400">Market calm, often complacent — &ldquo;too quiet.&rdquo;</div>
                   </div>
                 </div>
 

@@ -120,7 +120,6 @@ export default function DDMPage() {
   // Load data on component mount
   useEffect(() => {
     loadDataFromStorage();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Calculate discount factor for a given year
@@ -219,6 +218,7 @@ export default function DDMPage() {
       verdictText = 'HOLD';
     }
     setVerdict(verdictText);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputs, dividendProjections]);
 
   const handleInputChange = (field: keyof DDMInputs, value: number) => {
