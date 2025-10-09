@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Navigation from "./components/Navigation";
 import HeaderCheck from "./components/HeaderCheck";
-import { ThemeProvider } from "./contexts/ThemeContext";
+import ClientLayout from "./components/ClientLayout";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,10 +20,9 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={inter.className}>
         <HeaderCheck>
-          <ThemeProvider>
-            <Navigation />
+          <ClientLayout>
             {children}
-          </ThemeProvider>
+          </ClientLayout>
         </HeaderCheck>
       </body>
     </html>
