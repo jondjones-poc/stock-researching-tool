@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Decimal from 'decimal.js';
+import Link from 'next/link';
 
 interface InsiderData {
   symbol?: string;
@@ -305,16 +306,19 @@ export default function Home() {
 
   return (
     <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <main className="max-w-4xl mx-auto">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white">
+      {/* Navigation Header */}
+      <div className="max-w-4xl mx-auto mb-8">
+        <div className="flex justify-between items-center">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
             Company Research
           </h1>
-          <p className="text-gray-600 dark:text-gray-300">
-            Enter a stock symbol to view insider trading data and financial analysis
-          </p>
         </div>
+        <p className="text-gray-600 dark:text-gray-300 mt-2">
+          Enter a stock symbol to view insider trading data and financial analysis
+        </p>
+      </div>
 
+      <main className="max-w-4xl mx-auto">
         <div className="space-y-8">
           <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
             <div className="flex gap-4">

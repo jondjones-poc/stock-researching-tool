@@ -12,6 +12,16 @@ export default function Navigation() {
         <div className="flex justify-between items-center py-4">
           <div className="flex items-center space-x-8">
             <Link 
+              href="/dashboard" 
+              className={`text-lg font-semibold transition-colors ${
+                pathname === '/dashboard' 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              📊 Dashboard
+            </Link>
+            <Link 
               href="/" 
               className={`text-lg font-semibold transition-colors ${
                 pathname === '/' 
@@ -19,7 +29,7 @@ export default function Navigation() {
                   : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
               }`}
             >
-              📊 Company Research
+              🔍 Company Research
             </Link>
             <Link 
               href="/dcf" 
