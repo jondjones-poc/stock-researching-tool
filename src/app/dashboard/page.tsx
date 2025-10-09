@@ -23,7 +23,7 @@ interface ChartData {
 }
 
 export default function DashboardPage() {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(dashboardConfig.defaultSymbol);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('VIX'); // Default to first MARKETS symbol
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
   const [chartData, setChartData] = useState<ChartData[]>([]);
@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [newSymbol, setNewSymbol] = useState<string>('');
   const [newSymbolCategory, setNewSymbolCategory] = useState<'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('WATCHLIST');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; symbol: string } | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('MARKETS');
 
   // Fetch watchlist data
   const fetchWatchlistData = async () => {
@@ -214,15 +215,17 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
+      <div className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <span className="text-lg font-semibold">
-              {dashboardConfig.watchlist.GROWTH.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
+              {Object.values(dashboardConfig.watchlist).flat().find(s => s.symbol === selectedSymbol)?.name || 
+               customSymbols.find(s => s.symbol === selectedSymbol)?.name || 
+               selectedSymbol}
             </span>
-            <span className="text-sm text-gray-400">· 1W · NYSE</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">· 1W · NYSE</span>
           </div>
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 rounded-full bg-green-500"></div>
@@ -245,8 +248,8 @@ export default function DashboardPage() {
         
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
-            <span className="text-sm">Watchlist</span>
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <span className="text-sm text-gray-700 dark:text-gray-300">Watchlist</span>
+            <svg className="w-4 h-4 text-gray-700 dark:text-gray-300" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </div>
@@ -254,19 +257,19 @@ export default function DashboardPage() {
             {/* Add Stock Button */}
             <button 
               onClick={() => setShowAddModal(true)}
-              className="p-1 hover:bg-gray-700 rounded"
+              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300"
               title="Add Stock to Watchlist"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"></path>
               </svg>
             </button>
-            <button className="p-1 hover:bg-gray-700 rounded">
+            <button className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300">
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
               </svg>
             </button>
-            <button className="p-1 hover:bg-gray-700 rounded">
+            <button className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300">
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
               </svg>
@@ -277,9 +280,9 @@ export default function DashboardPage() {
 
       <div className="flex">
         {/* Main Chart Area */}
-        <div className="flex-1 bg-gray-900">
+        <div className="flex-1 bg-white dark:bg-gray-900">
           {/* Chart Controls */}
-          <div className="bg-gray-800 border-b border-gray-700 px-4 py-2">
+          <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <button className="px-3 py-1 bg-red-600 text-white rounded text-sm font-medium">
@@ -306,17 +309,17 @@ export default function DashboardPage() {
           </div>
 
           {/* Chart Area */}
-          <div className="h-96 bg-gray-900 p-4">
+          <div className="h-96 bg-white dark:bg-gray-900 p-4">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <div className="text-gray-400">Loading chart data...</div>
+                <div className="text-gray-500 dark:text-gray-400">Loading chart data...</div>
               </div>
             ) : error ? (
               <div className="flex items-center justify-center h-full">
-                <div className="text-red-400">{error}</div>
+                <div className="text-red-500 dark:text-red-400">{error}</div>
               </div>
             ) : chartData.length > 0 ? (
-              <div className="h-full bg-gray-800 rounded border border-gray-700 p-4">
+              <div className="h-full bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
                 {/* Price Chart */}
                 <div className="h-3/4 mb-2">
                   <ResponsiveContainer width="100%" height="100%">
@@ -432,22 +435,22 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex items-center justify-center h-full">
-                <div className="text-gray-400">No chart data available</div>
+                <div className="text-gray-500 dark:text-gray-400">No chart data available</div>
               </div>
             )}
           </div>
 
           {/* Time Period Filters */}
-          <div className="px-4 py-3 border-t border-gray-700">
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
             <div className="flex space-x-2">
               {dashboardConfig.timePeriods.map((period) => (
                 <button
                   key={period.value}
                   onClick={() => setSelectedPeriod(period.value)}
-                  className={`px-3 py-1 rounded text-sm font-medium ${
+                  className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                     selectedPeriod === period.value
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                   }`}
                 >
                   {period.label}
@@ -458,25 +461,35 @@ export default function DashboardPage() {
         </div>
 
         {/* Watchlist Sidebar */}
-        <div className="w-80 bg-gray-800 border-l border-gray-700">
-          <div className="p-4 border-b border-gray-700">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Watchlist</h3>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
+        <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900 dark:text-white">Watchlist</h3>
             </div>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value as 'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST')}
+              className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="ALL">All Categories</option>
+              <option value="MARKETS">Markets</option>
+              <option value="GROWTH">Growth</option>
+              <option value="DIVIDEND & VALUE">Dividend & Value</option>
+              <option value="WATCHLIST">Watchlist</option>
+            </select>
           </div>
 
           <div className="overflow-y-auto max-h-screen">
-            {Object.entries(dashboardConfig.watchlist).map(([category, symbols]) => {
+            {Object.entries(dashboardConfig.watchlist)
+              .filter(([category]) => categoryFilter === 'ALL' || category === categoryFilter)
+              .map(([category, symbols]) => {
               // Merge config symbols with custom symbols for this category
               const customSymbolsForCategory = customSymbols.filter(s => s.category === category);
               const allSymbolsForCategory = [...symbols, ...customSymbolsForCategory];
               
               return (
-                <div key={category} className="border-b border-gray-700">
-                  <div className="px-4 py-2 bg-gray-750 text-xs font-medium text-gray-300 uppercase tracking-wide">
+                <div key={category} className="border-b border-gray-200 dark:border-gray-700">
+                  <div className="px-4 py-2 bg-gray-100 dark:bg-gray-750 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
                     {category}
                   </div>
                   {allSymbolsForCategory.map((symbol) => {
@@ -489,8 +502,8 @@ export default function DashboardPage() {
                         key={symbol.symbol}
                         onClick={() => setSelectedSymbol(symbol.symbol)}
                         onDoubleClick={(e) => handleDoubleClick(e, symbol.symbol, isCustom)}
-                        className={`px-4 py-3 cursor-pointer hover:bg-gray-700 ${
-                          isSelected ? 'bg-blue-900/30 border-l-2 border-blue-500' : ''
+                        className={`px-4 py-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 ${
+                          isSelected ? 'bg-blue-100 dark:bg-blue-900/30 border-l-2 border-blue-500' : ''
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -508,18 +521,18 @@ export default function DashboardPage() {
                                 <div className={`text-xs ${data.isPositive ? 'text-green-400' : 'text-red-400'}`}>
                                   {formatChangePercent(data.changePercent)}
                                 </div>
-                              </>
-                            ) : (
-                              <div className="text-xs text-gray-400">Loading...</div>
-                            )}
-                          </div>
+                            </>
+                          ) : (
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Loading...</div>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
           </div>
         </div>
       </div>
@@ -527,16 +540,16 @@ export default function DashboardPage() {
       {/* Add Stock Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 w-96 border border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 border border-gray-300 dark:border-gray-700 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold">Add Stock to Watchlist</h3>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Add Stock to Watchlist</h3>
               <button
                 onClick={() => {
                   setShowAddModal(false);
                   setNewSymbol('');
                   setNewSymbolCategory('WATCHLIST');
                 }}
-                className="text-gray-400 hover:text-white"
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -546,7 +559,7 @@ export default function DashboardPage() {
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Stock Symbol *
                 </label>
                 <input
@@ -554,19 +567,19 @@ export default function DashboardPage() {
                   value={newSymbol}
                   onChange={(e) => setNewSymbol(e.target.value.toUpperCase())}
                   placeholder="e.g., AAPL"
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white"
+                  className="w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white"
                   autoFocus
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Category *
                 </label>
                 <select
                   value={newSymbolCategory}
                   onChange={(e) => setNewSymbolCategory(e.target.value as 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST')}
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white"
+                  className="w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white"
                 >
                   <option value="GROWTH">GROWTH</option>
                   <option value="DIVIDEND & VALUE">DIVIDEND & VALUE</option>
@@ -579,7 +592,7 @@ export default function DashboardPage() {
                 <button
                   onClick={handleAddStock}
                   disabled={!newSymbol.trim()}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium"
                 >
                   Add Stock
                 </button>
@@ -589,7 +602,7 @@ export default function DashboardPage() {
                     setNewSymbol('');
                     setNewSymbolCategory('WATCHLIST');
                   }}
-                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+                  className="flex-1 bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-700 text-gray-900 dark:text-white px-4 py-2 rounded-lg transition-colors font-medium"
                 >
                   Cancel
                 </button>
@@ -602,7 +615,7 @@ export default function DashboardPage() {
       {/* Context Menu */}
       {contextMenu && (
         <div
-          className="fixed bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 z-50"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-xl py-1 z-50"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <button
@@ -610,7 +623,7 @@ export default function DashboardPage() {
               e.stopPropagation();
               handleDeleteStock(contextMenu.symbol);
             }}
-            className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-gray-700 flex items-center space-x-2"
+            className="w-full px-4 py-2 text-left text-sm text-red-500 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
