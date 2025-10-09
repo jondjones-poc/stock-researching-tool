@@ -81,7 +81,6 @@ export default function Navigation() {
               )}
             </button>
             <div className="text-sm text-gray-500 dark:text-gray-400">
-              Stock Research Platform
             </div>
           </div>
         </div>

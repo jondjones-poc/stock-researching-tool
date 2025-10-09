@@ -36,24 +36,44 @@ export default function DashboardPage() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; symbol: string } | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('MARKETS');
 
-  // Fetch watchlist data
+  // Fetch watchlist data - only for visible symbols in current category
   const fetchWatchlistData = async () => {
     try {
-      const configSymbols = Object.values(dashboardConfig.watchlist).flat();
-      const allSymbols = [...configSymbols, ...customSymbols];
-      const symbolList = allSymbols.map(symbol => symbol.symbol);
+      let symbolsToFetch: WatchlistSymbol[] = [];
+      
+      if (categoryFilter === 'ALL') {
+        const configSymbols = Object.values(dashboardConfig.watchlist).flat();
+        symbolsToFetch = [...configSymbols, ...customSymbols];
+      } else {
+        const categorySymbols = dashboardConfig.watchlist[categoryFilter] || [];
+        const customCategorySymbols = customSymbols.filter(s => s.category === categoryFilter);
+        symbolsToFetch = [...categorySymbols, ...customCategorySymbols];
+      }
+      
+      const symbolList = symbolsToFetch.map(symbol => symbol.symbol);
+      
+      if (symbolList.length === 0) {
+        setWatchlistData([]);
+        return;
+      }
       
       const response = await fetch(`/api/watchlist?symbols=${symbolList.join(',')}`);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch watchlist data');
+        // Don't throw - just log and continue with empty data
+        console.error('Watchlist API error:', response.status);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Error details:', errorData);
+        setWatchlistData([]);
+        return;
       }
       
       const result = await response.json();
-      setWatchlistData(result.data);
+      setWatchlistData(result.data || []);
     } catch (error) {
       console.error('Error fetching watchlist data:', error);
-      setError('Failed to load watchlist data');
+      // Don't set error state - just use empty data
+      setWatchlistData([]);
     }
   };
 
@@ -140,7 +160,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchWatchlistData();
     fetchChartData(selectedSymbol, selectedPeriod);
-  }, [selectedSymbol, selectedPeriod, customSymbols]);
+  }, [selectedSymbol, selectedPeriod, customSymbols, categoryFilter]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -247,34 +267,16 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-700 dark:text-gray-300">Watchlist</span>
-            <svg className="w-4 h-4 text-gray-700 dark:text-gray-300" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+          {/* Add Stock Button */}
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300"
+            title="Add Stock to Watchlist"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"></path>
             </svg>
-          </div>
-          <div className="flex items-center space-x-2">
-            {/* Add Stock Button */}
-            <button 
-              onClick={() => setShowAddModal(true)}
-              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300"
-              title="Add Stock to Watchlist"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"></path>
-              </svg>
-            </button>
-            <button className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-              </svg>
-            </button>
-            <button className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
-              </svg>
-            </button>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -458,6 +460,132 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
+
+          {/* VIX Information Panel */}
+          {selectedSymbol === 'VIX' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">VIX Volatility Guide</h4>
+              <div className="space-y-2">
+                {/* < 15 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-green-700 dark:text-green-400">
+                    &lt; 15
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-green-800 dark:text-green-300">Very low volatility</div>
+                    <div className="text-xs text-green-600 dark:text-green-400">Market calm, often complacent — "too quiet."</div>
+                  </div>
+                </div>
+
+                {/* 15-20 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-blue-700 dark:text-blue-400">
+                    15 – 20
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-blue-800 dark:text-blue-300">Normal range</div>
+                    <div className="text-xs text-blue-600 dark:text-blue-400">Healthy, steady market.</div>
+                  </div>
+                </div>
+
+                {/* 20-25 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-yellow-700 dark:text-yellow-400">
+                    20 – 25
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Caution zone</div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400">Rising fear, small corrections possible.</div>
+                  </div>
+                </div>
+
+                {/* 25-30 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-orange-700 dark:text-orange-400">
+                    25 – 30
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-orange-800 dark:text-orange-300">Elevated risk</div>
+                    <div className="text-xs text-orange-600 dark:text-orange-400">Often during pullbacks or earnings uncertainty.</div>
+                  </div>
+                </div>
+
+                {/* > 30 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-red-700 dark:text-red-400">
+                    &gt; 30
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-red-800 dark:text-red-300">Panic mode</div>
+                    <div className="text-xs text-red-600 dark:text-red-400">Fear spike — market drops, volatility funds blow up.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* US10Y Information Panel */}
+          {selectedSymbol === 'US10Y' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">10-Year Treasury Yield Guide</h4>
+              <div className="space-y-2">
+                {/* < 2% */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-green-700 dark:text-green-400">
+                    &lt; 2%
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-green-800 dark:text-green-300">Very low rates</div>
+                    <div className="text-xs text-green-600 dark:text-green-400">Economic weakness, recession fears, or Fed stimulus.</div>
+                  </div>
+                </div>
+
+                {/* 2-3% */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-blue-700 dark:text-blue-400">
+                    2 – 3%
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-blue-800 dark:text-blue-300">Low-moderate</div>
+                    <div className="text-xs text-blue-600 dark:text-blue-400">Accommodative Fed, stable growth environment.</div>
+                  </div>
+                </div>
+
+                {/* 3-4% */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-yellow-700 dark:text-yellow-400">
+                    3 – 4%
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Normal range</div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400">Balanced economic growth, neutral Fed policy.</div>
+                  </div>
+                </div>
+
+                {/* 4-5% */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-orange-700 dark:text-orange-400">
+                    4 – 5%
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-orange-800 dark:text-orange-300">Rising rates</div>
+                    <div className="text-xs text-orange-600 dark:text-orange-400">Inflation concerns, Fed tightening cycle.</div>
+                  </div>
+                </div>
+
+                {/* > 5% */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-red-700 dark:text-red-400">
+                    &gt; 5%
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-red-800 dark:text-red-300">High rates</div>
+                    <div className="text-xs text-red-600 dark:text-red-400">Aggressive Fed, recession risk, credit stress.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Watchlist Sidebar */}
@@ -489,7 +617,7 @@ export default function DashboardPage() {
               
               return (
                 <div key={category} className="border-b border-gray-200 dark:border-gray-700">
-                  <div className="px-4 py-2 bg-gray-100 dark:bg-gray-750 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
                     {category}
                   </div>
                   {allSymbolsForCategory.map((symbol) => {

@@ -17,33 +17,47 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMounted(true);
-    // Load theme from localStorage
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.classList.toggle('dark', savedTheme === 'dark');
-    } else {
-      // Default to dark mode
-      document.documentElement.classList.add('dark');
+    console.log('ThemeProvider mounted');
+    // Load theme from localStorage on client
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('theme') as Theme;
+      console.log('Saved theme from localStorage:', savedTheme);
+      if (savedTheme) {
+        setTheme(savedTheme);
+        if (savedTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+          console.log('Initial: Added dark class');
+        } else {
+          document.documentElement.classList.remove('dark');
+          console.log('Initial: Removed dark class');
+        }
+      } else {
+        // Default to dark mode
+        console.log('No saved theme, defaulting to dark');
+        localStorage.setItem('theme', 'dark');
+        document.documentElement.classList.add('dark');
+      }
+      console.log('Initial HTML classes:', document.documentElement.className);
     }
   }, []);
 
-  // Don't render children until mounted (client-side only)
-  if (!mounted) {
-    return null;
-  }
-
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
+    console.log('Toggle theme called. Current:', theme, 'New:', newTheme);
     setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('theme', newTheme);
+      console.log('Saved to localStorage:', newTheme);
+      if (newTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+        console.log('Added dark class to html');
+      } else {
+        document.documentElement.classList.remove('dark');
+        console.log('Removed dark class from html');
+      }
+      console.log('HTML classes:', document.documentElement.className);
+    }
   };
-
-  // Prevent flash of unstyled content
-  if (!mounted) {
-    return <>{children}</>;
-  }
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

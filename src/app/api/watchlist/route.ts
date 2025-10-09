@@ -36,39 +36,75 @@ export async function GET(request: NextRequest) {
 
     const watchlistData: any[] = [];
 
-    // Fetch FMP quotes
+    // Fetch FMP quotes - try batch first, fall back to individual if it fails
     if (fmpSymbols.length > 0) {
-      const response = await axios.get(
-        `https://financialmodelingprep.com/api/v3/quote/${fmpSymbols.join(',')}?apikey=${FMP_API_KEY}`,
-        { timeout: 10000 }
-      );
+      try {
+        const response = await axios.get(
+          `https://financialmodelingprep.com/api/v3/quote/${fmpSymbols.join(',')}?apikey=${FMP_API_KEY}`,
+          { timeout: 10000 }
+        );
 
-      if (response.data && Array.isArray(response.data)) {
-        response.data.forEach((quote: any) => {
-          const change = quote.change || 0;
-          const changePercent = quote.changesPercentage || 0;
-          
-          watchlistData.push({
-            symbol: quote.symbol,
-            name: quote.name,
-            last: quote.price || 0,
-            change: change,
-            changePercent: changePercent,
-            volume: quote.volume || 0,
-            marketCap: quote.marketCap || 0,
-            isPositive: change >= 0
+        if (response.data && Array.isArray(response.data)) {
+          response.data.forEach((quote: any) => {
+            const change = quote.change || 0;
+            const changePercent = quote.changesPercentage || 0;
+            
+            watchlistData.push({
+              symbol: quote.symbol,
+              name: quote.name,
+              last: quote.price || 0,
+              change: change,
+              changePercent: changePercent,
+              volume: quote.volume || 0,
+              marketCap: quote.marketCap || 0,
+              isPositive: change >= 0
+            });
           });
-        });
+        }
+      } catch (fmpError: any) {
+        console.error('FMP batch request failed:', fmpError.message);
+        // If batch fails (e.g., rate limit), fetch individually
+        for (const symbol of fmpSymbols) {
+          try {
+            const response = await axios.get(
+              `https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${FMP_API_KEY}`,
+              { timeout: 5000 }
+            );
+            
+            if (response.data && response.data[0]) {
+              const quote = response.data[0];
+              const change = quote.change || 0;
+              const changePercent = quote.changesPercentage || 0;
+              
+              watchlistData.push({
+                symbol: quote.symbol,
+                name: quote.name,
+                last: quote.price || 0,
+                change: change,
+                changePercent: changePercent,
+                volume: quote.volume || 0,
+                marketCap: quote.marketCap || 0,
+                isPositive: change >= 0
+              });
+            }
+          } catch (individualError) {
+            console.error(`Failed to fetch ${symbol}, skipping:`, individualError);
+            // Continue with next symbol
+          }
+        }
       }
     }
 
     // Fetch FRED data (latest value for each series)
     if (fredSymbols.length > 0 && FRED_API_KEY) {
+      console.log('Fetching FRED symbols:', fredSymbols);
       for (const fredSymbol of fredSymbols) {
         try {
           const fredUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${fredSymbol.seriesId}&api_key=${FRED_API_KEY}&file_type=json&limit=2&sort_order=desc`;
+          console.log(`Fetching FRED watchlist data for ${fredSymbol.symbol} (${fredSymbol.seriesId}):`, fredUrl);
           
           const fredResponse = await axios.get(fredUrl, { timeout: 10000 });
+          console.log(`FRED response for ${fredSymbol.symbol}:`, fredResponse.status, fredResponse.data);
           
           if (fredResponse.data?.observations) {
             const observations = fredResponse.data.observations.filter((obs: any) => obs.value !== '.');

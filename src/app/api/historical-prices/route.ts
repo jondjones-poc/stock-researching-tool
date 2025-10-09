@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       }
 
       console.log('Fetching FRED data for:', fredSeriesId);
-      console.log('FRED URL (masked):', fredUrl.replace(FRED_API_KEY || '', 'XXXX'));
+      console.log('FRED URL (full):', fredUrl);
 
       const response = await axios.get(fredUrl);
       const data = response.data;
