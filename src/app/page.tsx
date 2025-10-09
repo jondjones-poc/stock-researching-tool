@@ -416,14 +416,18 @@ export default function Home() {
                     )}
 
                     {/* FMP PE Ratio */}
-                    {data.fmp && (
-                      <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">P/E Ratio</p>
+                    <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">P/E Ratio</p>
+                      {data.fmp && data.fmp.fmpPE ? (
                         <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                          {data.fmp.fmpPE ? `${data.fmp.fmpPE.toFixed(2)}x` : 'N/A'}
+                          {data.fmp.fmpPE.toFixed(2)}x
                         </p>
-                      </div>
-                    )}
+                      ) : (
+                        <p className="text-sm text-red-500 dark:text-red-400 italic">
+                          ⚠️ API failed - rate limit
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Revenue and Net Income Section */}
@@ -505,27 +509,27 @@ export default function Home() {
                   )}
 
                   {/* ROIC - 50% width section at bottom */}
-                  {data.keyMetrics && data.keyMetrics.roic !== null && data.keyMetrics.roic !== undefined && (() => {
-                    const roicPercent = data.keyMetrics.roic * 100;
-                    const isHigh = roicPercent >= 20;
-                    const isMedium = roicPercent > 12.5 && roicPercent < 20;
-                    const isLow = roicPercent <= 12.5;
-                    
-                    const bgColor = isHigh 
-                      ? 'bg-green-50 dark:bg-green-900/20' 
-                      : isMedium 
-                        ? 'bg-orange-50 dark:bg-orange-900/20'
-                        : 'bg-red-50 dark:bg-red-900/20';
-                    
-                    const textColor = isHigh
-                      ? 'text-green-600 dark:text-green-400'
-                      : isMedium
-                        ? 'text-orange-600 dark:text-orange-400'
-                        : 'text-red-500 dark:text-red-400';
-                    
-                    return (
-                      <div className="mt-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {data.keyMetrics && data.keyMetrics.roic !== null && data.keyMetrics.roic !== undefined ? (() => {
+                        const roicPercent = data.keyMetrics.roic * 100;
+                        const isHigh = roicPercent >= 20;
+                        const isMedium = roicPercent > 12.5 && roicPercent < 20;
+                        const isLow = roicPercent <= 12.5;
+                        
+                        const bgColor = isHigh 
+                          ? 'bg-green-50 dark:bg-green-900/20' 
+                          : isMedium 
+                            ? 'bg-orange-50 dark:bg-orange-900/20'
+                            : 'bg-red-50 dark:bg-red-900/20';
+                        
+                        const textColor = isHigh
+                          ? 'text-green-600 dark:text-green-400'
+                          : isMedium
+                            ? 'text-orange-600 dark:text-orange-400'
+                            : 'text-red-500 dark:text-red-400';
+                        
+                        return (
                           <div className={`${bgColor} p-4 rounded-lg`}>
                             <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">ROIC (Return on Invested Capital)</p>
                             <p className={`text-2xl font-bold ${textColor}`}>
@@ -546,10 +550,20 @@ export default function Home() {
                               )}
                             </div>
                           </div>
+                        );
+                      })() : (
+                        <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg border border-gray-300 dark:border-gray-600">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">ROIC (Return on Invested Capital)</p>
+                          <p className="text-sm text-red-500 dark:text-red-400 italic">
+                            ⚠️ API failed - rate limit
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                            20%+ = Wide moat, efficient compounding
+                          </p>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -710,32 +724,38 @@ export default function Home() {
                       )}
                       
                       {/* Payout Ratio */}
-                      {data.keyMetrics && data.keyMetrics.payoutRatio !== null && data.keyMetrics.payoutRatio !== undefined && (
-                        <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Payout Ratio</p>
-                          <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                            {(data.keyMetrics.payoutRatio * 100).toFixed(1)}%
-                          </p>
-                          <div className="mt-2 p-2 bg-white dark:bg-gray-700 rounded text-xs">
-                            <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                              Recommended Valuation:
+                      <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Payout Ratio</p>
+                        {data.keyMetrics && data.keyMetrics.payoutRatio !== null && data.keyMetrics.payoutRatio !== undefined ? (
+                          <>
+                            <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
+                              {(data.keyMetrics.payoutRatio * 100).toFixed(1)}%
                             </p>
-                            {(data.keyMetrics.payoutRatio * 100) > 70 ? (
-                              <p className="text-red-600 dark:text-red-400">📊 1-Stage DDM</p>
-                            ) : (data.keyMetrics.payoutRatio * 100) >= 40 ? (
-                              <p className="text-orange-600 dark:text-orange-400">📈 2-Stage DDM</p>
-                            ) : (data.keyMetrics.payoutRatio * 100) >= 20 ? (
-                              <p className="text-blue-600 dark:text-blue-400">💰 Buffett / Owner-Earnings DCF</p>
-                            ) : (
-                              <p className="text-green-600 dark:text-green-400">💵 Free-Cash-Flow DCF</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                            <div className="mt-2 p-2 bg-white dark:bg-gray-700 rounded text-xs">
+                              <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                Recommended Valuation:
+                              </p>
+                              {(data.keyMetrics.payoutRatio * 100) > 70 ? (
+                                <p className="text-red-600 dark:text-red-400">📊 1-Stage DDM</p>
+                              ) : (data.keyMetrics.payoutRatio * 100) >= 40 ? (
+                                <p className="text-orange-600 dark:text-orange-400">📈 2-Stage DDM</p>
+                              ) : (data.keyMetrics.payoutRatio * 100) >= 20 ? (
+                                <p className="text-blue-600 dark:text-blue-400">💰 Buffett / Owner-Earnings DCF</p>
+                              ) : (
+                                <p className="text-green-600 dark:text-green-400">💵 Free-Cash-Flow DCF</p>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-red-500 dark:text-red-400 italic">
+                            ⚠️ API failed - rate limit
+                          </p>
+                        )}
+                      </div>
                     </div>
 
                     {/* Historical Dividends */}
-                    {data.dividendHistory && data.dividendHistory.dividendsByYear && (() => {
+                    {data.dividendHistory && data.dividendHistory.dividendsByYear ? (() => {
                       // Use pre-aggregated dividends by year from API (includes projected current year)
                       const dividendsByYear = data.dividendHistory.dividendsByYear;
                       const currentYear = new Date().getFullYear().toString();
@@ -781,7 +801,16 @@ export default function Home() {
                           )}
                         </div>
                       );
-                    })()}
+                    })() : (
+                      <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg border border-gray-300 dark:border-gray-600">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                          Historical Dividends (2020-Current)
+                        </p>
+                        <p className="text-sm text-red-500 dark:text-red-400 italic">
+                          ⚠️ API failed - rate limit
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
