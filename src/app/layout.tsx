@@ -20,12 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={inter.className}>
-        <ThemeProvider>
-          <HeaderCheck>
+        <HeaderCheck>
+          <ThemeProvider>
             <Navigation />
             {children}
-          </HeaderCheck>
-        </ThemeProvider>
+          </ThemeProvider>
+        </HeaderCheck>
       </body>
     </html>
   );
