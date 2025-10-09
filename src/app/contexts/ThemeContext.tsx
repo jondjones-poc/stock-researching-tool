@@ -28,6 +28,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Don't render children until mounted (client-side only)
+  if (!mounted) {
+    return null;
+  }
+
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
