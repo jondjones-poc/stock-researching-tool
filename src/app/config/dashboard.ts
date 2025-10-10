@@ -26,7 +26,7 @@ export const dashboardConfig: DashboardConfig = {
     GROWTH: [
       {
         symbol: 'CRM',
-        name: 'Salesforce',
+        name: 'Salesforce (CRM)',
         category: 'GROWTH',
         icon: '☁️',
         color: 'blue'
@@ -35,49 +35,49 @@ export const dashboardConfig: DashboardConfig = {
     'DIVIDEND & VALUE': [
       {
         symbol: 'EL',
-        name: 'Estee Lauder',
+        name: 'Estée Lauder (EL)',
         category: 'DIVIDEND & VALUE',
         icon: '✏️',
         color: 'purple'
       },
       {
         symbol: 'JPM',
-        name: 'JPMorgan Chase',
+        name: 'JPMorgan Chase (JPM)',
         category: 'DIVIDEND & VALUE',
-        icon: '✏️',
-        color: 'purple'
+        icon: '🏦',
+        color: 'blue'
       },
       {
         symbol: 'MA',
-        name: 'Mastercard',
+        name: 'Mastercard (MA)',
         category: 'DIVIDEND & VALUE',
-        icon: '🔴',
-        color: 'red'
+        icon: '💳',
+        color: 'orange'
       },
       {
         symbol: 'NKE',
-        name: 'Nike',
+        name: 'Nike (NKE)',
         category: 'DIVIDEND & VALUE',
         icon: '✅',
-        color: 'green'
+        color: 'black'
       },
       {
         symbol: 'MSFT',
-        name: 'Microsoft',
+        name: 'Microsoft (MSFT)',
         category: 'DIVIDEND & VALUE',
-        icon: '⬜',
+        icon: '🪟',
         color: 'blue'
       },
       {
         symbol: 'TGT',
-        name: 'Target',
+        name: 'Target (TGT)',
         category: 'DIVIDEND & VALUE',
         icon: '🎯',
         color: 'red'
       },
       {
         symbol: 'CAKE',
-        name: 'Cheesecake Factory',
+        name: 'Cheesecake Factory (CAKE)',
         category: 'DIVIDEND & VALUE',
         icon: '🍰',
         color: 'orange'
@@ -95,7 +95,7 @@ export const dashboardConfig: DashboardConfig = {
       },
       {
         symbol: 'US10Y',
-        name: 'US 10-Year Treasury',
+        name: '10-Year Treasury',
         category: 'MARKETS',
         icon: '🇺🇸',
         color: 'blue',
@@ -103,10 +103,55 @@ export const dashboardConfig: DashboardConfig = {
         fredSeriesId: 'DGS10'
       },
       {
-        symbol: 'SCHD',
-        name: 'Schwab Dividend ETF',
+        symbol: 'SPX',
+        name: 'S&P 500',
         category: 'MARKETS',
-        icon: 'C',
+        icon: '📊',
+        color: 'green',
+        dataSource: 'FRED',
+        fredSeriesId: 'SP500'
+      },
+      {
+        symbol: 'DXY',
+        name: 'Dollar Index',
+        category: 'MARKETS',
+        icon: '💵',
+        color: 'green',
+        dataSource: 'FRED',
+        fredSeriesId: 'DTWEXBGS'
+      },
+      {
+        symbol: 'GOLD',
+        name: 'Gold Price',
+        category: 'MARKETS',
+        icon: '🥇',
+        color: 'yellow',
+        dataSource: 'FRED',
+        fredSeriesId: 'GOLDPMGBD228NLBM'
+      },
+      {
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        category: 'MARKETS',
+        icon: '₿',
+        color: 'orange',
+        dataSource: 'FRED',
+        fredSeriesId: 'CBBTCUSD'
+      },
+      {
+        symbol: 'MORTGAGE30Y',
+        name: '30-Year Mortgage Rate',
+        category: 'MARKETS',
+        icon: '🏠',
+        color: 'orange',
+        dataSource: 'FRED',
+        fredSeriesId: 'MORTGAGE30US'
+      },
+      {
+        symbol: 'SCHD',
+        name: 'Schwab US Dividend Equity ETF',
+        category: 'MARKETS',
+        icon: '💰',
         color: 'blue',
         dataSource: 'FMP'
       }
@@ -114,16 +159,16 @@ export const dashboardConfig: DashboardConfig = {
     WATCHLIST: [
       {
         symbol: 'VICI',
-        name: 'VICI Properties',
+        name: 'VICI - VICI Properties Inc.',
         category: 'WATCHLIST',
-        icon: 'V',
-        color: 'white'
+        icon: '🏢',
+        color: 'blue'
       },
       {
         symbol: 'TSLA',
-        name: 'Tesla',
+        name: 'TSLA - Tesla Inc.',
         category: 'WATCHLIST',
-        icon: 'T',
+        icon: '⚡',
         color: 'red'
       }
     ]

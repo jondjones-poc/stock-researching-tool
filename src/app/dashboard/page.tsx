@@ -22,6 +22,14 @@ interface ChartData {
   volume: number;
 }
 
+interface EarningsData {
+  symbol: string;
+  date: string;
+  eps: number;
+  revenue: number;
+  link: string;
+}
+
 export default function DashboardPage() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('VIX'); // Default to first MARKETS symbol
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
@@ -35,6 +43,9 @@ export default function DashboardPage() {
   const [newSymbolCategory, setNewSymbolCategory] = useState<'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('WATCHLIST');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; symbol: string } | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('MARKETS');
+  const [showEarnings, setShowEarnings] = useState<boolean>(false);
+  const [earningsData, setEarningsData] = useState<EarningsData[]>([]);
+  const [earningsLoading, setEarningsLoading] = useState<boolean>(false);
 
   // Fetch watchlist data - only for visible symbols in current category
   const fetchWatchlistData = async () => {
@@ -106,6 +117,38 @@ export default function DashboardPage() {
       from: fromDate.toISOString().split('T')[0],
       to: today.toISOString().split('T')[0]
     };
+  };
+
+  // Fetch earnings data for a symbol
+  const fetchEarningsData = async (symbol: string) => {
+    setEarningsLoading(true);
+    try {
+      const response = await fetch(`/api/earnings?symbol=${symbol}`);
+      
+      if (!response.ok) {
+        console.error('Earnings API error:', response.status);
+        setEarningsData([]);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      // Transform the data to match our interface
+      const earnings: EarningsData[] = result.data?.map((item: any) => ({
+        symbol: item.symbol,
+        date: item.date,
+        eps: item.eps || 0,
+        revenue: item.revenue || 0,
+        link: item.link || ''
+      })) || [];
+      
+      setEarningsData(earnings);
+    } catch (error) {
+      console.error('Error fetching earnings data:', error);
+      setEarningsData([]);
+    } finally {
+      setEarningsLoading(false);
+    }
   };
 
   // Fetch chart data for selected symbol
@@ -221,6 +264,21 @@ export default function DashboardPage() {
 
   const getWatchlistData = (symbol: string): WatchlistData | undefined => {
     return watchlistData.find(item => item.symbol === symbol);
+  };
+
+  // Handle clicking on stock name to show earnings
+  const handleStockClick = (symbol: string) => {
+    // Skip for market indicators - they have their own info panels
+    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GOLD', 'BTC', 'MORTGAGE30Y', 'SPX'];
+    if (marketIndicators.includes(symbol)) {
+      setSelectedSymbol(symbol);
+      setShowEarnings(false);
+      return;
+    }
+    
+    setSelectedSymbol(symbol);
+    setShowEarnings(true);
+    fetchEarningsData(symbol);
   };
 
   const formatPrice = (price: number): string => {
@@ -587,6 +645,191 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {/* DXY (Dollar Index) Information Panel */}
+          {selectedSymbol === 'DXY' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Dollar Index (DXY) Guide</h4>
+              <div className="space-y-2">
+                {/* > 108 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-red-700 dark:text-red-400">
+                    &gt; 108
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-red-800 dark:text-red-300">Very strong dollar</div>
+                    <div className="text-xs text-red-600 dark:text-red-400">Global stress → USD demand spikes (capital leaving risk assets).</div>
+                  </div>
+                </div>
+
+                {/* 102-107 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-blue-700 dark:text-blue-400">
+                    102 – 107
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-blue-800 dark:text-blue-300">Normal range</div>
+                    <div className="text-xs text-blue-600 dark:text-blue-400">Neutral.</div>
+                  </div>
+                </div>
+
+                {/* < 100 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-green-700 dark:text-green-400">
+                    &lt; 100
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-green-800 dark:text-green-300">Weak dollar</div>
+                    <div className="text-xs text-green-600 dark:text-green-400">Risk-on → Liquidity flows back to stocks, gold, crypto.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Gold Information Panel */}
+          {selectedSymbol === 'GOLD' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Gold Market Indicator</h4>
+              <div className="space-y-2">
+                <div className="flex items-start space-x-3 p-2 rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                  <div className="flex-shrink-0">
+                    <span className="text-2xl">📈</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Rising with VIX</div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400">Flight to safety.</div>
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-3 p-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex-shrink-0">
+                    <span className="text-2xl">📉</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-green-800 dark:text-green-300">Falling while equities rise</div>
+                    <div className="text-xs text-green-600 dark:text-green-400">Risk-on.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 30-Year Mortgage Rate Information Panel */}
+          {selectedSymbol === 'MORTGAGE30Y' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">US 30-Year Mortgage Rate</h4>
+              <div className="space-y-2">
+                <div className="flex items-start space-x-3 p-2 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex-shrink-0">
+                    <span className="text-2xl">🏠</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-orange-800 dark:text-orange-300">Linked to 10-Year Yield</div>
+                    <div className="text-xs text-orange-600 dark:text-orange-400">Direct link to 10-year yield; when &gt;7% → housing slowdown → recession signal.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Earnings Information Panel */}
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GOLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Earnings Information - {selectedSymbol}</h4>
+              {earningsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-gray-500 dark:text-gray-400">Loading earnings data...</div>
+                </div>
+              ) : earningsData.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Next Earnings */}
+                  <div className="p-3 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                    <h5 className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">Next Earnings</h5>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-xs text-blue-700 dark:text-blue-400">Date:</span>
+                        <span className="text-xs font-medium text-blue-900 dark:text-blue-300">
+                          {new Date(earningsData[0]?.date || '').toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-blue-700 dark:text-blue-400">Expected EPS:</span>
+                        <span className="text-xs font-medium text-blue-900 dark:text-blue-300">
+                          ${earningsData[0]?.eps?.toFixed(2) || 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-blue-700 dark:text-blue-400">Expected Revenue:</span>
+                        <span className="text-xs font-medium text-blue-900 dark:text-blue-300">
+                          ${earningsData[0]?.revenue ? (earningsData[0].revenue / 1000000000).toFixed(2) + 'B' : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Previous Earnings */}
+                  {earningsData.length > 1 && (
+                    <div className="p-3 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                      <h5 className="text-sm font-medium text-green-900 dark:text-green-300 mb-2">Previous Earnings</h5>
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-xs text-green-700 dark:text-green-400">Date:</span>
+                          <span className="text-xs font-medium text-green-900 dark:text-green-300">
+                            {new Date(earningsData[1]?.date || '').toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-green-700 dark:text-green-400">EPS:</span>
+                          <span className="text-xs font-medium text-green-900 dark:text-green-300">
+                            ${earningsData[1]?.eps?.toFixed(2) || 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-xs text-green-700 dark:text-green-400">Revenue:</span>
+                          <span className="text-xs font-medium text-green-900 dark:text-green-300">
+                            ${earningsData[1]?.revenue ? (earningsData[1].revenue / 1000000000).toFixed(2) + 'B' : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Investor Relations Link */}
+                  {earningsData[0]?.link && (
+                    <div className="p-3 rounded bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+                      <h5 className="text-sm font-medium text-purple-900 dark:text-purple-300 mb-2">Investor Relations</h5>
+                      <a
+                        href={earningsData[0].link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center text-xs text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300"
+                      >
+                        View Investor Relations Page
+                        <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <div>
+                      <h5 className="text-sm font-medium text-orange-900 dark:text-orange-300">No Earnings Data Available</h5>
+                      <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">
+                        Unable to fetch earnings information. This may be due to API rate limiting or the data is not available for this symbol.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Watchlist Sidebar */}
@@ -636,9 +879,20 @@ export default function DashboardPage() {
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm">{symbol.icon}</span>
-                            <span className="font-medium text-sm">{symbol.symbol}</span>
+                          <div 
+                            className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => handleStockClick(symbol.symbol)}
+                            title="Click to view earnings information"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <span className="text-lg">{symbol.icon}</span>
+                              <span className="font-medium text-sm text-gray-900 dark:text-white">
+                                {symbol.name}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 ml-7">
+                              ({symbol.symbol})
+                            </div>
                           </div>
                           <div className="text-right">
                             {data ? (
