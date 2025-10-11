@@ -30,6 +30,83 @@ export const dashboardConfig: DashboardConfig = {
         category: 'GROWTH',
         icon: '☁️',
         color: 'blue'
+      },
+      {
+        symbol: 'AMD',
+        name: 'Advanced Micro Devices (AMD)',
+        category: 'GROWTH',
+        icon: '💻',
+        color: 'red'
+      },
+      {
+        symbol: 'AMZN',
+        name: 'Amazon (AMZN)',
+        category: 'GROWTH',
+        icon: '📦',
+        color: 'orange'
+      },
+      {
+        symbol: 'AAPL',
+        name: 'Apple (AAPL)',
+        category: 'GROWTH',
+        icon: '🍎',
+        color: 'gray'
+      },
+      {
+        symbol: 'CELH',
+        name: 'Celsius Holdings (CELH)',
+        category: 'GROWTH',
+        icon: '🥤',
+        color: 'orange'
+      },
+      {
+        symbol: 'ELF',
+        name: 'e.l.f. Beauty (ELF)',
+        category: 'GROWTH',
+        icon: '💄',
+        color: 'pink'
+      },
+      {
+        symbol: 'SHOP',
+        name: 'Shopify (SHOP)',
+        category: 'GROWTH',
+        icon: '🛍️',
+        color: 'green'
+      },
+      {
+        symbol: 'GOOGL',
+        name: 'Alphabet (GOOGL)',
+        category: 'GROWTH',
+        icon: '🔍',
+        color: 'blue'
+      },
+      {
+        symbol: 'NVDA',
+        name: 'NVIDIA (NVDA)',
+        category: 'GROWTH',
+        icon: '🎮',
+        color: 'green'
+      },
+      {
+        symbol: 'PYPL',
+        name: 'PayPal (PYPL)',
+        category: 'GROWTH',
+        icon: '💳',
+        color: 'blue'
+      },
+      {
+        symbol: 'SOFI',
+        name: 'SoFi Technologies (SOFI)',
+        category: 'GROWTH',
+        icon: '🏦',
+        color: 'purple'
+      },
+      {
+        symbol: 'PLTR',
+        name: 'Palantir (PLTR)',
+        category: 'GROWTH',
+        icon: '🔮',
+        color: 'purple'
       }
     ],
     'DIVIDEND & VALUE': [
