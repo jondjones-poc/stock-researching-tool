@@ -269,7 +269,7 @@ export default function DashboardPage() {
   // Handle clicking on stock name to show earnings
   const handleStockClick = (symbol: string) => {
     // Skip for market indicators - they have their own info panels
-    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GOLD', 'BTC', 'MORTGAGE30Y', 'SPX'];
+    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX'];
     if (marketIndicators.includes(symbol)) {
       setSelectedSymbol(symbol);
       setShowEarnings(false);
@@ -688,17 +688,17 @@ export default function DashboardPage() {
           )}
 
           {/* Gold Information Panel */}
-          {selectedSymbol === 'GOLD' && (
+          {selectedSymbol === 'GLD' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Gold Market Indicator</h4>
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Gold Price (GLD ETF)</h4>
               <div className="space-y-2">
                 <div className="flex items-start space-x-3 p-2 rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
                   <div className="flex-shrink-0">
                     <span className="text-2xl">📈</span>
                   </div>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Rising with VIX</div>
-                    <div className="text-xs text-yellow-600 dark:text-yellow-400">Flight to safety.</div>
+                    <div className="text-sm font-medium text-yellow-800 dark:text-yellow-300">SPDR Gold Shares ETF (GLD)</div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400">Tracks gold bullion price. Flight to safety during market uncertainty.</div>
                   </div>
                 </div>
 
@@ -734,7 +734,7 @@ export default function DashboardPage() {
           )}
 
           {/* Earnings Information Panel */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GOLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Earnings Information - {selectedSymbol}</h4>
               {earningsLoading ? (

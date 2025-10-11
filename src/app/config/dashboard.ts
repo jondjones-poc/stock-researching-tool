@@ -121,13 +121,12 @@ export const dashboardConfig: DashboardConfig = {
         fredSeriesId: 'DTWEXBGS'
       },
       {
-        symbol: 'GOLD',
-        name: 'Gold Price',
+        symbol: 'GLD',
+        name: 'Gold Price (GLD)',
         category: 'MARKETS',
         icon: '🥇',
         color: 'yellow',
-        dataSource: 'FRED',
-        fredSeriesId: 'GOLDPMGBD228NLBM'
+        dataSource: 'FMP'
       },
       {
         symbol: 'BTC',
