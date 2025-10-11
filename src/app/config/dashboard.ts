@@ -246,6 +246,13 @@ export const dashboardConfig: DashboardConfig = {
         category: 'WATCHLIST',
         icon: '⚡',
         color: 'red'
+      },
+      {
+        symbol: 'KO',
+        name: 'Coca-Cola (KO)',
+        category: 'WATCHLIST',
+        icon: '🥤',
+        color: 'red'
       }
     ]
   },
