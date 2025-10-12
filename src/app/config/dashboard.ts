@@ -162,6 +162,15 @@ export const dashboardConfig: DashboardConfig = {
     ],
     MARKETS: [
       {
+        symbol: 'SPX',
+        name: 'S&P 500',
+        category: 'MARKETS',
+        icon: '📊',
+        color: 'green',
+        dataSource: 'FRED',
+        fredSeriesId: 'SP500'
+      },
+      {
         symbol: 'VIX',
         name: 'Volatility Index',
         category: 'MARKETS',
@@ -178,15 +187,6 @@ export const dashboardConfig: DashboardConfig = {
         color: 'blue',
         dataSource: 'FRED',
         fredSeriesId: 'DGS10'
-      },
-      {
-        symbol: 'SPX',
-        name: 'S&P 500',
-        category: 'MARKETS',
-        icon: '📊',
-        color: 'green',
-        dataSource: 'FRED',
-        fredSeriesId: 'SP500'
       },
       {
         symbol: 'DXY',

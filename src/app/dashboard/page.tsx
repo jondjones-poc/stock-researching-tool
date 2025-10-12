@@ -26,8 +26,22 @@ interface EarningsData {
   symbol: string;
   date: string;
   eps: number;
-  revenue: number;
+  epsEstimate: number;
+  epsActual: number | null;
+  revenue: number | null;
   link: string;
+}
+
+interface NewsItem {
+  title: string;
+  url: string;
+  time_published: string;
+  authors: string[];
+  summary: string;
+  source: string;
+  sentiment_label: string;
+  sentiment_score: number;
+  relevance_score: number;
 }
 
 export default function DashboardPage() {
@@ -46,6 +60,8 @@ export default function DashboardPage() {
   const [showEarnings, setShowEarnings] = useState<boolean>(false);
   const [earningsData, setEarningsData] = useState<EarningsData[]>([]);
   const [earningsLoading, setEarningsLoading] = useState<boolean>(false);
+  const [newsData, setNewsData] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState<boolean>(false);
 
   // Fetch watchlist data - only for visible symbols in current category
   const fetchWatchlistData = async () => {
@@ -119,6 +135,28 @@ export default function DashboardPage() {
     };
   };
 
+  // Fetch news data for a symbol
+  const fetchNewsData = async (symbol: string) => {
+    setNewsLoading(true);
+    try {
+      const response = await fetch(`/api/news?symbol=${symbol}`);
+      
+      if (!response.ok) {
+        console.error('News API error:', response.status);
+        setNewsData([]);
+        return;
+      }
+      
+      const result = await response.json();
+      setNewsData(result.data || []);
+    } catch (error) {
+      console.error('Error fetching news data:', error);
+      setNewsData([]);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
   // Fetch earnings data for a symbol
   const fetchEarningsData = async (symbol: string) => {
     setEarningsLoading(true);
@@ -138,7 +176,9 @@ export default function DashboardPage() {
         symbol: item.symbol,
         date: item.date,
         eps: item.eps || 0,
-        revenue: item.revenue || 0,
+        epsEstimate: item.epsEstimate || 0,
+        epsActual: item.epsActual,
+        revenue: item.revenue,
         link: item.link || ''
       })) || [];
       
@@ -278,6 +318,7 @@ export default function DashboardPage() {
     
     setSelectedSymbol(symbol);
     setShowEarnings(true);
+    fetchNewsData(symbol);
     fetchEarningsData(symbol);
   };
 
@@ -307,8 +348,6 @@ export default function DashboardPage() {
             <span className="text-sm text-gray-500 dark:text-gray-400">· 1W · NYSE</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <div className="w-3 h-3 rounded-full bg-red-500"></div>
             {getWatchlistData(selectedSymbol) && (
               <>
                 <span className="text-xl font-bold text-green-400">
@@ -366,7 +405,6 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold">
               {dashboardConfig.watchlist.GROWTH.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
             </h2>
-            <p className="text-sm text-gray-400">NYSE • Real-time • Market open</p>
           </div>
 
           {/* Chart Area */}
@@ -393,11 +431,11 @@ export default function DashboardPage() {
                         tickFormatter={(value) => {
                           const date = new Date(value);
                           if (selectedPeriod === '5D') {
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
                           } else if (selectedPeriod === '1M') {
-                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
                           } else if (selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
-                            return date.toLocaleDateString('en-US', { month: 'short' });
+                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
                           } else {
                             return date.getFullYear().toString();
                           }
@@ -733,6 +771,89 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* News Section */}
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Latest News - {selectedSymbol}</h4>
+              {newsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-gray-500 dark:text-gray-400">Loading news...</div>
+                </div>
+              ) : newsData.length > 0 ? (
+                <div className="space-y-2">
+                  {newsData.map((news, index) => {
+                    // Parse the timestamp
+                    const timeStr = news.time_published;
+                    const year = timeStr.slice(0, 4);
+                    const month = timeStr.slice(4, 6);
+                    const day = timeStr.slice(6, 8);
+                    const hour = timeStr.slice(9, 11);
+                    const minute = timeStr.slice(11, 13);
+                    const formattedDate = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+                    const timeAgo = Math.floor((Date.now() - formattedDate.getTime()) / (1000 * 60 * 60));
+                    
+                    // Determine sentiment color
+                    const sentimentColor = 
+                      news.sentiment_label === 'Bullish' ? 'text-green-600 dark:text-green-400' :
+                      news.sentiment_label === 'Bearish' ? 'text-red-600 dark:text-red-400' :
+                      news.sentiment_label === 'Somewhat-Bullish' ? 'text-green-500 dark:text-green-500' :
+                      news.sentiment_label === 'Somewhat-Bearish' ? 'text-orange-500 dark:text-orange-400' :
+                      'text-gray-600 dark:text-gray-400';
+                    
+                    return (
+                      <a
+                        key={index}
+                        href={news.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block p-3 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h5 className="text-sm font-medium text-green-900 dark:text-green-300 line-clamp-2 mb-1">
+                              {news.title}
+                            </h5>
+                            <p className="text-xs text-green-700 dark:text-green-400 line-clamp-2 mb-2">
+                              {news.summary}
+                            </p>
+                            <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-500">
+                              <span className="font-medium">{news.source}</span>
+                              <span>•</span>
+                              <span>{timeAgo}h ago</span>
+                              {news.sentiment_label && (
+                                <>
+                                  <span>•</span>
+                                  <span className={sentimentColor}>{news.sentiment_label}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <svg className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-3 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <div>
+                      <h5 className="text-sm font-medium text-orange-900 dark:text-orange-300">No News Available</h5>
+                      <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">
+                        Unable to fetch news. This may be due to API rate limiting.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Earnings Information Panel */}
           {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
@@ -743,9 +864,9 @@ export default function DashboardPage() {
                 </div>
               ) : earningsData.length > 0 ? (
                 <div className="space-y-3">
-                  {/* Next Earnings */}
+                  {/* Most Recent Earnings */}
                   <div className="p-3 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-                    <h5 className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">Next Earnings</h5>
+                    <h5 className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">Most Recent Earnings</h5>
                     <div className="space-y-1">
                       <div className="flex justify-between">
                         <span className="text-xs text-blue-700 dark:text-blue-400">Date:</span>
@@ -754,17 +875,41 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-xs text-blue-700 dark:text-blue-400">Expected EPS:</span>
+                        <span className="text-xs text-blue-700 dark:text-blue-400">Estimated EPS:</span>
                         <span className="text-xs font-medium text-blue-900 dark:text-blue-300">
-                          ${earningsData[0]?.eps?.toFixed(2) || 'N/A'}
+                          ${earningsData[0]?.epsEstimate?.toFixed(2) || 'N/A'}
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-xs text-blue-700 dark:text-blue-400">Expected Revenue:</span>
-                        <span className="text-xs font-medium text-blue-900 dark:text-blue-300">
-                          ${earningsData[0]?.revenue ? (earningsData[0].revenue / 1000000000).toFixed(2) + 'B' : 'N/A'}
-                        </span>
-                      </div>
+                      {earningsData[0]?.epsActual !== null && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-blue-700 dark:text-blue-400">Actual EPS:</span>
+                            <span className={`text-xs font-medium ${
+                              earningsData[0].epsActual > earningsData[0].epsEstimate 
+                                ? 'text-green-600 dark:text-green-400' 
+                                : earningsData[0].epsActual < earningsData[0].epsEstimate
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-blue-900 dark:text-blue-300'
+                            }`}>
+                              ${earningsData[0].epsActual.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-blue-700 dark:text-blue-400">Surprise:</span>
+                            <span className={`text-xs font-medium ${
+                              earningsData[0].epsActual > earningsData[0].epsEstimate 
+                                ? 'text-green-600 dark:text-green-400' 
+                                : earningsData[0].epsActual < earningsData[0].epsEstimate
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-blue-900 dark:text-blue-300'
+                            }`}>
+                              {earningsData[0].epsActual > earningsData[0].epsEstimate ? '+' : ''}
+                              ${(earningsData[0].epsActual - earningsData[0].epsEstimate).toFixed(2)} 
+                              ({((earningsData[0].epsActual - earningsData[0].epsEstimate) / earningsData[0].epsEstimate * 100).toFixed(1)}%)
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -780,17 +925,41 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-xs text-green-700 dark:text-green-400">EPS:</span>
+                          <span className="text-xs text-green-700 dark:text-green-400">Estimated EPS:</span>
                           <span className="text-xs font-medium text-green-900 dark:text-green-300">
-                            ${earningsData[1]?.eps?.toFixed(2) || 'N/A'}
+                            ${earningsData[1]?.epsEstimate?.toFixed(2) || 'N/A'}
                           </span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-xs text-green-700 dark:text-green-400">Revenue:</span>
-                          <span className="text-xs font-medium text-green-900 dark:text-green-300">
-                            ${earningsData[1]?.revenue ? (earningsData[1].revenue / 1000000000).toFixed(2) + 'B' : 'N/A'}
-                          </span>
-                        </div>
+                        {earningsData[1]?.epsActual !== null && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-xs text-green-700 dark:text-green-400">Actual EPS:</span>
+                              <span className={`text-xs font-medium ${
+                                earningsData[1].epsActual > earningsData[1].epsEstimate 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : earningsData[1].epsActual < earningsData[1].epsEstimate
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-green-900 dark:text-green-300'
+                              }`}>
+                                ${earningsData[1].epsActual.toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-xs text-green-700 dark:text-green-400">Surprise:</span>
+                              <span className={`text-xs font-medium ${
+                                earningsData[1].epsActual > earningsData[1].epsEstimate 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : earningsData[1].epsActual < earningsData[1].epsEstimate
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-green-900 dark:text-green-300'
+                              }`}>
+                                {earningsData[1].epsActual > earningsData[1].epsEstimate ? '+' : ''}
+                                ${(earningsData[1].epsActual - earningsData[1].epsEstimate).toFixed(2)}
+                                ({((earningsData[1].epsActual - earningsData[1].epsEstimate) / earningsData[1].epsEstimate * 100).toFixed(1)}%)
+                              </span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
@@ -861,9 +1030,6 @@ export default function DashboardPage() {
               
               return (
                 <div key={category} className="border-b border-gray-200 dark:border-gray-700">
-                  <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-                    {category}
-                  </div>
                   {allSymbolsForCategory.map((symbol) => {
                     const data = getWatchlistData(symbol.symbol);
                     const isSelected = selectedSymbol === symbol.symbol;

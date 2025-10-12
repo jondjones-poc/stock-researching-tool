@@ -14,9 +14,9 @@ export default function Navigation() {
         <div className="flex justify-between items-center py-4">
           <div className="flex items-center space-x-8">
             <Link 
-              href="/dashboard" 
+              href="/" 
               className={`text-lg font-semibold transition-colors ${
-                pathname === '/dashboard' 
+                pathname === '/' 
                   ? 'text-blue-600 dark:text-blue-400' 
                   : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
               }`}
@@ -24,9 +24,9 @@ export default function Navigation() {
               📊 Dashboard
             </Link>
             <Link 
-              href="/" 
+              href="/research" 
               className={`text-lg font-semibold transition-colors ${
-                pathname === '/' 
+                pathname === '/research' 
                   ? 'text-blue-600 dark:text-blue-400' 
                   : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
               }`}
