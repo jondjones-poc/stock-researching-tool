@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'API key not configured' }, { status: 500 });
     }
 
-    const url = `https://financialmodelingprep.com/api/v3/earning_calendar/${symbol}?apikey=${apiKey}`;
+    // Use earnings-surprises endpoint instead of earning_calendar (which requires premium subscription)
+    const url = `https://financialmodelingprep.com/api/v3/earnings-surprises/${symbol}?apikey=${apiKey}`;
     
     const response = await fetch(url);
     
@@ -23,7 +24,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch earnings data' }, { status: response.status });
     }
 
-    const data = await response.json();
+    const rawData = await response.json();
+    
+    // Transform the data to match the expected format
+    // earnings-surprises returns: { date, symbol, actualEarningResult, estimatedEarning }
+    const data = rawData.map((item: any) => ({
+      symbol: item.symbol,
+      date: item.date,
+      eps: item.actualEarningResult || item.estimatedEarning || 0,
+      epsEstimate: item.estimatedEarning || 0,
+      epsActual: item.actualEarningResult || null,
+      revenue: null, // earnings-surprises doesn't include revenue
+      link: `https://www.google.com/finance/quote/${symbol}:NYSE`
+    }));
     
     return NextResponse.json({ data });
   } catch (error) {
