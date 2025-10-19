@@ -56,6 +56,14 @@ interface InsiderData {
     dividendGrowthRate: number | null;
     latestDividend: number | null;
   };
+  finnhubMetrics?: {
+    metric: {
+      marketCapitalization: number;
+      enterpriseValue: number;
+      totalDebt: number;
+      cashAndCashEquivalents: number;
+    };
+  };
   error?: string;
 }
 
@@ -90,15 +98,16 @@ export default function Home() {
     setData(null);
 
     try {
-      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, Key Metrics, and Dividend History
-      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes, dividendHistoryRes] = await Promise.allSettled([
+      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, Key Metrics, Dividend History, and Finnhub Metrics
+      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes, dividendHistoryRes, finnhubMetricsRes] = await Promise.allSettled([
         fetch(`/api/finnhub?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/financials?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/pe-ratios?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/fmp?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/earnings-growth?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/key-metrics?symbol=${symbolToFetch.toUpperCase()}`),
-        fetch(`/api/dividend-history?symbol=${symbolToFetch.toUpperCase()}`)
+        fetch(`/api/dividend-history?symbol=${symbolToFetch.toUpperCase()}`),
+        fetch(`/api/finnhub-metrics?symbol=${symbolToFetch.toUpperCase()}`)
       ]);
 
       const result: InsiderData = { symbol: symbolToFetch.toUpperCase() };
@@ -185,6 +194,22 @@ export default function Home() {
         if (dividendHistoryRes.status === 'fulfilled') {
           console.log('Dividend History response status:', dividendHistoryRes.value?.status);
           console.log('Dividend History response text:', await dividendHistoryRes.value?.text());
+        }
+      }
+
+      // Process Finnhub Metrics data
+      if (finnhubMetricsRes.status === 'fulfilled' && finnhubMetricsRes.value.ok) {
+        result.finnhubMetrics = await finnhubMetricsRes.value.json();
+        console.log('Finnhub Metrics data received:', result.finnhubMetrics);
+        console.log('Enterprise Value:', result.finnhubMetrics?.metric?.enterpriseValue);
+        console.log('Market Cap:', result.finnhubMetrics?.metric?.marketCapitalization);
+        console.log('Total Debt:', result.finnhubMetrics?.metric?.totalDebt);
+        console.log('Cash:', result.finnhubMetrics?.metric?.cashAndCashEquivalents);
+      } else {
+        console.log('Finnhub Metrics request failed:', finnhubMetricsRes);
+        if (finnhubMetricsRes.status === 'fulfilled') {
+          console.log('Finnhub Metrics response status:', finnhubMetricsRes.value?.status);
+          console.log('Finnhub Metrics response text:', await finnhubMetricsRes.value?.text());
         }
       }
 
@@ -428,6 +453,31 @@ export default function Home() {
                         </p>
                       )}
                     </div>
+
+                    {/* Enterprise Value */}
+                    {data.finnhubMetrics?.metric?.enterpriseValue && (
+                      <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg">
+                        <div className="flex justify-between items-start mb-1">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Enterprise Value</p>
+                          <button
+                            onClick={() => {
+                              if (data.finnhubMetrics?.metric?.enterpriseValue) {
+                                navigator.clipboard.writeText(data.finnhubMetrics.metric.enterpriseValue.toString());
+                              }
+                            }}
+                            className="text-xs bg-indigo-100 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded hover:bg-indigo-200 dark:hover:bg-indigo-700 transition-colors"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                          ${(data.finnhubMetrics.metric.enterpriseValue / 1000000000).toFixed(1)}B
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Market Cap + Total Debt - Cash
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Revenue and Net Income Section */}
