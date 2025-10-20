@@ -230,6 +230,15 @@ export const dashboardConfig: DashboardConfig = {
         icon: '💰',
         color: 'blue',
         dataSource: 'FMP'
+      },
+      {
+        symbol: 'WTI',
+        name: 'West Texas Intermediate Crude Oil',
+        category: 'MARKETS',
+        icon: '🛢️',
+        color: 'black',
+        dataSource: 'FRED',
+        fredSeriesId: 'DCOILWTICO'
       }
     ],
     WATCHLIST: [

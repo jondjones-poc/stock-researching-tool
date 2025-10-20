@@ -309,7 +309,7 @@ export default function DashboardPage() {
   // Handle clicking on stock name to show earnings
   const handleStockClick = (symbol: string) => {
     // Skip for market indicators - they have their own info panels
-    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX'];
+    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI'];
     if (marketIndicators.includes(symbol)) {
       setSelectedSymbol(symbol);
       setShowEarnings(false);
@@ -771,8 +771,49 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* WTI Information Panel */}
+          {selectedSymbol === 'WTI' && (
+            <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+              <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">West Texas Intermediate Crude Oil</h4>
+              <div className="space-y-2">
+                {/* < 50 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-red-700 dark:text-red-400">
+                    &lt; 50
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-red-800 dark:text-red-300">Recession warning</div>
+                    <div className="text-xs text-red-600 dark:text-red-400">Under $50 is a recession warning, this may reflect weak demand / impending recession.</div>
+                  </div>
+                </div>
+
+                {/* 50-80 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-green-700 dark:text-green-400">
+                    50 – 80
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-green-800 dark:text-green-300">Normal range</div>
+                    <div className="text-xs text-green-600 dark:text-green-400">Healthy economic conditions, balanced supply and demand.</div>
+                  </div>
+                </div>
+
+                {/* >= 80 */}
+                <div className="flex items-start space-x-3 p-2 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                  <div className="flex-shrink-0 w-16 text-xs font-bold text-orange-700 dark:text-orange-400">
+                    &gt;= 80
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-orange-800 dark:text-orange-300">Inflation signal</div>
+                    <div className="text-xs text-orange-600 dark:text-orange-400">$80+ often signals inflation and demand constraint routes toward recession.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* News Section */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Latest News - {selectedSymbol}</h4>
               {newsLoading ? (
@@ -855,7 +896,7 @@ export default function DashboardPage() {
           )}
 
           {/* Earnings Information Panel */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Earnings Information - {selectedSymbol}</h4>
               {earningsLoading ? (
