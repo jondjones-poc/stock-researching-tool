@@ -19,12 +19,17 @@ export async function GET(request: NextRequest) {
   }
 
   if (!FMP_API_KEY) {
+    console.error('FMP_API_KEY environment variable is not set');
     return NextResponse.json({ error: 'FMP_API_KEY environment variable is not set' }, { status: 500 });
   }
 
   if (!FINNHUB_API_KEY) {
+    console.error('FINNHUB_API_KEY environment variable is not set');
     return NextResponse.json({ error: 'FINNHUB_API_KEY environment variable is not set' }, { status: 500 });
   }
+
+  // Log API key presence (without exposing the actual key)
+  console.log(`API Keys present: FMP=${!!FMP_API_KEY} (length: ${FMP_API_KEY?.length || 0}), Finnhub=${!!FINNHUB_API_KEY} (length: ${FINNHUB_API_KEY?.length || 0})`);
 
   try {
     // Calculate date range for 10 years
@@ -54,11 +59,95 @@ export async function GET(request: NextRequest) {
       netMargin: [],
       grossMargin: [],
       eps: [],
-      operatingIncome: []
+      operatingIncome: [],
+      errors: [],
+      symbol: symbol.toUpperCase()
+    };
+
+    // Helper function to check for rate limiting and errors
+    const checkResponse = (response: any, endpointName: string, apiProvider: string) => {
+      if (response.status === 'rejected') {
+        const error = response.reason;
+        const statusCode = error.response?.status;
+        
+        if (statusCode === 429) {
+          result.errors.push(`${endpointName} (${symbol}): Rate limit exceeded - ${apiProvider} endpoint`);
+          console.error(`${endpointName} rate limited:`, error.response?.data);
+          return { isError: true, isRateLimited: true, isForbidden: false };
+        }
+        
+        if (statusCode === 403) {
+          const errorDetails = error.response?.data || error.message;
+          // Check if it's an invalid API key issue
+          const errorStr = JSON.stringify(errorDetails).toLowerCase();
+          const isInvalidKey = errorStr.includes('invalid') || errorStr.includes('api key') || errorStr.includes('authentication');
+          
+          let errorMsg = `${endpointName} (${symbol}): Access forbidden (403) - ${apiProvider} endpoint`;
+          if (isInvalidKey) {
+            errorMsg += ' - Invalid or expired API key. Please check your API key in the .env file.';
+          }
+          
+          result.errors.push(errorMsg);
+          console.error(`${endpointName} forbidden (403):`, errorDetails);
+          console.error(`${endpointName} 403 error details:`, JSON.stringify(errorDetails, null, 2));
+          return { isError: true, isRateLimited: false, isForbidden: true };
+        }
+        
+        result.errors.push(`${endpointName} (${symbol}): ${error.message || `HTTP ${statusCode || 'Request failed'}`} - ${apiProvider} endpoint`);
+        console.error(`${endpointName} error:`, error.message, error.response?.data);
+        return { isError: true, isRateLimited: false, isForbidden: false };
+      }
+      
+      if (response.value.status === 429) {
+        result.errors.push(`${endpointName} (${symbol}): Rate limit exceeded - ${apiProvider} endpoint`);
+        console.error(`${endpointName} rate limited:`, response.value.data);
+        return { isError: true, isRateLimited: true, isForbidden: false };
+      }
+      
+      if (response.value.status === 403) {
+        const errorDetails = response.value.data;
+        // Check if it's an invalid API key issue
+        const errorStr = JSON.stringify(errorDetails || {}).toLowerCase();
+        const isInvalidKey = errorStr.includes('invalid') || errorStr.includes('api key') || errorStr.includes('authentication');
+        
+        let errorMsg = `${endpointName} (${symbol}): Access forbidden (403) - ${apiProvider} endpoint`;
+        if (isInvalidKey) {
+          errorMsg += ' - Invalid or expired API key. Please check your API key in the .env file.';
+        }
+        
+        result.errors.push(errorMsg);
+        console.error(`${endpointName} forbidden (403):`, errorDetails);
+        console.error(`${endpointName} 403 error details:`, JSON.stringify(errorDetails, null, 2));
+        return { isError: true, isRateLimited: false, isForbidden: true };
+      }
+      
+      if (response.value.status !== 200) {
+        result.errors.push(`${endpointName} (${symbol}): HTTP ${response.value.status} - ${apiProvider} endpoint`);
+        console.error(`${endpointName} HTTP error:`, response.value.status, response.value.data);
+        return { isError: true, isRateLimited: false, isForbidden: false };
+      }
+
+      // Check for error messages in the response data
+      const data = response.value.data;
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        if ('Error Message' in data || 'message' in data || 'Note' in data) {
+          const errorMsg = data['Error Message'] || data['message'] || data['Note'] || 'Unknown error';
+          const lowerMsg = errorMsg.toLowerCase();
+          const isRateLimit = lowerMsg.includes('rate limit') || lowerMsg.includes('429');
+          const isForbidden = lowerMsg.includes('403') || lowerMsg.includes('forbidden') || lowerMsg.includes('premium');
+          
+          result.errors.push(`${endpointName} (${symbol}): ${errorMsg} - ${apiProvider} endpoint`);
+          console.error(`${endpointName} API error:`, errorMsg);
+          return { isError: true, isRateLimited: isRateLimit, isForbidden: isForbidden };
+        }
+      }
+
+      return { isError: false, isRateLimited: false, isForbidden: false };
     };
 
     // Process cash flow statement data
-    if (cashFlowResponse.status === 'fulfilled' && cashFlowResponse.value.data) {
+    const cashFlowCheck = checkResponse(cashFlowResponse, 'Cash Flow', 'FMP');
+    if (!cashFlowCheck.isError && cashFlowResponse.status === 'fulfilled' && cashFlowResponse.value.data) {
       const cashFlowData = cashFlowResponse.value.data;
       console.log('Cash flow data:', JSON.stringify(cashFlowData, null, 2));
 
@@ -106,101 +195,124 @@ export async function GET(request: NextRequest) {
 
       console.log('Free Cash Flow data:', result.freeCashFlow);
       console.log('Share Buybacks data:', result.shareBuybacks);
-    } else {
-      console.log('Cash flow data not available or failed');
-      if (cashFlowResponse.status === 'rejected') {
-        console.log('Cash flow error:', cashFlowResponse.reason);
-      }
     }
 
     // Process income statement data for revenue and net income
-    if (incomeStatementResponse.status === 'fulfilled' && incomeStatementResponse.value.data) {
+    const incomeCheck = checkResponse(incomeStatementResponse, 'Revenue', 'FMP');
+    if (!incomeCheck.isError && incomeStatementResponse.status === 'fulfilled' && incomeStatementResponse.value.status === 200 && incomeStatementResponse.value.data) {
       const incomeData = incomeStatementResponse.value.data;
       console.log('Income statement data:', JSON.stringify(incomeData, null, 2));
 
-      const revenueData: Array<{year: string, value: number, change?: number}> = [];
-      const netIncomeData: Array<{year: string, value: number, change?: number}> = [];
-      const operatingIncomeData: Array<{year: string, value: number, change?: number}> = [];
-      const netMarginData: Array<{year: string, value: number, change?: number}> = [];
-      const grossMarginData: Array<{year: string, value: number, change?: number}> = [];
+      // Check if response is an error message from the API (already checked, but double-check)
+      if (incomeData && typeof incomeData === 'object' && !Array.isArray(incomeData) && ('Error Message' in incomeData || 'message' in incomeData)) {
+        console.log('Income statement API returned error:', incomeData);
+        result.errors.push(`Income Statement: ${incomeData['Error Message'] || incomeData['message'] || 'Unknown error'}`);
+      } else if (!Array.isArray(incomeData)) {
+        console.log('Income statement data is not an array:', typeof incomeData, incomeData);
+      } else if (incomeData.length === 0) {
+        console.log('Income statement data is empty array');
+      } else {
+        const revenueData: Array<{year: string, value: number, change?: number}> = [];
+        const netIncomeData: Array<{year: string, value: number, change?: number}> = [];
+        const operatingIncomeData: Array<{year: string, value: number, change?: number}> = [];
+        const netMarginData: Array<{year: string, value: number, change?: number}> = [];
+        const grossMarginData: Array<{year: string, value: number, change?: number}> = [];
 
-      incomeData.forEach((item: any, index: number) => {
-        const year = item.calendarYear || item.date?.substring(0, 4) || 'Unknown';
-        const label = year; // Use annual data
-        
-        const revenue = item.revenue || 0;
-        const netIncome = item.netIncome || 0;
-        const operatingIncome = item.operatingIncome || 0;
-        const grossProfit = item.grossProfit || 0;
+        // Filter for annual data only (period === 'FY' or no period field means annual)
+        const annualData = incomeData.filter((item: any) => {
+          const period = item.period;
+          return !period || period === 'FY' || period === 'annual';
+        });
 
-        if (revenue > 0) {
-          revenueData.push({
-            year: label,
-            value: revenue,
-            change: index > 0 ? 
-              (revenue - revenueData[index - 1]?.value) / revenueData[index - 1]?.value : undefined
-          });
-        }
+        console.log(`Filtered ${incomeData.length} income statements to ${annualData.length} annual records`);
 
-        if (netIncome !== 0) { // Allow negative net income
-          netIncomeData.push({
-            year: label,
-            value: netIncome,
-            change: index > 0 ? 
-              (netIncome - netIncomeData[index - 1]?.value) / Math.abs(netIncomeData[index - 1]?.value || 1) : undefined
-          });
-        }
+        annualData.forEach((item: any, index: number) => {
+          const year = item.calendarYear || item.date?.substring(0, 4) || 'Unknown';
+          const label = year;
+          
+          const revenue = item.revenue || item.revenues || 0;
+          const netIncome = item.netIncome || 0;
+          const operatingIncome = item.operatingIncome || item.operatingIncomeLoss || 0;
+          const grossProfit = item.grossProfit || 0;
 
-        if (operatingIncome !== 0) { // Allow negative operating income
-          operatingIncomeData.push({
-            year: label,
-            value: operatingIncome,
-            change: index > 0 ? 
-              (operatingIncome - operatingIncomeData[index - 1]?.value) / Math.abs(operatingIncomeData[index - 1]?.value || 1) : undefined
-          });
-        }
+          // Log if revenue is missing or 0 for debugging
+          if (!item.revenue && !item.revenues) {
+            console.log(`Revenue missing for ${year}:`, { revenue: item.revenue, revenues: item.revenues, item });
+          }
 
-        // Calculate Net Margin (Net Income / Revenue)
-        if (revenue > 0 && netIncome !== 0) {
-          const netMargin = (netIncome / revenue) * 100; // Convert to percentage
-          netMarginData.push({
-            year: label,
-            value: netMargin,
-            change: index > 0 ? 
-              (netMargin - netMarginData[index - 1]?.value) / Math.abs(netMarginData[index - 1]?.value || 1) : undefined
-          });
-        }
+          if (revenue > 0) {
+            revenueData.push({
+              year: label,
+              value: revenue,
+              change: index > 0 ? 
+                (revenue - revenueData[index - 1]?.value) / revenueData[index - 1]?.value : undefined
+            });
+          }
 
-        // Calculate Gross Margin (Gross Profit / Revenue)
-        if (revenue > 0 && grossProfit !== 0) {
-          const grossMargin = (grossProfit / revenue) * 100; // Convert to percentage
-          grossMarginData.push({
-            year: label,
-            value: grossMargin,
-            change: index > 0 ? 
-              (grossMargin - grossMarginData[index - 1]?.value) / Math.abs(grossMarginData[index - 1]?.value || 1) : undefined
-          });
-        }
-      });
+          if (netIncome !== 0) { // Allow negative net income
+            netIncomeData.push({
+              year: label,
+              value: netIncome,
+              change: index > 0 ? 
+                (netIncome - netIncomeData[index - 1]?.value) / Math.abs(netIncomeData[index - 1]?.value || 1) : undefined
+            });
+          }
 
-      result.revenue = revenueData.reverse(); // Most recent first
-      result.netIncome = netIncomeData.reverse(); // Most recent first
-      result.operatingIncome = operatingIncomeData.reverse(); // Most recent first
-      result.netMargin = netMarginData.reverse(); // Most recent first
-      result.grossMargin = grossMarginData.reverse(); // Most recent first
-      console.log('Revenue data:', result.revenue);
-      console.log('Net Income data:', result.netIncome);
-      console.log('Net Margin data:', result.netMargin);
-      console.log('Gross Margin data:', result.grossMargin);
+          if (operatingIncome !== 0) { // Allow negative operating income
+            operatingIncomeData.push({
+              year: label,
+              value: operatingIncome,
+              change: index > 0 ? 
+                (operatingIncome - operatingIncomeData[index - 1]?.value) / Math.abs(operatingIncomeData[index - 1]?.value || 1) : undefined
+            });
+          }
+
+          // Calculate Net Margin (Net Income / Revenue)
+          if (revenue > 0 && netIncome !== 0) {
+            const netMargin = (netIncome / revenue) * 100; // Convert to percentage
+            netMarginData.push({
+              year: label,
+              value: netMargin,
+              change: index > 0 ? 
+                (netMargin - netMarginData[index - 1]?.value) / Math.abs(netMarginData[index - 1]?.value || 1) : undefined
+            });
+          }
+
+          // Calculate Gross Margin (Gross Profit / Revenue)
+          if (revenue > 0 && grossProfit !== 0) {
+            const grossMargin = (grossProfit / revenue) * 100; // Convert to percentage
+            grossMarginData.push({
+              year: label,
+              value: grossMargin,
+              change: index > 0 ? 
+                (grossMargin - grossMarginData[index - 1]?.value) / Math.abs(grossMarginData[index - 1]?.value || 1) : undefined
+            });
+          }
+        });
+
+        result.revenue = revenueData.reverse(); // Most recent first
+        result.netIncome = netIncomeData.reverse(); // Most recent first
+        result.operatingIncome = operatingIncomeData.reverse(); // Most recent first
+        result.netMargin = netMarginData.reverse(); // Most recent first
+        result.grossMargin = grossMarginData.reverse(); // Most recent first
+        console.log('Revenue data:', result.revenue);
+        console.log('Net Income data:', result.netIncome);
+        console.log('Net Margin data:', result.netMargin);
+        console.log('Gross Margin data:', result.grossMargin);
+      }
     } else {
       console.log('Income statement data not available or failed');
       if (incomeStatementResponse.status === 'rejected') {
         console.log('Income statement error:', incomeStatementResponse.reason);
+      } else if (incomeStatementResponse.status === 'fulfilled') {
+        console.log('Income statement response status:', incomeStatementResponse.value.status);
+        console.log('Income statement response data:', incomeStatementResponse.value.data);
       }
     }
 
     // Process portfolio value data (historical stock prices)
-    if (portfolioResponse.status === 'fulfilled' && portfolioResponse.value.data) {
+    const portfolioCheck = checkResponse(portfolioResponse, 'Historical Prices', 'FMP');
+    if (!portfolioCheck.isError && portfolioResponse.status === 'fulfilled' && portfolioResponse.value.data) {
       const portfolioData = portfolioResponse.value.data;
       console.log('Portfolio data:', JSON.stringify(portfolioData, null, 2));
 
@@ -232,15 +344,11 @@ export async function GET(request: NextRequest) {
 
       result.portfolioValue = portfolioValueData;
       console.log('Portfolio Value data:', result.portfolioValue);
-    } else {
-      console.log('Portfolio data not available or failed');
-      if (portfolioResponse.status === 'rejected') {
-        console.log('Portfolio error:', portfolioResponse.reason);
-      }
     }
 
     // Process dividend income data
-    if (dividendResponse.status === 'fulfilled' && dividendResponse.value.data) {
+    const dividendCheck = checkResponse(dividendResponse, 'Dividends', 'FMP');
+    if (!dividendCheck.isError && dividendResponse.status === 'fulfilled' && dividendResponse.value.data) {
       const dividendData = dividendResponse.value.data;
       console.log('Dividend data:', JSON.stringify(dividendData, null, 2));
 
@@ -272,15 +380,11 @@ export async function GET(request: NextRequest) {
 
       result.dividendIncome = dividendIncomeData;
       console.log('Dividend Income data:', result.dividendIncome);
-    } else {
-      console.log('Dividend data not available or failed');
-      if (dividendResponse.status === 'rejected') {
-        console.log('Dividend error:', dividendResponse.reason);
-      }
     }
 
     // Process shares outstanding data from key metrics
-    if (keyMetricsResponse.status === 'fulfilled' && keyMetricsResponse.value.data) {
+    const keyMetricsCheck = checkResponse(keyMetricsResponse, 'Key Metrics', 'FMP');
+    if (!keyMetricsCheck.isError && keyMetricsResponse.status === 'fulfilled' && keyMetricsResponse.value.data) {
       const keyMetricsData = keyMetricsResponse.value.data;
       console.log('Key metrics data:', JSON.stringify(keyMetricsData, null, 2));
 
@@ -326,15 +430,11 @@ export async function GET(request: NextRequest) {
 
       result.sharesOutstanding = sharesOutstandingData;
       console.log('Shares Outstanding data:', result.sharesOutstanding);
-    } else {
-      console.log('Key metrics data not available or failed');
-      if (keyMetricsResponse.status === 'rejected') {
-        console.log('Key metrics error:', keyMetricsResponse.reason);
-      }
     }
 
     // Process EPS data from Finnhub
-    if (epsResponse.status === 'fulfilled' && epsResponse.value.data) {
+    const epsCheck = checkResponse(epsResponse, 'EPS', 'Finnhub');
+    if (!epsCheck.isError && epsResponse.status === 'fulfilled' && epsResponse.value.data) {
       const epsData = epsResponse.value.data;
       console.log('EPS data:', JSON.stringify(epsData, null, 2));
       
@@ -396,11 +496,24 @@ export async function GET(request: NextRequest) {
       }
       
       console.log('EPS data processed:', result.eps);
-    } else {
-      console.log('EPS data not available or failed');
-      if (epsResponse.status === 'rejected') {
-        console.log('EPS error:', epsResponse.reason);
-      }
+    }
+
+    // Check if there were any rate limit errors
+    const hasRateLimitErrors = result.errors.some((err: string) => err.toLowerCase().includes('rate limit'));
+    if (hasRateLimitErrors) {
+      console.warn('Rate limit errors detected:', result.errors.filter((err: string) => err.toLowerCase().includes('rate limit')));
+    }
+
+    // Check if there were any forbidden/403 errors
+    const hasForbiddenErrors = result.errors.some((err: string) => err.toLowerCase().includes('forbidden') || err.includes('403'));
+    if (hasForbiddenErrors) {
+      console.warn('Forbidden/403 errors detected (API key may need premium subscription):', result.errors.filter((err: string) => err.toLowerCase().includes('forbidden') || err.includes('403')));
+    }
+
+    // Check if we have any data at all
+    const hasAnyData = result.revenue.length > 0 || result.freeCashFlow.length > 0 || result.netIncome.length > 0;
+    if (!hasAnyData && result.errors.length > 0) {
+      console.error('No data returned and errors present:', result.errors);
     }
 
     console.log('Final graphs result:', result);

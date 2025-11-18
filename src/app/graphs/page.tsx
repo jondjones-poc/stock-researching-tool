@@ -22,12 +22,15 @@ interface GraphsData {
   eps: ChartData[];
   operatingIncome: ChartData[];
   error?: string;
+  errors?: string[];
+  symbol?: string;
 }
 
 export default function Graphs() {
   const [symbol, setSymbol] = useState('');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<GraphsData | null>(null);
+  const [openDialog, setOpenDialog] = useState<'growth' | 'dividend' | 'value' | null>(null);
 
   // Auto-load data if symbol exists in localStorage
   useEffect(() => {
@@ -125,31 +128,69 @@ export default function Graphs() {
     return null;
   };
 
+  const strategyContent = {
+    growth: [
+      { title: 'Revenue growth', description: 'Shows how fast the company is expanding its sales, which is the core driver of growth valuations.' },
+      { title: 'Gross margin', description: 'Signals how much profit the company keeps from each sale and whether scale will lead to stronger earnings later.' },
+      { title: 'Operating margin', description: 'Helps you see if the business can turn fast growth into real profitability.' },
+      { title: 'Free cash flow (FCF)', description: 'Important because many growth firms run at a loss, so strong cash generation proves the model works.' },
+      { title: 'Price-to-sales (P/S) ratio', description: 'Used because earnings may be low or negative, so sales-based valuations matter more.' },
+    ],
+    dividend: [
+      { title: 'Dividend payout ratio', description: 'Shows how much of earnings go toward dividends and whether the payout is sustainable.' },
+      { title: 'Dividend yield', description: 'Tells you how much income you receive for every pound invested.' },
+      { title: 'Free cash flow (FCF)', description: 'Important because dividends are paid in cash, not accounting profits.' },
+      { title: 'Debt-to-equity ratio', description: 'High debt can threaten long-term dividend safety during downturns.' },
+      { title: 'Earnings stability', description: 'Reliable profits support reliable dividends.' },
+    ],
+    value: [
+      { title: 'Price-to-earnings (P/E) ratio', description: 'Measures how cheap or expensive the stock is relative to its earnings.' },
+      { title: 'Price-to-book (P/B) ratio', description: 'Helpful for finding undervalued companies trading below the worth of their assets.' },
+      { title: 'Free cash flow yield', description: 'Shows how much cash the company produces compared to its market value.' },
+      { title: 'Return on equity (ROE)', description: 'Indicates how well management turns assets into profits.' },
+      { title: 'Debt levels', description: 'High leverage can hide risks that make a stock look cheap for the wrong reasons.' },
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <main className="max-w-6xl mx-auto p-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+        <div className="mb-8 flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
             📈 Financial Graphs
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Analyze free cash flow, share buybacks, and revenue trends over time
-          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setOpenDialog('growth')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium"
+            >
+              Growth
+            </button>
+            <button
+              onClick={() => setOpenDialog('dividend')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium"
+            >
+              Dividend
+            </button>
+            <button
+              onClick={() => setOpenDialog('value')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium"
+            >
+              Value
+            </button>
+          </div>
         </div>
 
         {/* Stock Symbol Input */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
           <form onSubmit={handleSubmit} className="flex gap-4">
             <div className="flex-1">
-              <label htmlFor="symbol" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Stock Symbol
-              </label>
               <input
                 type="text"
                 id="symbol"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                placeholder="Enter stock symbol (e.g., AAPL, MSFT, GOOGL)"
+                placeholder="Stock Symbol"
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                 required
               />
@@ -167,9 +208,31 @@ export default function Graphs() {
         </div>
 
         {/* Error Display */}
-        {data?.error && (
+        {(data?.error || (data?.errors && data.errors.length > 0)) && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-8">
-            <p className="text-red-800 dark:text-red-200">{data.error}</p>
+            <p className="text-red-800 dark:text-red-200 font-semibold mb-2">
+              {data.error || `API Errors Detected${data?.symbol ? ` for ${data.symbol}` : ''}`}
+            </p>
+            {data?.errors && Array.isArray(data.errors) && data.errors.length > 0 && (
+              <div className="mt-2">
+                <p className="text-red-700 dark:text-red-300 text-sm mb-1">Detailed errors:</p>
+                <ul className="list-disc list-inside text-red-600 dark:text-red-400 text-sm space-y-1">
+                  {data.errors.map((err: string, index: number) => (
+                    <li key={index}>{err}</li>
+                  ))}
+                </ul>
+                {data.errors.some((err: string) => err.toLowerCase().includes('rate limit')) && (
+                  <p className="text-orange-600 dark:text-orange-400 text-sm mt-2">
+                    ⚠️ Rate limit detected. Please wait a moment before trying again.
+                  </p>
+                )}
+                {data.errors.some((err: string) => err.toLowerCase().includes('forbidden') || err.includes('403')) && (
+                  <p className="text-orange-600 dark:text-orange-400 text-sm mt-2">
+                    ⚠️ Access forbidden (403) detected. Some endpoints may require a premium API subscription or additional permissions. The Key Metrics endpoint is often premium-only.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -608,6 +671,46 @@ export default function Graphs() {
               ) : (
                 <p className="text-gray-500 dark:text-gray-400">No operating income data available</p>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Strategy Dialog */}
+        {openDialog && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={() => setOpenDialog(null)}
+          >
+            <div 
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-start mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white capitalize">
+                  {openDialog === 'growth' ? 'Growth' : openDialog === 'dividend' ? 'Dividend' : 'Value'}
+                </h2>
+                <button
+                  onClick={() => setOpenDialog(null)}
+                  className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                  aria-label="Close dialog"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="space-y-6">
+                {strategyContent[openDialog].map((item, index) => (
+                  <div key={index} className="border-b border-gray-200 dark:border-gray-700 pb-4 last:border-b-0 last:pb-0">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                      {item.title}
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {item.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
