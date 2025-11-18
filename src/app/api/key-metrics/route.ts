@@ -20,8 +20,8 @@ export async function GET(request: NextRequest) {
     
     // Fetch key metrics and financial ratios data from FMP in parallel
     const [metricsResponse, ratiosResponse] = await Promise.allSettled([
-      axios.get(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/api/v3/ratios/${symbol}?limit=1&apikey=${FMP_API_KEY}`, { timeout: 10000 })
+      axios.get(`https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/ratios?symbol=${symbol}&limit=1&apikey=${FMP_API_KEY}`, { timeout: 10000 })
     ]);
 
     if (metricsResponse.status === 'fulfilled' && metricsResponse.value.data && metricsResponse.value.data.length > 0) {

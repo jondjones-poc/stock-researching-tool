@@ -39,12 +39,12 @@ export async function GET(request: NextRequest) {
     
     // Fetch all data in parallel - use quarterly for supported endpoints
     const [cashFlowResponse, incomeStatementResponse, portfolioResponse, dividendResponse, keyMetricsResponse, epsResponse] = await Promise.allSettled([
-      axios.get(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       // Use FMP for historical prices since Finnhub has access restrictions
-      axios.get(`https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/api/v3/historical-price-full/stock_dividend/${symbol}?apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${FINNHUB_API_KEY}`, { timeout: 10000 })
     ]);
 
@@ -76,6 +76,12 @@ export async function GET(request: NextRequest) {
           return { isError: true, isRateLimited: true, isForbidden: false };
         }
         
+        if (statusCode === 402) {
+          result.errors.push(`${endpointName} (${symbol}): Payment required (402) - ${apiProvider} endpoint - This may indicate your daily/monthly API quota has been exceeded or the endpoint requires a premium subscription`);
+          console.error(`${endpointName} payment required (402):`, error.response?.data || error.message);
+          return { isError: true, isRateLimited: false, isForbidden: false };
+        }
+        
         if (statusCode === 403) {
           const errorDetails = error.response?.data || error.message;
           // Check if it's an invalid API key issue
@@ -102,6 +108,12 @@ export async function GET(request: NextRequest) {
         result.errors.push(`${endpointName} (${symbol}): Rate limit exceeded - ${apiProvider} endpoint`);
         console.error(`${endpointName} rate limited:`, response.value.data);
         return { isError: true, isRateLimited: true, isForbidden: false };
+      }
+      
+      if (response.value.status === 402) {
+        result.errors.push(`${endpointName} (${symbol}): Payment required (402) - ${apiProvider} endpoint - This may indicate your daily/monthly API quota has been exceeded or the endpoint requires a premium subscription`);
+        console.error(`${endpointName} payment required (402):`, response.value.data);
+        return { isError: true, isRateLimited: false, isForbidden: false };
       }
       
       if (response.value.status === 403) {

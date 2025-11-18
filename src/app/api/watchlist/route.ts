@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     if (fmpSymbols.length > 0) {
       try {
         const response = await axios.get(
-          `https://financialmodelingprep.com/api/v3/quote/${fmpSymbols.join(',')}?apikey=${FMP_API_KEY}`,
+          `https://financialmodelingprep.com/stable/quote?symbol=${fmpSymbols.join(',')}&apikey=${FMP_API_KEY}`,
           { timeout: 10000 }
         );
 
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
         for (const symbol of fmpSymbols) {
           try {
             const response = await axios.get(
-              `https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${FMP_API_KEY}`,
+              `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${FMP_API_KEY}`,
               { timeout: 5000 }
             );
             

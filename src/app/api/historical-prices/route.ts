@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     }
 
     // Otherwise use FMP API (default)
-    let url = `https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?apikey=${FMP_API_KEY}`;
+    let url = `https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&apikey=${FMP_API_KEY}`;
     
     if (from && to) {
       url += `&from=${from}&to=${to}`;

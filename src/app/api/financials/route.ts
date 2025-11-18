@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     if (FMP_API_KEY) {
       try {
         // Fetch income statement data from FMP to get EPS directly
-        const fmpResponse = await axios.get(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 });
+        const fmpResponse = await axios.get(`https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 });
         if (fmpResponse.data && fmpResponse.data.length > 0) {
           // Get the latest EPS value from the most recent income statement
           const latestIncomeStatement = fmpResponse.data[0];

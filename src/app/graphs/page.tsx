@@ -226,6 +226,11 @@ export default function Graphs() {
                     ⚠️ Rate limit detected. Please wait a moment before trying again.
                   </p>
                 )}
+                {data.errors.some((err: string) => err.toLowerCase().includes('payment required') || err.includes('402')) && (
+                  <p className="text-orange-600 dark:text-orange-400 text-sm mt-2">
+                    ⚠️ Payment required (402) detected. Your daily API quota may be exceeded (250 calls/day). Please check your FMP dashboard or wait until the quota resets.
+                  </p>
+                )}
                 {data.errors.some((err: string) => err.toLowerCase().includes('forbidden') || err.includes('403')) && (
                   <p className="text-orange-600 dark:text-orange-400 text-sm mt-2">
                     ⚠️ Access forbidden (403) detected. Some endpoints may require a premium API subscription or additional permissions. The Key Metrics endpoint is often premium-only.

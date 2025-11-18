@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   try {
     // Fetch quote data from Financial Modeling Prep
     const quoteResponse = await axios.get(
-      `https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${FMP_API_KEY}`,
+      `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${FMP_API_KEY}`,
       { timeout: 10000 }
     );
 

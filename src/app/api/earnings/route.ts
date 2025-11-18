@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Use earnings-surprises endpoint instead of earning_calendar (which requires premium subscription)
-    const url = `https://financialmodelingprep.com/api/v3/earnings-surprises/${symbol}?apikey=${apiKey}`;
+    const url = `https://financialmodelingprep.com/stable/earnings-surprises?symbol=${symbol}&apikey=${apiKey}`;
     
     const response = await fetch(url);
     

@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
   try {
     // Fetch income statement data and analyst estimates
     const [incomeStatementResponse, analystEstimatesResponse] = await Promise.allSettled([
-      axios.get(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=5&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/api/v3/analyst-estimates/${symbol}?apikey=${FMP_API_KEY}`, { timeout: 10000 })
+      axios.get(`https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&limit=5&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/analyst-estimates?symbol=${symbol}&apikey=${FMP_API_KEY}`, { timeout: 10000 })
     ]);
 
     const result: any = {
