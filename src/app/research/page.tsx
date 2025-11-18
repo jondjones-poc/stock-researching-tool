@@ -17,30 +17,33 @@ interface InsiderData {
     eps?: number;
   };
   keyMetrics?: {
-    sharesOutstanding: number;
-    marketCap: number;
-    enterpriseValue: number;
+    sharesOutstanding?: number;
+    marketCap?: number;
+    enterpriseValue?: number;
     roic?: number;
     payoutRatio?: number;
+    error?: string;
   };
   peRatios?: {
-    currentPE: number;
-    forwardPE1Year: number;
-    forwardPE2Year: number;
-    currentPrice: number;
-    eps2025: number;
-    eps2026: number;
-    dividendPerShare: number;
-    dividendYield: number;
-    dividendGrowthRate: number;
-    industryAveragePE: number;
-    sector: string;
+    currentPE?: number;
+    forwardPE1Year?: number;
+    forwardPE2Year?: number;
+    currentPrice?: number;
+    eps2025?: number;
+    eps2026?: number;
+    dividendPerShare?: number;
+    dividendYield?: number;
+    dividendGrowthRate?: number;
+    industryAveragePE?: number;
+    sector?: string;
+    error?: string;
   };
   fmp?: {
-    sharesOutstanding: number;
-    fmpPE: number;
-    marketCap: number;
-    price: number;
+    sharesOutstanding?: number;
+    fmpPE?: number;
+    marketCap?: number;
+    price?: number;
+    error?: string;
   };
   earningsGrowth?: {
     historicalGrowthRate: number;
@@ -49,12 +52,13 @@ interface InsiderData {
     analystData: any;
   };
   dividendHistory?: {
-    symbol: string;
-    historicalDividends: Array<{date: string, dividend: number, adjustedDividend: number}>;
-    dividendsByYear: { [year: string]: number };
-    currentYearProjected: boolean;
-    dividendGrowthRate: number | null;
-    latestDividend: number | null;
+    symbol?: string;
+    historicalDividends?: Array<{date: string, dividend: number, adjustedDividend: number}>;
+    dividendsByYear?: { [year: string]: number };
+    currentYearProjected?: boolean;
+    dividendGrowthRate?: number | null;
+    latestDividend?: number | null;
+    error?: string;
   };
   finnhubMetrics?: {
     metric: {
@@ -134,13 +138,19 @@ export default function Home() {
 
       // Process PE Ratios data
       if (peRatiosRes.status === 'fulfilled' && peRatiosRes.value.ok) {
-        result.peRatios = await peRatiosRes.value.json();
-        console.log('PE Ratios data received:', result.peRatios);
+        const peRatiosData = await peRatiosRes.value.json();
+        console.log('PE Ratios data received:', peRatiosData);
+        // Always include the error field if present, even on successful responses
+        result.peRatios = peRatiosData;
       } else {
         console.log('PE Ratios request failed:', peRatiosRes);
         if (peRatiosRes.status === 'fulfilled') {
+          const errorData = await peRatiosRes.value.json().catch(() => ({}));
+          result.peRatios = { error: errorData.error || 'Failed to fetch PE ratios data', currentPE: 0, forwardPE1Year: 0, forwardPE2Year: 0, currentPrice: 0 };
           console.log('PE Ratios response status:', peRatiosRes.value?.status);
-          console.log('PE Ratios response text:', await peRatiosRes.value?.text());
+          console.log('PE Ratios error:', errorData.error);
+        } else {
+          result.peRatios = { error: 'PE Ratios request failed', currentPE: 0, forwardPE1Year: 0, forwardPE2Year: 0, currentPrice: 0 };
         }
       }
 
@@ -151,8 +161,12 @@ export default function Home() {
       } else {
         console.log('FMP request failed:', fmpRes);
         if (fmpRes.status === 'fulfilled') {
+          const errorData = await fmpRes.value.json().catch(() => ({}));
+          result.fmp = { error: errorData.error || 'Failed to fetch FMP data' };
           console.log('FMP response status:', fmpRes.value?.status);
-          console.log('FMP response text:', await fmpRes.value?.text());
+          console.log('FMP error:', errorData.error);
+        } else {
+          result.fmp = { error: 'FMP request failed' };
         }
       }
 
@@ -178,8 +192,12 @@ export default function Home() {
       } else {
         console.log('Key Metrics request failed:', keyMetricsRes);
         if (keyMetricsRes.status === 'fulfilled') {
+          const errorData = await keyMetricsRes.value.json().catch(() => ({}));
+          result.keyMetrics = { error: errorData.error || 'Failed to fetch key metrics data' };
           console.log('Key Metrics response status:', keyMetricsRes.value?.status);
-          console.log('Key Metrics response text:', await keyMetricsRes.value?.text());
+          console.log('Key Metrics error:', errorData.error);
+        } else {
+          result.keyMetrics = { error: 'Key Metrics request failed' };
         }
       }
 
@@ -192,8 +210,12 @@ export default function Home() {
       } else {
         console.log('Dividend History request failed:', dividendHistoryRes);
         if (dividendHistoryRes.status === 'fulfilled') {
+          const errorData = await dividendHistoryRes.value.json().catch(() => ({}));
+          result.dividendHistory = { error: errorData.error || 'Failed to fetch dividend history data', symbol: symbolToFetch.toUpperCase() };
           console.log('Dividend History response status:', dividendHistoryRes.value?.status);
-          console.log('Dividend History response text:', await dividendHistoryRes.value?.text());
+          console.log('Dividend History error:', errorData.error);
+        } else {
+          result.dividendHistory = { error: 'Dividend History request failed', symbol: symbolToFetch.toUpperCase() };
         }
       }
 
@@ -448,9 +470,11 @@ export default function Home() {
                           {data.fmp.fmpPE.toFixed(2)}x
                         </p>
                       ) : (
-                        <p className="text-sm text-red-500 dark:text-red-400 italic">
-                          ⚠️ API failed - rate limit
-                        </p>
+                        data.fmp?.error && (
+                          <p className="text-sm text-red-500 dark:text-red-400 italic">
+                            ⚠️ {data.fmp.error}
+                          </p>
+                        )
                       )}
                     </div>
 
@@ -604,9 +628,15 @@ export default function Home() {
                       })() : (
                         <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg border border-gray-300 dark:border-gray-600">
                           <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">ROIC (Return on Invested Capital)</p>
-                          <p className="text-sm text-red-500 dark:text-red-400 italic">
-                            ⚠️ API failed - rate limit
-                          </p>
+                          {data.keyMetrics?.error ? (
+                            <p className="text-sm text-red-500 dark:text-red-400 italic">
+                              ⚠️ {data.keyMetrics.error}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-red-500 dark:text-red-400 italic">
+                              ⚠️ No data available
+                            </p>
+                          )}
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                             20%+ = Wide moat, efficient compounding
                           </p>
@@ -628,15 +658,29 @@ export default function Home() {
              {/* Current PE Ratio */}
              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Current P/E Ratio</p>
-               <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                 {data.peRatios.currentPE ? `${data.peRatios.currentPE.toFixed(2)}x` : 'N/A'}
-               </p>
-               {data.peRatios.currentPrice && (
+               {data.peRatios?.error ? (
+                 <div className="text-sm text-red-500 dark:text-red-400 italic">
+                   ⚠️ <div className="whitespace-pre-line">{data.peRatios.error}</div>
+                 </div>
+               ) : data.peRatios?.currentPE ? (
+                 <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                   {data.peRatios.currentPE.toFixed(2)}x
+                 </p>
+               ) : data.peRatios ? (
+                 <div className="text-sm text-red-500 dark:text-red-400 italic">
+                   ⚠️ <div className="whitespace-pre-line">Finnhub https://finnhub.io/api/v1/stock/metric?symbol={data.symbol || data.peRatios?.symbol || 'SYMBOL'} - Failed{'\n'}API failed - no data available</div>
+                 </div>
+               ) : (
+                 <div className="text-sm text-red-500 dark:text-red-400 italic">
+                   ⚠️ <div className="whitespace-pre-line">Finnhub https://finnhub.io/api/v1/stock/metric?symbol=SYMBOL - Failed{'\n'}API failed - no data available</div>
+                 </div>
+               )}
+               {data.peRatios?.currentPrice && (
                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                    Price: ${data.peRatios.currentPrice.toFixed(2)}
                  </p>
                )}
-               {data.peRatios.industryAveragePE && data.peRatios.sector && (
+               {data.peRatios?.industryAveragePE && data.peRatios?.sector && (
                  <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-700">
                    <p className="text-xs text-gray-500 dark:text-gray-400">
                      {data.peRatios.sector} Industry Avg: {data.peRatios.industryAveragePE.toFixed(1)}x
@@ -797,9 +841,15 @@ export default function Home() {
                             </div>
                           </>
                         ) : (
-                          <p className="text-sm text-red-500 dark:text-red-400 italic">
-                            ⚠️ API failed - rate limit
-                          </p>
+                          data.keyMetrics?.error ? (
+                            <p className="text-sm text-red-500 dark:text-red-400 italic">
+                              ⚠️ {data.keyMetrics.error}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-red-500 dark:text-red-400 italic">
+                              ⚠️ No data available
+                            </p>
+                          )
                         )}
                       </div>
                     </div>
@@ -856,9 +906,15 @@ export default function Home() {
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                           Historical Dividends (2020-Current)
                         </p>
-                        <p className="text-sm text-red-500 dark:text-red-400 italic">
-                          ⚠️ API failed - rate limit
-                        </p>
+                        {data.dividendHistory?.error ? (
+                          <p className="text-sm text-red-500 dark:text-red-400 italic">
+                            ⚠️ {data.dividendHistory.error}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-red-500 dark:text-red-400 italic">
+                            ⚠️ No data available
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

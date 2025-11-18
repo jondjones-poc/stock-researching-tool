@@ -152,9 +152,22 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error fetching dividend history from FMP:', error.message);
+    const statusCode = error.response?.status;
+    let errorMessage = 'Failed to fetch dividend history data from FMP';
+    
+    if (statusCode === 429) {
+      errorMessage = `FMP https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol} - rate limit`;
+    } else if (statusCode === 402) {
+      errorMessage = `FMP https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol} - payment required (402)`;
+    } else if (statusCode === 403) {
+      errorMessage = `FMP https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol} - forbidden (403)`;
+    } else if (statusCode) {
+      errorMessage = `FMP https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol} - HTTP ${statusCode}`;
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to fetch dividend history data from FMP', details: error.message },
-      { status: 500 }
+      { error: errorMessage, details: error.message },
+      { status: statusCode || 500 }
     );
   }
 }
