@@ -38,14 +38,13 @@ export async function GET(request: NextRequest) {
     fromDate.setFullYear(toDate.getFullYear() - 10);
     
     // Fetch all data in parallel - use quarterly for supported endpoints
-    // Note: Free tier limits 'limit' parameter to max 5
     const [cashFlowResponse, incomeStatementResponse, portfolioResponse, dividendResponse, keyMetricsResponse, epsResponse] = await Promise.allSettled([
-      axios.get(`https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&limit=5&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&limit=5&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       // Use FMP for historical prices since Finnhub has access restrictions
       axios.get(`https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=5&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${FINNHUB_API_KEY}`, { timeout: 10000 })
     ]);
 

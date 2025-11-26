@@ -49,22 +49,9 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error fetching FMP data:', error.message);
-    const statusCode = error.response?.status;
-    let errorMessage = 'Failed to fetch FMP data';
-    
-    if (statusCode === 429) {
-      errorMessage = `FMP https://financialmodelingprep.com/stable/quote?symbol=${symbol} - rate limit`;
-    } else if (statusCode === 402) {
-      errorMessage = `FMP https://financialmodelingprep.com/stable/quote?symbol=${symbol} - payment required (402)`;
-    } else if (statusCode === 403) {
-      errorMessage = `FMP https://financialmodelingprep.com/stable/quote?symbol=${symbol} - forbidden (403)`;
-    } else if (statusCode) {
-      errorMessage = `FMP https://financialmodelingprep.com/stable/quote?symbol=${symbol} - HTTP ${statusCode}`;
-    }
-    
     return NextResponse.json(
-      { error: errorMessage, details: error.message },
-      { status: statusCode || 500 }
+      { error: 'Failed to fetch FMP data', details: error.message },
+      { status: 500 }
     );
   }
 }

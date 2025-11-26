@@ -73,34 +73,16 @@ export async function GET(request: NextRequest) {
       sector: null
     };
 
-      // Process quote data for current price
-    if (quoteResponse.status === 'fulfilled' && quoteResponse.value.status === 200 && quoteResponse.value.data) {
+    // Process quote data for current price
+    if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
       const quote = quoteResponse.value.data;
       result.currentPrice = quote.c;
       
       console.log('Quote data:', JSON.stringify(quote, null, 2));
-    } else if (quoteResponse.status === 'rejected') {
-      const error = quoteResponse.reason;
-      const statusCode = error.response?.status;
-      if (statusCode === 429) {
-        result.error = `Finnhub https://finnhub.io/api/v1/quote?symbol=${symbol} - Failed\nAPI failed - rate limit`;
-      } else if (statusCode) {
-        result.error = `Finnhub https://finnhub.io/api/v1/quote?symbol=${symbol} - Failed\nAPI failed - HTTP ${statusCode}`;
-      } else {
-        result.error = `Finnhub https://finnhub.io/api/v1/quote?symbol=${symbol} - Failed\nAPI failed - request failed`;
-      }
-    } else if (quoteResponse.status === 'fulfilled' && quoteResponse.value.status !== 200) {
-      // HTTP request succeeded but returned non-200 status
-      const statusCode = quoteResponse.value.status;
-      if (statusCode === 429) {
-        result.error = `Finnhub https://finnhub.io/api/v1/quote?symbol=${symbol} - Failed\nAPI failed - rate limit`;
-      } else {
-        result.error = `Finnhub https://finnhub.io/api/v1/quote?symbol=${symbol} - Failed\nAPI failed - HTTP ${statusCode}`;
-      }
     }
 
     // Process metrics data for PE ratios
-    if (metricsResponse.status === 'fulfilled' && metricsResponse.value.status === 200 && metricsResponse.value.data) {
+    if (metricsResponse.status === 'fulfilled' && metricsResponse.value.data) {
       const metrics = metricsResponse.value.data;
       
       console.log('Metrics data:', JSON.stringify(metrics, null, 2));
@@ -137,31 +119,12 @@ export async function GET(request: NextRequest) {
     } else {
       console.log('Metrics data not available or failed');
       if (metricsResponse.status === 'rejected') {
-        const error = metricsResponse.reason;
-        const statusCode = error.response?.status;
-        if (statusCode === 429) {
-          // Metrics endpoint is critical for PE ratio, so prioritize its error
-          result.error = `Finnhub https://finnhub.io/api/v1/stock/metric?symbol=${symbol} - Failed\nAPI failed - rate limit`;
-        } else if (statusCode) {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/metric?symbol=${symbol} - Failed\nAPI failed - HTTP ${statusCode}`;
-        } else {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/metric?symbol=${symbol} - Failed\nAPI failed - request failed`;
-        }
         console.log('Metrics data error:', metricsResponse.reason);
-      } else if (metricsResponse.status === 'fulfilled' && metricsResponse.value.status !== 200) {
-        // HTTP request succeeded but returned non-200 status
-        const statusCode = metricsResponse.value.status;
-        if (statusCode === 429) {
-          // Metrics endpoint is critical for PE ratio, so prioritize its error
-          result.error = `Finnhub https://finnhub.io/api/v1/stock/metric?symbol=${symbol} - Failed\nAPI failed - rate limit`;
-        } else {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/metric?symbol=${symbol} - Failed\nAPI failed - HTTP ${statusCode}`;
-        }
       }
     }
 
     // Process company profile data for sector information and earnings estimates
-    if (profileResponse.status === 'fulfilled' && profileResponse.value.status === 200 && profileResponse.value.data) {
+    if (profileResponse.status === 'fulfilled' && profileResponse.value.data) {
       const profile = profileResponse.value.data;
       
       console.log('Company profile data:', JSON.stringify(profile, null, 2));
@@ -197,30 +160,8 @@ export async function GET(request: NextRequest) {
     } else {
       console.log('Company profile data not available or failed');
       if (profileResponse.status === 'rejected') {
-        const error = profileResponse.reason;
-        const statusCode = error.response?.status;
-        if (statusCode === 429) {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/profile2?symbol=${symbol} - Failed\nAPI failed - rate limit`;
-        } else if (statusCode) {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/profile2?symbol=${symbol} - Failed\nAPI failed - HTTP ${statusCode}`;
-        } else {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/profile2?symbol=${symbol} - Failed\nAPI failed - request failed`;
-        }
         console.log('Company profile error:', profileResponse.reason);
-      } else if (profileResponse.status === 'fulfilled' && profileResponse.value.status !== 200) {
-        // HTTP request succeeded but returned non-200 status
-        const statusCode = profileResponse.value.status;
-        if (statusCode === 429) {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/profile2?symbol=${symbol} - Failed\nAPI failed - rate limit`;
-        } else {
-          result.error = result.error || `Finnhub https://finnhub.io/api/v1/stock/profile2?symbol=${symbol} - Failed\nAPI failed - HTTP ${statusCode}`;
-        }
       }
-    }
-    
-    // If no critical data was retrieved and no error was set, set a generic error
-    if (!result.currentPE && !result.error) {
-      result.error = `Finnhub https://finnhub.io/api/v1/stock/metric?symbol=${symbol} - Failed\nAPI failed - no data available`;
     }
 
     // Calculate forward PE using EPS growth rates from metrics (only if earnings estimates not available)
@@ -254,18 +195,9 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error fetching PE ratios:', error.message);
-    const statusCode = error.response?.status;
-    let errorMessage = 'Failed to fetch PE ratio data';
-    
-    if (statusCode === 429) {
-      errorMessage = `Finnhub API - Failed\nAPI failed - rate limit`;
-    } else if (statusCode) {
-      errorMessage = `Finnhub API - Failed\nAPI failed - HTTP ${statusCode}`;
-    }
-    
     return NextResponse.json(
-      { error: errorMessage, details: error.message },
-      { status: statusCode || 500 }
+      { error: 'Failed to fetch PE ratio data', details: error.message },
+      { status: 500 }
     );
   }
 }
