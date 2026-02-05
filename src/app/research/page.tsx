@@ -15,6 +15,8 @@ interface InsiderData {
     revenue: number;
     netIncome: number;
     eps?: number;
+    totalDebt?: number;
+    cashAndCashEquivalents?: number;
   };
   keyMetrics?: {
     sharesOutstanding: number;
@@ -22,12 +24,14 @@ interface InsiderData {
     enterpriseValue: number;
     roic?: number;
     payoutRatio?: number;
+    error?: string;
   };
   peRatios?: {
     currentPE: number;
     forwardPE1Year: number;
     forwardPE2Year: number;
     currentPrice: number;
+    marketCap?: number;
     eps2025: number;
     eps2026: number;
     dividendPerShare: number;
@@ -41,6 +45,7 @@ interface InsiderData {
     fmpPE: number;
     marketCap: number;
     price: number;
+    error?: string;
   };
   earningsGrowth?: {
     historicalGrowthRate: number;
@@ -60,9 +65,14 @@ interface InsiderData {
     metric: {
       marketCapitalization: number;
       enterpriseValue: number;
-      totalDebt: number;
-      cashAndCashEquivalents: number;
+      totalDebt?: number;
+      cashAndCashEquivalents?: number;
+      peTTM?: number;
+      [key: string]: any;
     };
+    sharesOutstanding?: number;
+    totalDebt?: number;
+    cashAndCashEquivalents?: number;
   };
   error?: string;
 }
@@ -177,6 +187,10 @@ export default function Home() {
         result.keyMetrics = await keyMetricsRes.value.json();
         console.log('Key Metrics data received:', result.keyMetrics);
         console.log('Shares Outstanding:', result.keyMetrics?.sharesOutstanding);
+        console.log('ROIC:', result.keyMetrics?.roic);
+        console.log('ROIC type:', typeof result.keyMetrics?.roic);
+        console.log('ROIC is null?', result.keyMetrics?.roic === null);
+        console.log('ROIC is undefined?', result.keyMetrics?.roic === undefined);
       } else {
         console.log('Key Metrics request failed:', keyMetricsRes);
         if (keyMetricsRes.status === 'fulfilled') {
@@ -490,72 +504,333 @@ export default function Home() {
                     )}
 
                     {/* Shares Outstanding */}
-                    {(data.keyMetrics || data.fmp) && (
-                      <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-                        <div className="flex justify-between items-start mb-1">
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Shares Outstanding</p>
-                          <button
-                            onClick={() => {
-                              const sharesOutstanding = data.keyMetrics?.sharesOutstanding || data.fmp?.sharesOutstanding;
-                              if (sharesOutstanding) {
-                                navigator.clipboard.writeText(sharesOutstanding.toString());
-                              }
-                            }}
-                            className="text-xs bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-700 transition-colors"
-                          >
-                            Copy
-                          </button>
+                    {(() => {
+                      // Only use direct API values - no calculations
+                      // Priority: FMP Profile API (most accurate), then FMP Key Metrics API
+                      let sharesOutstanding: number | null = null;
+                      let wasConverted = false;
+                      let rawValue: number | null = null;
+                      let apiEndpoint = '';
+                      
+                      // Check direct API sources
+                      // Priority: FMP Profile API, FMP Share Float API (via FMP route), Finnhub Metrics API, FMP Key Metrics API
+                      if (data.fmp?.sharesOutstanding !== null && data.fmp?.sharesOutstanding !== undefined && typeof data.fmp.sharesOutstanding === 'number') {
+                        sharesOutstanding = data.fmp.sharesOutstanding;
+                        rawValue = data.fmp.sharesOutstanding;
+                        // FMP route tries Profile API first, then Share Float API, so we label it generically
+                        apiEndpoint = 'FMP API (Profile/Share Float)';
+                      } else if (data.finnhubMetrics?.sharesOutstanding !== null && data.finnhubMetrics?.sharesOutstanding !== undefined && typeof data.finnhubMetrics.sharesOutstanding === 'number') {
+                        sharesOutstanding = data.finnhubMetrics.sharesOutstanding;
+                        rawValue = data.finnhubMetrics.sharesOutstanding;
+                        apiEndpoint = 'Finnhub Metrics API';
+                      } else if (data.keyMetrics?.sharesOutstanding !== null && data.keyMetrics?.sharesOutstanding !== undefined && typeof data.keyMetrics.sharesOutstanding === 'number') {
+                        sharesOutstanding = data.keyMetrics.sharesOutstanding;
+                        rawValue = data.keyMetrics.sharesOutstanding;
+                        apiEndpoint = 'FMP Key Metrics API';
+                      }
+                      
+                      // Check if the value appears to be in millions (small number like 66, 59.64, etc.)
+                      // If it's less than 10,000, it's likely in millions
+                      if (sharesOutstanding !== null && sharesOutstanding > 0 && sharesOutstanding < 10000) {
+                        const originalValue = sharesOutstanding;
+                        sharesOutstanding = Math.round(sharesOutstanding * 1000000);
+                        wasConverted = true;
+                      }
+                      
+                      // Always show the box, even if data is not available
+                      return (
+                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                          <div className="flex justify-between items-start mb-1">
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Shares Outstanding</p>
+                            {sharesOutstanding !== null && sharesOutstanding > 0 && (
+                              <button
+                                onClick={() => {
+                                  if (sharesOutstanding) {
+                                    navigator.clipboard.writeText(sharesOutstanding.toString());
+                                  }
+                                }}
+                                className="text-xs bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-700 transition-colors"
+                              >
+                                Copy
+                              </button>
+                            )}
+                          </div>
+                          {sharesOutstanding !== null && sharesOutstanding > 0 ? (
+                            <>
+                              <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                                {sharesOutstanding.toString()}
+                              </p>
+                              {apiEndpoint && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {apiEndpoint}
+                                  {wasConverted && rawValue && `: ${rawValue.toString()}`}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                              No data available from API
+                              {(data.fmp?.error || data.keyMetrics?.error) && (
+                                <span className="block text-xs text-red-500 dark:text-red-400 mt-1">
+                                  (API rate limit or error - please try again later)
+                                </span>
+                              )}
+                            </p>
+                          )}
                         </div>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                          {data.keyMetrics?.sharesOutstanding ? data.keyMetrics.sharesOutstanding.toLocaleString() : 
-                           data.fmp?.sharesOutstanding ? data.fmp.sharesOutstanding.toLocaleString() : 'N/A'}
-                        </p>
-                        {data.fmp?.marketCap && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            Market Cap: ${(data.fmp.marketCap / 1000000000).toFixed(1)}B
-                          </p>
-                        )}
-                      </div>
-                    )}
+                      );
+                    })()}
 
-                    {/* FMP PE Ratio */}
-                    <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">P/E Ratio</p>
-                      {data.fmp && data.fmp.fmpPE ? (
-                        <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                          {data.fmp.fmpPE.toFixed(2)}x
-                        </p>
-                      ) : (
-                        <p className="text-sm text-red-500 dark:text-red-400 italic">
-                          ⚠️ API failed - rate limit
-                        </p>
-                      )}
-                    </div>
+                    {/* P/E Ratio */}
+                    {(() => {
+                      // Try to get P/E Ratio from multiple sources
+                      // Priority: FMP PE, PE Ratios API (currentPE), Finnhub Metrics API (peTTM)
+                      let peRatio: number | null = null;
+                      let apiSource = '';
+                      
+                      if (data.fmp?.fmpPE && typeof data.fmp.fmpPE === 'number' && data.fmp.fmpPE > 0) {
+                        peRatio = data.fmp.fmpPE;
+                        apiSource = 'FMP Quote API';
+                      } else if (data.peRatios?.currentPE && typeof data.peRatios.currentPE === 'number' && data.peRatios.currentPE > 0) {
+                        peRatio = data.peRatios.currentPE;
+                        apiSource = 'PE Ratios API (Finnhub)';
+                      } else if (data.finnhubMetrics?.metric?.peTTM && typeof data.finnhubMetrics.metric.peTTM === 'number' && data.finnhubMetrics.metric.peTTM > 0) {
+                        peRatio = data.finnhubMetrics.metric.peTTM;
+                        apiSource = 'Finnhub Metrics API';
+                      }
+                      
+                      return (
+                        <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">P/E Ratio</p>
+                          {peRatio !== null && peRatio > 0 ? (
+                            <>
+                              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                                {peRatio.toFixed(2)}x
+                              </p>
+                              {apiSource && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {apiSource}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                              No data available from API
+                              {data.fmp?.error && (
+                                <span className="block text-xs text-red-500 dark:text-red-400 mt-1">
+                                  (API rate limit or error - please try again later)
+                                </span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Enterprise Value */}
-                    {data.finnhubMetrics?.metric?.enterpriseValue && (
-                      <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg">
-                        <div className="flex justify-between items-start mb-1">
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Enterprise Value</p>
-                          <button
-                            onClick={() => {
-                              if (data.finnhubMetrics?.metric?.enterpriseValue) {
-                                navigator.clipboard.writeText(data.finnhubMetrics.metric.enterpriseValue.toString());
-                              }
-                            }}
-                            className="text-xs bg-indigo-100 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded hover:bg-indigo-200 dark:hover:bg-indigo-700 transition-colors"
-                          >
-                            Copy
-                          </button>
+                    {(() => {
+                      // Try to get Enterprise Value from direct API sources
+                      // Priority: Finnhub Metrics API (enterpriseValue), then calculate from Market Cap + Debt - Cash
+                      let enterpriseValue: number | null = null;
+                      let source = '';
+                      
+                      // Method 1: Use Enterprise Value directly from Finnhub Metrics API
+                      if (data.finnhubMetrics?.metric?.enterpriseValue && data.finnhubMetrics.metric.enterpriseValue > 0) {
+                        enterpriseValue = data.finnhubMetrics.metric.enterpriseValue * 1000000; // Convert from millions to actual value
+                        source = 'Finnhub Metrics API';
+                      }
+                      // Method 2: Calculate from Market Cap + Total Debt - Cash
+                      else {
+                        // Get Market Cap (from various sources)
+                        let marketCap: number | null = null;
+                        const fmpMC = data.fmp?.marketCap;
+                        const finnhubQuoteMC = data.peRatios?.marketCap;
+                        const finnhubMetricsMC = data.finnhubMetrics?.metric?.marketCapitalization;
+                        const keyMetricsMC = data.keyMetrics?.marketCap;
+                        
+                        if (fmpMC && fmpMC > 0) {
+                          marketCap = fmpMC;
+                        } else if (finnhubQuoteMC && finnhubQuoteMC > 0) {
+                          marketCap = finnhubQuoteMC;
+                        } else if (finnhubMetricsMC && finnhubMetricsMC > 0) {
+                          marketCap = finnhubMetricsMC * 1000000; // Convert from millions
+                        } else if (keyMetricsMC && keyMetricsMC > 0) {
+                          marketCap = keyMetricsMC;
+                        }
+                        
+                        // Get Total Debt (from various sources)
+                        let totalDebt: number | null = null;
+                        const finnhubMetricsDebt = data.finnhubMetrics?.totalDebt;
+                        const finnhubMetricsDebt2 = data.finnhubMetrics?.metric?.totalDebt ? data.finnhubMetrics.metric.totalDebt * 1000000 : null;
+                        const financialsDebt = data.financials?.totalDebt;
+                        
+                        if (finnhubMetricsDebt && finnhubMetricsDebt > 0) {
+                          totalDebt = finnhubMetricsDebt;
+                        } else if (finnhubMetricsDebt2 && finnhubMetricsDebt2 > 0) {
+                          totalDebt = finnhubMetricsDebt2;
+                        } else if (financialsDebt && financialsDebt > 0) {
+                          totalDebt = financialsDebt;
+                        }
+                        
+                        // Get Cash (from various sources)
+                        let cash: number | null = null;
+                        const finnhubMetricsCash = data.finnhubMetrics?.cashAndCashEquivalents;
+                        const finnhubMetricsCash2 = data.finnhubMetrics?.metric?.cashAndCashEquivalents ? data.finnhubMetrics.metric.cashAndCashEquivalents * 1000000 : null;
+                        const financialsCash = data.financials?.cashAndCashEquivalents;
+                        
+                        if (finnhubMetricsCash && finnhubMetricsCash > 0) {
+                          cash = finnhubMetricsCash;
+                        } else if (finnhubMetricsCash2 && finnhubMetricsCash2 > 0) {
+                          cash = finnhubMetricsCash2;
+                        } else if (financialsCash && financialsCash > 0) {
+                          cash = financialsCash;
+                        }
+                        
+                        // Calculate Enterprise Value: Market Cap + Total Debt - Cash
+                        if (marketCap && totalDebt !== null && cash !== null) {
+                          enterpriseValue = marketCap + (totalDebt || 0) - (cash || 0);
+                          if (enterpriseValue > 0) {
+                            source = `Calculated: Market Cap (${(marketCap/1000000000).toFixed(1)}B) + Debt (${((totalDebt || 0)/1000000000).toFixed(1)}B) - Cash (${((cash || 0)/1000000000).toFixed(1)}B)`;
+                          }
+                        }
+                      }
+                      
+                      // Only show if we have a valid Enterprise Value
+                      if (!enterpriseValue || enterpriseValue <= 0) return null;
+                      
+                      return (
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg">
+                          <div className="flex justify-between items-start mb-1">
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Enterprise Value</p>
+                            <button
+                              onClick={() => {
+                                if (enterpriseValue) {
+                                  navigator.clipboard.writeText(enterpriseValue.toString());
+                                }
+                              }}
+                              className="text-xs bg-indigo-100 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded hover:bg-indigo-200 dark:hover:bg-indigo-700 transition-colors"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                            ${enterpriseValue.toString()}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {source || 'Market Cap + Total Debt - Cash'}
+                          </p>
                         </div>
-                        <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                          ${(data.finnhubMetrics.metric.enterpriseValue / 1000000000).toFixed(1)}B
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Market Cap + Total Debt - Cash
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
+
+                    {/* Market Cap */}
+                    {(() => {
+                      // Try to get market cap from direct sources (check each one explicitly, must be > 0)
+                      // Priority: FMP Profile API (mktCap), Finnhub Quote API (mc), Finnhub Metrics API, FMP Key Metrics API
+                      let apiMarketCap: number | null = null;
+                      let apiSource = '';
+                      const fmpMC = data.fmp?.marketCap; // From FMP Profile API (mktCap)
+                      const finnhubQuoteMC = data.peRatios?.marketCap; // From Finnhub Quote API (mc)
+                      const finnhubMetricsMC = data.finnhubMetrics?.metric?.marketCapitalization;
+                      const keyMetricsMC = data.keyMetrics?.marketCap;
+                      
+                      // Only use API values if they are explicitly > 0 (not 0, not null, not undefined)
+                      // Note: Finnhub Metrics API returns marketCapitalization in millions, so we need to convert it
+                      if (fmpMC && typeof fmpMC === 'number' && fmpMC > 0) {
+                        apiMarketCap = fmpMC;
+                        apiSource = 'FMP Profile API';
+                      } else if (finnhubQuoteMC && typeof finnhubQuoteMC === 'number' && finnhubQuoteMC > 0) {
+                        apiMarketCap = finnhubQuoteMC;
+                        apiSource = 'Finnhub Quote API';
+                      } else if (finnhubMetricsMC && typeof finnhubMetricsMC === 'number' && finnhubMetricsMC > 0) {
+                        // Finnhub Metrics API returns marketCapitalization in millions, convert to actual value
+                        apiMarketCap = finnhubMetricsMC * 1000000;
+                        apiSource = 'Finnhub Metrics API';
+                      } else if (keyMetricsMC && typeof keyMetricsMC === 'number' && keyMetricsMC > 0) {
+                        apiMarketCap = keyMetricsMC;
+                        apiSource = 'FMP Key Metrics API';
+                      }
+                      
+                      // Determine which market cap to use
+                      let marketCap: number | null = null;
+                      let calculationMethod = '';
+                      
+                      // Method 1: Use API value if it exists and is greater than 0
+                      if (apiMarketCap && apiMarketCap > 0) {
+                        marketCap = apiMarketCap;
+                        calculationMethod = apiSource || 'From API';
+                      } 
+                      // Method 2: Calculate from Enterprise Value - Total Debt + Cash
+                      else if (data.finnhubMetrics?.metric?.enterpriseValue && 
+                               data.finnhubMetrics?.metric?.enterpriseValue > 0 &&
+                               data.finnhubMetrics?.metric?.totalDebt !== undefined && 
+                               data.finnhubMetrics?.metric?.cashAndCashEquivalents !== undefined) {
+                        const ev = data.finnhubMetrics.metric.enterpriseValue;
+                        const debt = data.finnhubMetrics.metric.totalDebt || 0;
+                        const cash = data.finnhubMetrics.metric.cashAndCashEquivalents || 0;
+                        marketCap = ev - debt + cash;
+                        if (marketCap > 0) {
+                          calculationMethod = `Calculated: EV (${(ev/1000000000).toFixed(1)}B) - Debt (${(debt/1000000000).toFixed(1)}B) + Cash (${(cash/1000000000).toFixed(1)}B)`;
+                        } else {
+                          marketCap = null; // Reset if calculation resulted in 0 or negative
+                        }
+                      }
+                      // Method 3: Calculate from share price × shares outstanding (try multiple combinations)
+                      if (!marketCap || marketCap <= 0) {
+                        // Try different combinations of price and shares sources
+                        const priceSources = [
+                          data.peRatios?.currentPrice,
+                          data.fmp?.price
+                        ].filter(p => p && typeof p === 'number' && p > 0);
+                        
+                        const sharesSources = [
+                          data.keyMetrics?.sharesOutstanding,
+                          data.fmp?.sharesOutstanding
+                        ].filter(s => s && typeof s === 'number' && s > 0);
+                        
+                        // Try all combinations
+                        for (const price of priceSources) {
+                          for (const shares of sharesSources) {
+                            if (price && shares && price > 0 && shares > 0) {
+                              const calculated = price * shares;
+                              if (calculated > 0) {
+                                marketCap = calculated;
+                                calculationMethod = `Calculated: $${price.toFixed(2)} × ${shares.toLocaleString()} shares`;
+                                break;
+                              }
+                            }
+                          }
+                          if (marketCap && marketCap > 0) break;
+                        }
+                      }
+                      
+                      // Only show if we have a valid market cap (must be > 0)
+                      if (!marketCap || marketCap <= 0) return null;
+                      
+                      return (
+                        <div className="bg-teal-50 dark:bg-teal-900/20 p-4 rounded-lg">
+                          <div className="flex justify-between items-start mb-1">
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Market Cap</p>
+                            <button
+                              onClick={() => {
+                                if (marketCap) {
+                                  navigator.clipboard.writeText(marketCap.toString());
+                                }
+                              }}
+                              className="text-xs bg-teal-100 dark:bg-teal-800 text-teal-700 dark:text-teal-300 px-2 py-1 rounded hover:bg-teal-200 dark:hover:bg-teal-700 transition-colors"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <p className="text-2xl font-bold text-teal-600 dark:text-teal-400">
+                            ${marketCap.toString()}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {calculationMethod || 'From API'}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Revenue and Net Income Section */}
@@ -578,7 +853,7 @@ export default function Home() {
                             </button>
                           </div>
                           <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                            ${data.financials.revenue.toLocaleString()}
+                            ${data.financials.revenue.toString()}
                           </p>
                         </div>
                       )}
@@ -600,46 +875,36 @@ export default function Home() {
                             </button>
                           </div>
                           <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                            ${data.financials.netIncome.toLocaleString()}
+                            ${data.financials.netIncome.toString()}
                           </p>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Stock Price and 5-Year Growth Rate - Bottom of Financial Information */}
-                  {(data.peRatios || data.fmp) && (
+                  {/* Stock Price and ROIC - Bottom of Financial Information */}
+                  {(data.peRatios || data.fmp || data.keyMetrics) && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Stock Price - Left Side (50% width) */}
-                      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Stock Price</p>
-                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                          {data.peRatios?.currentPrice ? `$${data.peRatios.currentPrice.toFixed(2)}` : 
-                           data.fmp?.price ? `$${data.fmp.price.toFixed(2)}` : 'N/A'}
-                        </p>
-                        {data.peRatios?.currentPrice && data.fmp?.price && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {Math.abs(data.peRatios.currentPrice - data.fmp.price) < 0.01 ? 'Price consistent' : 'Price varies by source'}
+                      {/* Stock Price - 50% width */}
+                      {(data.peRatios || data.fmp) ? (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Stock Price</p>
+                          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                            {data.peRatios?.currentPrice ? `$${data.peRatios.currentPrice.toFixed(2)}` : 
+                             data.fmp?.price ? `$${data.fmp.price.toFixed(2)}` : 'N/A'}
                           </p>
-                        )}
-                      </div>
-
-                      {/* 5-Year Growth Rate - Right Side (50% width) */}
-                      {data.peRatios && data.peRatios.dividendGrowthRate && (
-                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">5-Year Growth Rate</p>
-                          <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                            {data.peRatios.dividendGrowthRate.toFixed(1)}%
-                          </p>
+                          {data.peRatios?.currentPrice && data.fmp?.price && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {Math.abs(data.peRatios.currentPrice - data.fmp.price) < 0.01 ? 'Price consistent' : 'Price varies by source'}
+                            </p>
+                          )}
                         </div>
+                      ) : (
+                        <div></div>
                       )}
-                    </div>
-                  )}
 
-                  {/* ROIC - 50% width section at bottom */}
-                  <div className="mt-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {data.keyMetrics && data.keyMetrics.roic !== null && data.keyMetrics.roic !== undefined ? (() => {
+                      {/* ROIC - 50% width */}
+                      {data.keyMetrics && typeof data.keyMetrics.roic === 'number' ? (() => {
                         const roicPercent = data.keyMetrics.roic * 100;
                         const isHigh = roicPercent >= 20;
                         const isMedium = roicPercent > 12.5 && roicPercent < 20;
@@ -682,8 +947,8 @@ export default function Home() {
                       })() : (
                         <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg border border-gray-300 dark:border-gray-600">
                           <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">ROIC (Return on Invested Capital)</p>
-                          <p className="text-sm text-red-500 dark:text-red-400 italic">
-                            ⚠️ API failed - rate limit
+                          <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                            No data available from API
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                             20%+ = Wide moat, efficient compounding
@@ -691,7 +956,19 @@ export default function Home() {
                         </div>
                       )}
                     </div>
-                  </div>
+                  )}
+
+                  {/* 5-Year Growth Rate - Separate row if available */}
+                  {data.peRatios && data.peRatios.dividendGrowthRate && (
+                    <div className="mt-4">
+                      <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">5-Year Growth Rate</p>
+                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                          {data.peRatios.dividendGrowthRate.toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
