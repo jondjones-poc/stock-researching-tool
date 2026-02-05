@@ -370,7 +370,7 @@ export default function CompanyWatchlistPage() {
         fetch(`/api/fmp?symbol=${formData.stock.toUpperCase()}`)
       ]);
 
-      let updatedFields: Partial<StockValuation> = {};
+      const updatedFields: Partial<StockValuation> = {};
 
       // Process Financials data for Gross Profit (%)
       if (financialsRes.status === 'fulfilled' && financialsRes.value.ok) {
