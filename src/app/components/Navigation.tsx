@@ -24,6 +24,26 @@ export default function Navigation() {
               📊 Dashboard
             </Link>
             <Link 
+              href="/monthly-watchlist" 
+              className={`text-lg font-semibold transition-colors ${
+                pathname === '/monthly-watchlist' 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              📅 Watchlist
+            </Link>
+            <Link 
+              href="/watchlist" 
+              className={`text-lg font-semibold transition-colors ${
+                pathname === '/watchlist' 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              📋 Company Data
+            </Link>
+            <Link 
               href="/research" 
               className={`text-lg font-semibold transition-colors ${
                 pathname === '/research' 
@@ -31,7 +51,17 @@ export default function Navigation() {
                   : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
               }`}
             >
-              🔍 Company Research
+              🔍 Research
+            </Link>
+            <Link 
+              href="/compare" 
+              className={`text-lg font-semibold transition-colors ${
+                pathname === '/compare' 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              ⚖️ Compare
             </Link>
             <Link 
               href="/dcf" 
@@ -41,7 +71,17 @@ export default function Navigation() {
                   : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
               }`}
             >
-              💰 DCF Calculator
+              💰 DCF
+            </Link>
+            <Link 
+              href="/ddm" 
+              className={`text-lg font-semibold transition-colors ${
+                pathname === '/ddm' 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              💎 DDM
             </Link>
             <Link 
               href="/graphs" 
@@ -52,16 +92,6 @@ export default function Navigation() {
               }`}
             >
               📈 Graphs
-            </Link>
-            <Link 
-              href="/ddm" 
-              className={`text-lg font-semibold transition-colors ${
-                pathname === '/ddm' 
-                  ? 'text-blue-600 dark:text-blue-400' 
-                  : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
-              }`}
-            >
-              💎 DDM Calculator
             </Link>
           </div>
           <div className="flex items-center space-x-4">

@@ -1,0 +1,62 @@
+-- Create table for stock valuations
+CREATE TABLE IF NOT EXISTS stock_valuations (
+    id SERIAL PRIMARY KEY,
+    stock VARCHAR(10) NOT NULL,
+    buy_price DECIMAL(10, 2),
+    active_price DECIMAL(10, 2),
+    dcf_price DECIMAL(10, 2),
+    ddm_price DECIMAL(10, 2),
+    reit_valuation DECIMAL(10, 2),
+    average_valuations DECIMAL(10, 2),
+    dividend_per_share DECIMAL(10, 2),
+    gross_profit_pct DECIMAL(5, 2),
+    roic DECIMAL(5, 2),
+    long_term_earning_growth DECIMAL(5, 2),
+    simplywall_valuation DECIMAL(5, 2),
+    change_pct DECIMAL(5, 2),
+    year_high DECIMAL(10, 2),
+    year_low DECIMAL(10, 2),
+    pe DECIMAL(10, 2),
+    eps DECIMAL(10, 2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insert sample data for CRM
+INSERT INTO stock_valuations (
+    stock,
+    buy_price,
+    active_price,
+    dcf_price,
+    ddm_price,
+    reit_valuation,
+    average_valuations,
+    dividend_per_share,
+    gross_profit_pct,
+    roic,
+    long_term_earning_growth,
+    simplywall_valuation,
+    change_pct,
+    year_high,
+    year_low,
+    pe,
+    eps
+) VALUES (
+    'CRM',
+    238.88,
+    198.59,
+    265.00,
+    NULL,
+    NULL,
+    265.00,
+    1.66,
+    89.10,
+    8.12,
+    13.70,
+    -28.60,
+    1.11,
+    348.04,
+    187.28,
+    26.46,
+    7.5
+);

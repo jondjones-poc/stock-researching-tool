@@ -26,7 +26,10 @@ export async function GET(request: NextRequest) {
       sharesOutstanding: null,
       fmpPE: null,
       marketCap: null,
-      price: null
+      price: null,
+      yearHigh: null,
+      yearLow: null,
+      changePercent: null
     };
 
     if (quoteResponse.data && quoteResponse.data.length > 0) {
@@ -38,9 +41,17 @@ export async function GET(request: NextRequest) {
       result.fmpPE = quote.pe;
       result.marketCap = quote.marketCap;
       result.price = quote.price;
+      // Get year high/low - FMP might use yearHigh/yearLow or yearHigh52/yearLow52
+      result.yearHigh = quote.yearHigh || quote.yearHigh52 || null;
+      result.yearLow = quote.yearLow || quote.yearLow52 || null;
+      // Get change percentage - FMP uses changesPercentage field
+      result.changePercent = quote.changesPercentage || quote.changePercent || null;
       
       console.log('Shares Outstanding:', result.sharesOutstanding);
       console.log('FMP PE:', result.fmpPE);
+      console.log('Year High:', result.yearHigh);
+      console.log('Year Low:', result.yearLow);
+      console.log('Change %:', result.changePercent);
     }
 
     console.log('Final FMP result:', result);

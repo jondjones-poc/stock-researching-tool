@@ -45,6 +45,7 @@ export default function DDMPage() {
   const [ddmWithSafety, setDdmWithSafety] = useState<number>(0);
   const [terminalValue, setTerminalValue] = useState<number>(0);
   const [verdict, setVerdict] = useState<string>('');
+  const [symbol, setSymbol] = useState<string>('');
 
   // Function to load data from localStorage
   const loadDataFromStorage = () => {
@@ -52,6 +53,11 @@ export default function DDMPage() {
       const dcfData = localStorage.getItem('dcfData');
       if (dcfData) {
         const parsedData = JSON.parse(dcfData);
+        
+        // Load symbol
+        if (parsedData.symbol) {
+          setSymbol(parsedData.symbol);
+        }
         
         // Load current price
         if (parsedData.stockPrice && parsedData.stockPrice > 0) {
@@ -286,7 +292,13 @@ export default function DDMPage() {
           </h1>
 
           {/* Summary/Verdict Section */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-5 gap-4 mb-8">
+            {symbol && (
+              <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
+                <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Symbol</h3>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{symbol}</p>
+              </div>
+            )}
             {showCurrentPrice && (
               <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
                 <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Current Price</h3>
@@ -339,8 +351,8 @@ export default function DDMPage() {
                 <p className="text-gray-600 dark:text-gray-400 mb-2">
                   No dividend data loaded. Please search for a dividend-paying stock on the Company Research page first.
                 </p>
-                <Link 
-                  href="/"
+                <Link
+                  href="/research"
                   className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
                 >
                   Go to Company Research →

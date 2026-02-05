@@ -71,6 +71,8 @@ export default function Home() {
   const [symbol, setSymbol] = useState('');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<InsiderData | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Auto-load data if symbol exists in localStorage
   useEffect(() => {
@@ -329,6 +331,66 @@ export default function Home() {
     }
   };
 
+  const handleSaveToWatchlist = async () => {
+    if (!data || !data.symbol) {
+      setSaveMessage({ type: 'error', text: 'No stock data available to save' });
+      return;
+    }
+
+    setSaving(true);
+    setSaveMessage(null);
+
+    try {
+      // Map the data fields according to user requirements
+      const stockValuation = {
+        stock: data.symbol,
+        active_price: data.peRatios?.currentPrice || data.fmp?.price || null,
+        gross_profit_pct: data.financials?.grossProfitMargin 
+          ? data.financials.grossProfitMargin * 100  // Convert decimal to percentage
+          : null,
+        dividend_per_share: data.peRatios?.dividendPerShare || null,
+        long_term_earning_growth: data.earningsGrowth?.analystGrowthRate 
+          ? data.earningsGrowth.analystGrowthRate * 100  // Convert decimal to percentage
+          : (data.earningsGrowth?.historicalGrowthRate 
+            ? data.earningsGrowth.historicalGrowthRate * 100  // Fallback to historical if analyst not available
+            : null),
+        pe: data.peRatios?.currentPE || data.fmp?.fmpPE || null,
+        eps: data.financials?.eps || null,
+      };
+
+      const response = await fetch('/api/stock-valuations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(stockValuation),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setSaveMessage({ 
+          type: 'error', 
+          text: result.error || 'Failed to save to watchlist' 
+        });
+        return;
+      }
+
+      setSaveMessage({ 
+        type: 'success', 
+        text: `Successfully saved ${data.symbol} to Company Watchlist!` 
+      });
+    } catch (error: any) {
+      console.error('Error saving to watchlist:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        text: `Error saving to watchlist: ${error.message || 'Unknown error'}` 
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       {/* Navigation Header */}
@@ -337,10 +399,26 @@ export default function Home() {
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
             Company Research
           </h1>
+          <button
+            onClick={handleSaveToWatchlist}
+            disabled={saving || !data || !data.symbol}
+            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            {saving ? 'Saving...' : '💾 Save to Watchlist'}
+          </button>
         </div>
         <p className="text-gray-600 dark:text-gray-300 mt-2">
           Enter a stock symbol to view insider trading data and financial analysis
         </p>
+        {saveMessage && (
+          <div className={`mt-4 p-4 rounded-lg ${
+            saveMessage.type === 'success' 
+              ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' 
+              : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
+          }`}>
+            {saveMessage.text}
+          </div>
+        )}
       </div>
 
       <main className="max-w-4xl mx-auto">
@@ -360,7 +438,7 @@ export default function Home() {
                 disabled={loading || !symbol.trim()}
                 className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
               >
-                {loading ? 'Loading...' : 'Submit'}
+                {loading ? 'Loading...' : 'Search'}
               </button>
               <button
                 type="button"

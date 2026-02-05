@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       axios.get(`https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       // Use FMP for historical prices since Finnhub has access restrictions
-      axios.get(`https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
+      axios.get(`https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${symbol}&from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol}&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=10&apikey=${FMP_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${FINNHUB_API_KEY}`, { timeout: 10000 })
@@ -330,11 +330,12 @@ export async function GET(request: NextRequest) {
 
       const portfolioValueData: Array<{year: string, value: number, change?: number}> = [];
 
-      if (portfolioData.historical && Array.isArray(portfolioData.historical)) {
+      // The historical-price-eod/full endpoint returns data directly as an array
+      if (Array.isArray(portfolioData)) {
         // Group by year and take the last price of each year
         const yearlyData: {[year: string]: number} = {};
         
-        portfolioData.historical.forEach((item: any) => {
+        portfolioData.forEach((item: any) => {
           const year = item.date?.substring(0, 4) || 'Unknown';
           if (year !== 'Unknown' && item.close) {
             yearlyData[year] = item.close;

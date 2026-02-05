@@ -70,15 +70,25 @@ export async function GET(request: NextRequest) {
       dividendYield: null,
       dividendGrowthRate: null,
       industryAveragePE: null,
-      sector: null
+      sector: null,
+      changePercent: null,
+      yearHigh: null,
+      yearLow: null
     };
 
-    // Process quote data for current price
+    // Process quote data for current price, change percent, year high/low
     if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
       const quote = quoteResponse.value.data;
       result.currentPrice = quote.c;
+      // Finnhub quote API returns dp (change percent) as a percentage value (e.g., 1.5 = 1.5%)
+      result.changePercent = quote.dp !== null && quote.dp !== undefined ? quote.dp : null;
+      result.yearHigh = quote.h !== null && quote.h !== undefined ? quote.h : null;
+      result.yearLow = quote.l !== null && quote.l !== undefined ? quote.l : null;
       
       console.log('Quote data:', JSON.stringify(quote, null, 2));
+      console.log('Change % from Finnhub:', result.changePercent);
+      console.log('Year High from Finnhub:', result.yearHigh);
+      console.log('Year Low from Finnhub:', result.yearLow);
     }
 
     // Process metrics data for PE ratios

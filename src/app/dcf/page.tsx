@@ -25,11 +25,117 @@ export default function DCFCalculator() {
     peHigh: { bear: 0, base: 0, bull: 0 },
     stockPrice: 0
   });
+  const [dbSymbol, setDbSymbol] = useState('');
+  const [dbLoading, setDbLoading] = useState(false);
+  const [dbSaving, setDbSaving] = useState(false);
+  const [dbMessage, setDbMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [dcfDbId, setDcfDbId] = useState<string | null>(null);
+  const [dcfList, setDcfList] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
+  const [selectedDcfId, setSelectedDcfId] = useState<string>('');
+  const [loadingList, setLoadingList] = useState(false);
+  const [savingToWatchlist, setSavingToWatchlist] = useState(false);
 
   useEffect(() => {
+    loadDcfList();
     loadData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const loadDcfList = async () => {
+    setLoadingList(true);
+    setDbMessage(null);
+    try {
+      const response = await fetch('/api/dcf/list');
+      const result = await response.json();
+      
+      if (response.ok && result.data) {
+        setDcfList(result.data);
+        if (result.data.length === 0) {
+          setDbMessage({ type: 'error', text: 'No DCF entries found in database' });
+        }
+      } else {
+        const errorMsg = result.details || result.error || 'Failed to load DCF list';
+        console.error('Failed to load DCF list:', errorMsg, result);
+        setDbMessage({ 
+          type: 'error', 
+          text: `Failed to load DCF list: ${errorMsg}${result.hint ? ` (${result.hint})` : ''}` 
+        });
+        setDcfList([]);
+      }
+    } catch (error: any) {
+      console.error('Error loading DCF list:', error);
+      setDbMessage({ 
+        type: 'error', 
+        text: `Error loading DCF list: ${error.message || 'Unknown error'}` 
+      });
+      setDcfList([]);
+    } finally {
+      setLoadingList(false);
+    }
+  };
+
+  const handleDcfSelect = async (id: string) => {
+    if (!id) return;
+    
+    setSelectedDcfId(id);
+    setDbLoading(true);
+    setDbMessage(null);
+
+    try {
+      const response = await fetch(`/api/dcf?id=${id}`);
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage({ type: 'error', text: result.error || 'Failed to load from database' });
+        setDbLoading(false);
+        return;
+      }
+
+      const data = result.data;
+      setDcfDbId(result.id);
+
+      // Update dcfData state
+      setDcfData(data);
+
+      // Update formData state
+      setFormData({
+        revenueGrowth: {
+          bear: (data.revenueGrowth.bear || 0) * 100,
+          base: (data.revenueGrowth.base || 0) * 100,
+          bull: (data.revenueGrowth.bull || 0) * 100
+        },
+        netIncomeGrowth: {
+          bear: (data.netIncomeGrowth.bear || 0) * 100,
+          base: (data.netIncomeGrowth.base || 0) * 100,
+          bull: (data.netIncomeGrowth.bull || 0) * 100
+        },
+        peLow: {
+          bear: Math.round(data.peLow.bear || 0),
+          base: Math.round(data.peLow.base || 0),
+          bull: Math.round(data.peLow.bull || 0)
+        },
+        peHigh: {
+          bear: Math.round(data.peHigh.bear || 0),
+          base: Math.round(data.peHigh.base || 0),
+          bull: Math.round(data.peHigh.bull || 0)
+        },
+        stockPrice: data.stockPrice || 0
+      });
+
+      // Store in localStorage as well
+      storeDCFData(data);
+
+      // Calculate projections
+      calculateProjections(data);
+
+      setDbMessage({ type: 'success', text: `Loaded DCF data for ${data.symbol} from database` });
+    } catch (error: any) {
+      console.error('Error loading from database:', error);
+      setDbMessage({ type: 'error', text: error.message || 'Failed to load from database' });
+    } finally {
+      setDbLoading(false);
+    }
+  };
 
   // Debug projections state changes
   useEffect(() => {
@@ -267,7 +373,390 @@ export default function DCFCalculator() {
     return `${(value * 100).toFixed(2)}%`;
   };
 
+  const loadFromDatabase = async () => {
+    if (!dbSymbol.trim()) {
+      setDbMessage({ type: 'error', text: 'Please enter a symbol' });
+      return;
+    }
 
+    setDbLoading(true);
+    setDbMessage(null);
+
+    try {
+      const response = await fetch(`/api/dcf?symbol=${encodeURIComponent(dbSymbol.trim().toUpperCase())}`);
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage({ type: 'error', text: result.error || 'Failed to load from database' });
+        setDbLoading(false);
+        return;
+      }
+
+      const data = result.data;
+      setDcfDbId(result.id);
+
+      // Update dcfData state
+      setDcfData(data);
+
+      // Update formData state
+      setFormData({
+        revenueGrowth: {
+          bear: (data.revenueGrowth.bear || 0) * 100,
+          base: (data.revenueGrowth.base || 0) * 100,
+          bull: (data.revenueGrowth.bull || 0) * 100
+        },
+        netIncomeGrowth: {
+          bear: (data.netIncomeGrowth.bear || 0) * 100,
+          base: (data.netIncomeGrowth.base || 0) * 100,
+          bull: (data.netIncomeGrowth.bull || 0) * 100
+        },
+        peLow: {
+          bear: Math.round(data.peLow.bear || 0),
+          base: Math.round(data.peLow.base || 0),
+          bull: Math.round(data.peLow.bull || 0)
+        },
+        peHigh: {
+          bear: Math.round(data.peHigh.bear || 0),
+          base: Math.round(data.peHigh.base || 0),
+          bull: Math.round(data.peHigh.bull || 0)
+        },
+        stockPrice: data.stockPrice || 0
+      });
+
+      // Store in localStorage as well
+      storeDCFData(data);
+
+      // Calculate projections
+      calculateProjections(data);
+
+      setDbMessage({ type: 'success', text: `Loaded DCF data for ${data.symbol} from database` });
+    } catch (error: any) {
+      console.error('Error loading from database:', error);
+      setDbMessage({ type: 'error', text: error.message || 'Failed to load from database' });
+    } finally {
+      setDbLoading(false);
+    }
+  };
+
+  const handleSaveDcf = async () => {
+    if (!dcfData || !dcfData.symbol) {
+      setDbMessage({ type: 'error', text: 'No DCF data or symbol to save' });
+      return;
+    }
+
+    setDbSaving(true);
+    setDbMessage(null);
+
+    try {
+      const dataToSave: DCFData = {
+        ...dcfData,
+        revenueGrowth: {
+          bear: formData.revenueGrowth.bear / 100,
+          base: formData.revenueGrowth.base / 100,
+          bull: formData.revenueGrowth.bull / 100
+        },
+        netIncomeGrowth: {
+          bear: formData.netIncomeGrowth.bear / 100,
+          base: formData.netIncomeGrowth.base / 100,
+          bull: formData.netIncomeGrowth.bull / 100
+        },
+        peLow: {
+          bear: Math.round(formData.peLow.bear),
+          base: Math.round(formData.peLow.base),
+          bull: Math.round(formData.peLow.bull)
+        },
+        peHigh: {
+          bear: Math.round(formData.peHigh.bear),
+          base: Math.round(formData.peHigh.base),
+          bull: Math.round(formData.peHigh.bull)
+        },
+        stockPrice: formData.stockPrice,
+        timestamp: new Date().toISOString()
+      };
+
+      // First, check if a record with this symbol exists in DCF table
+      const checkResponse = await fetch(`/api/dcf?symbol=${encodeURIComponent(dcfData.symbol.toUpperCase())}`);
+      const checkResult = await checkResponse.json();
+
+      let response;
+      let isUpdate = false;
+
+      if (checkResponse.ok && checkResult.id) {
+        // Symbol exists, update the existing record
+        isUpdate = true;
+        response = await fetch(`/api/dcf?id=${checkResult.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave)
+        });
+        setDcfDbId(checkResult.id);
+      } else {
+        // Symbol doesn't exist, create new record
+        response = await fetch('/api/dcf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave)
+        });
+      }
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage({ type: 'error', text: result.error || 'Failed to save to database' });
+        setDbSaving(false);
+        return;
+      }
+
+      if (result.id && !isUpdate) {
+        setDcfDbId(result.id);
+      }
+
+      // Calculate DCF price from projections (use base case share price high from final year)
+      let dcfPrice = null;
+      if (projections && projections.sharePriceHigh && projections.sharePriceHigh.base) {
+        const basePrices = projections.sharePriceHigh.base;
+        if (basePrices.length > 0) {
+          dcfPrice = basePrices[basePrices.length - 1]; // Get the final year price
+        }
+      }
+
+      // Check if symbol exists in stock_valuations table and update dcf_price
+      if (dcfPrice !== null) {
+        try {
+          const watchlistCheckResponse = await fetch(`/api/stock-valuations?stock=${encodeURIComponent(dcfData.symbol.toUpperCase())}`);
+          const watchlistCheckResult = await watchlistCheckResponse.json();
+
+          if (watchlistCheckResponse.ok && watchlistCheckResult.data && watchlistCheckResult.id) {
+            // Symbol exists in watchlist, update dcf_price
+            const updateResponse = await fetch(`/api/stock-valuations?id=${watchlistCheckResult.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                stock: watchlistCheckResult.data.stock,
+                buy_price: watchlistCheckResult.data.buy_price,
+                active_price: watchlistCheckResult.data.active_price,
+                dcf_price: dcfPrice,
+                ddm_price: watchlistCheckResult.data.ddm_price,
+                reit_valuation: watchlistCheckResult.data.reit_valuation,
+                average_valuations: watchlistCheckResult.data.average_valuations,
+                dividend_per_share: watchlistCheckResult.data.dividend_per_share,
+                gross_profit_pct: watchlistCheckResult.data.gross_profit_pct,
+                roic: watchlistCheckResult.data.roic,
+                long_term_earning_growth: watchlistCheckResult.data.long_term_earning_growth,
+                simplywall_valuation: watchlistCheckResult.data.simplywall_valuation,
+                change_pct: watchlistCheckResult.data.change_pct,
+                year_high: watchlistCheckResult.data.year_high,
+                year_low: watchlistCheckResult.data.year_low,
+                pe: watchlistCheckResult.data.pe,
+                eps: watchlistCheckResult.data.eps
+              })
+            });
+
+            if (!updateResponse.ok) {
+              console.warn('Failed to update watchlist dcf_price:', await updateResponse.json());
+            }
+          }
+        } catch (watchlistError) {
+          console.warn('Error updating watchlist dcf_price:', watchlistError);
+          // Don't fail the whole save if watchlist update fails
+        }
+      }
+
+      // Reload the list to show the updated/new entry
+      await loadDcfList();
+
+      setDbMessage({ 
+        type: 'success', 
+        text: isUpdate ? `DCF data for ${dcfData.symbol} updated in database` : `DCF data for ${dcfData.symbol} saved to database` 
+      });
+    } catch (error: any) {
+      console.error('Error saving to database:', error);
+      setDbMessage({ type: 'error', text: error.message || 'Failed to save to database' });
+    } finally {
+      setDbSaving(false);
+    }
+  };
+
+  const saveToDatabase = async () => {
+    if (!dcfData || !dcfData.symbol) {
+      setDbMessage({ type: 'error', text: 'No DCF data or symbol to save' });
+      return;
+    }
+
+    setDbSaving(true);
+    setDbMessage(null);
+
+    try {
+      const dataToSave: DCFData = {
+        ...dcfData,
+        revenueGrowth: {
+          bear: formData.revenueGrowth.bear / 100,
+          base: formData.revenueGrowth.base / 100,
+          bull: formData.revenueGrowth.bull / 100
+        },
+        netIncomeGrowth: {
+          bear: formData.netIncomeGrowth.bear / 100,
+          base: formData.netIncomeGrowth.base / 100,
+          bull: formData.netIncomeGrowth.bull / 100
+        },
+        peLow: {
+          bear: Math.round(formData.peLow.bear),
+          base: Math.round(formData.peLow.base),
+          bull: Math.round(formData.peLow.bull)
+        },
+        peHigh: {
+          bear: Math.round(formData.peHigh.bear),
+          base: Math.round(formData.peHigh.base),
+          bull: Math.round(formData.peHigh.bull)
+        },
+        stockPrice: formData.stockPrice,
+        timestamp: new Date().toISOString()
+      };
+
+      // First, check if a record with this symbol exists
+      const checkResponse = await fetch(`/api/dcf?symbol=${encodeURIComponent(dcfData.symbol.toUpperCase())}`);
+      const checkResult = await checkResponse.json();
+
+      let response;
+      let isUpdate = false;
+
+      if (checkResponse.ok && checkResult.id) {
+        // Symbol exists, update the existing record
+        isUpdate = true;
+        response = await fetch(`/api/dcf?id=${checkResult.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave)
+        });
+        setDcfDbId(checkResult.id);
+      } else {
+        // Symbol doesn't exist, create new record
+        response = await fetch('/api/dcf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave)
+        });
+      }
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage({ type: 'error', text: result.error || 'Failed to save to database' });
+        setDbSaving(false);
+        return;
+      }
+
+      if (result.id && !isUpdate) {
+        setDcfDbId(result.id);
+      }
+
+      // Reload the list to show the updated/new entry
+      await loadDcfList();
+
+      setDbMessage({ 
+        type: 'success', 
+        text: isUpdate ? `DCF data for ${dcfData.symbol} updated in database` : `DCF data for ${dcfData.symbol} saved to database` 
+      });
+    } catch (error: any) {
+      console.error('Error saving to database:', error);
+      setDbMessage({ type: 'error', text: error.message || 'Failed to save to database' });
+    } finally {
+      setDbSaving(false);
+    }
+  };
+
+  const handleAddToWatchlist = async () => {
+    if (!dcfData || !dcfData.symbol || !projections) {
+      setDbMessage({ type: 'error', text: 'DCF data and projections are required to add to watchlist' });
+      return;
+    }
+
+    setSavingToWatchlist(true);
+    setDbMessage(null);
+
+    try {
+      // Calculate bear/base/bull case prices from projections (year 5, index 4)
+      const bearCaseAvg = (projections.sharePriceLow.bear[4] + projections.sharePriceHigh.bear[4]) / 2;
+      const bearCaseLow = projections.sharePriceLow.bear[4];
+      const bearCaseHigh = projections.sharePriceHigh.bear[4];
+      
+      const baseCaseAvg = (projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2;
+      const baseCaseLow = projections.sharePriceLow.base[4];
+      const baseCaseHigh = projections.sharePriceHigh.base[4];
+      
+      const bullCaseAvg = (projections.sharePriceLow.bull[4] + projections.sharePriceHigh.bull[4]) / 2;
+      const bullCaseLow = projections.sharePriceLow.bull[4];
+      const bullCaseHigh = projections.sharePriceHigh.bull[4];
+
+      // Check if stock exists in stock_valuations table
+      const checkResponse = await fetch(`/api/stock-valuations?stock=${encodeURIComponent(dcfData.symbol.toUpperCase())}`);
+      const checkResult = await checkResponse.json();
+
+      if (checkResponse.ok && checkResult.data && checkResult.id) {
+        // Stock exists, update with bear/base/bull case prices
+        const updateResponse = await fetch(`/api/stock-valuations?id=${checkResult.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...checkResult.data,
+            bear_case_avg_price: bearCaseAvg,
+            bear_case_low_price: bearCaseLow,
+            bear_case_high_price: bearCaseHigh,
+            base_case_avg_price: baseCaseAvg,
+            base_case_low_price: baseCaseLow,
+            base_case_high_price: baseCaseHigh,
+            bull_case_avg_price: bullCaseAvg,
+            bull_case_low_price: bullCaseLow,
+            bull_case_high_price: bullCaseHigh,
+          }),
+        });
+
+        const updateResult = await updateResponse.json();
+
+        if (!updateResponse.ok) {
+          setDbMessage({ type: 'error', text: updateResult.error || 'Failed to update watchlist' });
+          setSavingToWatchlist(false);
+          return;
+        }
+
+        setDbMessage({ type: 'success', text: 'Share Price Summary data added to watchlist successfully!' });
+      } else {
+        // Stock doesn't exist, create new entry
+        const createResponse = await fetch('/api/stock-valuations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stock: dcfData.symbol.toUpperCase(),
+            active_price: dcfData.stockPrice,
+            bear_case_avg_price: bearCaseAvg,
+            bear_case_low_price: bearCaseLow,
+            bear_case_high_price: bearCaseHigh,
+            base_case_avg_price: baseCaseAvg,
+            base_case_low_price: baseCaseLow,
+            base_case_high_price: baseCaseHigh,
+            bull_case_avg_price: bullCaseAvg,
+            bull_case_low_price: bullCaseLow,
+            bull_case_high_price: bullCaseHigh,
+          }),
+        });
+
+        const createResult = await createResponse.json();
+
+        if (!createResponse.ok) {
+          setDbMessage({ type: 'error', text: createResult.error || 'Failed to create watchlist entry' });
+          setSavingToWatchlist(false);
+          return;
+        }
+
+        setDbMessage({ type: 'success', text: 'Share Price Summary data added to watchlist successfully!' });
+      }
+    } catch (error: any) {
+      console.error('Error adding to watchlist:', error);
+      setDbMessage({ type: 'error', text: `Error adding to watchlist: ${error.message || 'Unknown error'}` });
+    } finally {
+      setSavingToWatchlist(false);
+    }
+  };
 
   if (!dcfData) {
     return (
@@ -279,12 +768,42 @@ export default function DCFCalculator() {
                 No DCF Data Available
               </h2>
               <p className="text-yellow-700 dark:text-yellow-300 mb-6 text-lg">
-                Please search for a stock symbol on the Company Research page first to populate the DCF data.
-                <br />
-                <span className="text-sm">If you just cleared the data, you&apos;ll need to reload the Company Research page to get fresh data.</span>
+                Load existing DCF data from the database or search for a stock symbol on the Company Research page
               </p>
+              
+              {/* DCF Dropdown Section */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 mb-6 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-4 mb-4">
+                  <select
+                    value={selectedDcfId}
+                    onChange={(e) => handleDcfSelect(e.target.value)}
+                    disabled={loadingList || dbLoading}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+                  >
+                    <option value="">-- Select a DCF entry --</option>
+                    {dcfList.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.symbol} - {new Date(entry.created_at).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {loadingList && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Loading DCF entries...</p>
+                )}
+                {dbMessage && (
+                  <div className={`mt-4 p-3 rounded-lg text-sm ${
+                    dbMessage.type === 'success' 
+                      ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' 
+                      : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
+                  }`}>
+                    {dbMessage.text}
+                  </div>
+                )}
+              </div>
+
               <Link
-                href="/"
+                href="/research"
                 className="inline-block px-8 py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-300 font-bold text-lg shadow-lg hover:shadow-xl transform hover:scale-105"
               >
                 Go to Company Research
@@ -300,47 +819,91 @@ export default function DCFCalculator() {
     <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="max-w-6xl mx-auto">
 
+        {/* DCF Dropdown Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 mb-8 border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Previous Research</h2>
+          <div className="flex items-center gap-4">
+            <select
+              value={selectedDcfId}
+              onChange={(e) => handleDcfSelect(e.target.value)}
+              disabled={loadingList || dbLoading}
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+            >
+              <option value="">-- Select a DCF entry --</option>
+              {dcfList.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.symbol} - {new Date(entry.created_at).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleSaveDcf}
+              disabled={dbSaving || !dcfData || !dcfData.symbol}
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm"
+            >
+              {dbSaving ? 'Saving...' : (
+                <>
+                  <span className="mr-1">💾</span>
+                  Save
+                </>
+              )}
+            </button>
+          </div>
+          {loadingList && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading DCF entries...</p>
+          )}
+          {dbMessage && dbMessage.text.includes('DCF list') && (
+            <div className={`mt-4 p-3 rounded-lg text-sm ${
+              dbMessage.type === 'success' 
+                ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' 
+                : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
+            }`}>
+              {dbMessage.text}
+            </div>
+          )}
+        </div>
+
         {/* Input Forms */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl">
           {/* Top Row - Revenue Growth, Net Income Growth, PE Low, PE High (1/4 each) */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {/* Revenue Growth */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">📈</span>
                 Revenue Growth (%)
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded">B:</label>
+                  <label className="w-16 text-sm font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bear:</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.revenueGrowth.bear}
                     onChange={(e) => handleInputChange('revenueGrowth', 'bear', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0.00"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded">M:</label>
+                  <label className="w-16 text-sm font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Base:</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.revenueGrowth.base}
                     onChange={(e) => handleInputChange('revenueGrowth', 'base', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0.00"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded">T:</label>
+                  <label className="w-16 text-sm font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bull:</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.revenueGrowth.bull}
                     onChange={(e) => handleInputChange('revenueGrowth', 'bull', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0.00"
                   />
                 </div>
@@ -349,41 +912,41 @@ export default function DCFCalculator() {
 
             {/* Net Income Growth */}
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">💰</span>
                 Net Income Growth (%)
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded">B:</label>
+                  <label className="w-16 text-sm font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bear:</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.netIncomeGrowth.bear}
                     onChange={(e) => handleInputChange('netIncomeGrowth', 'bear', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0.00"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded">M:</label>
+                  <label className="w-16 text-sm font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Base:</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.netIncomeGrowth.base}
                     onChange={(e) => handleInputChange('netIncomeGrowth', 'base', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0.00"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded">T:</label>
+                  <label className="w-16 text-sm font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bull:</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.netIncomeGrowth.bull}
                     onChange={(e) => handleInputChange('netIncomeGrowth', 'bull', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0.00"
                   />
                 </div>
@@ -392,38 +955,38 @@ export default function DCFCalculator() {
 
             {/* PE Low */}
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">📉</span>
                 PE Low
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded">B:</label>
+                  <label className="w-16 text-sm font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bear:</label>
                   <input
                     type="number"
                     value={formData.peLow.bear}
                     onChange={(e) => handleInputChange('peLow', 'bear', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded">M:</label>
+                  <label className="w-16 text-sm font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Base:</label>
                   <input
                     type="number"
                     value={formData.peLow.base}
                     onChange={(e) => handleInputChange('peLow', 'base', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded">T:</label>
+                  <label className="w-16 text-sm font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bull:</label>
                   <input
                     type="number"
                     value={formData.peLow.bull}
                     onChange={(e) => handleInputChange('peLow', 'bull', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0"
                   />
                 </div>
@@ -432,38 +995,38 @@ export default function DCFCalculator() {
 
             {/* PE High */}
             <div className="bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg p-4 border border-orange-200 dark:border-orange-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">📈</span>
                 PE High
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded">B:</label>
+                  <label className="w-16 text-sm font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bear:</label>
                   <input
                     type="number"
                     value={formData.peHigh.bear}
                     onChange={(e) => handleInputChange('peHigh', 'bear', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded">M:</label>
+                  <label className="w-16 text-sm font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Base:</label>
                   <input
                     type="number"
                     value={formData.peHigh.base}
                     onChange={(e) => handleInputChange('peHigh', 'base', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="w-8 text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded">T:</label>
+                  <label className="w-16 text-sm font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bull:</label>
                   <input
                     type="number"
                     value={formData.peHigh.bull}
                     onChange={(e) => handleInputChange('peHigh', 'bull', e.target.value)}
-                    className="flex-1 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                     placeholder="0"
                   />
                 </div>
@@ -475,12 +1038,12 @@ export default function DCFCalculator() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             {/* Revenue */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">📊</span>
                 Revenue
               </h3>
               <div className="flex items-center gap-2">
-                <label className="w-12 text-xs font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">$:</label>
+                <label className="w-12 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-center flex-shrink-0">$:</label>
                 <input
                   type="number"
                   step="0.01"
@@ -492,7 +1055,7 @@ export default function DCFCalculator() {
                       storeDCFData(updatedData);
                     }
                   }}
-                  className="flex-1 px-3 py-2 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm"
+                  className="flex-1 min-w-0 px-3 py-2 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                   placeholder="0.00"
                 />
               </div>
@@ -500,12 +1063,12 @@ export default function DCFCalculator() {
 
             {/* Net Income */}
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">💰</span>
                 Net Income
               </h3>
               <div className="flex items-center gap-2">
-                <label className="w-12 text-xs font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">$:</label>
+                <label className="w-12 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-center flex-shrink-0">$:</label>
                 <input
                   type="number"
                   step="0.01"
@@ -517,7 +1080,7 @@ export default function DCFCalculator() {
                       storeDCFData(updatedData);
                     }
                   }}
-                  className="flex-1 px-3 py-2 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm"
+                  className="flex-1 min-w-0 px-3 py-2 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                   placeholder="0.00"
                 />
               </div>
@@ -525,18 +1088,18 @@ export default function DCFCalculator() {
 
             {/* Stock Price */}
             <div className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">💲</span>
                 Stock Price
               </h3>
               <div className="flex items-center gap-1">
-                <label className="w-10 text-xs font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-1 py-1 rounded">$:</label>
+                <label className="w-10 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-1 py-1 rounded text-center flex-shrink-0">$:</label>
                 <input
                   type="number"
                   step="0.01"
                   value={formData.stockPrice}
                   onChange={(e) => setFormData(prev => ({ ...prev, stockPrice: parseFloat(e.target.value) || 0 }))}
-                  className="flex-1 px-2 py-1 border border-indigo-200 dark:border-indigo-800 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-gray-800 dark:text-white text-xs"
+                  className="flex-1 min-w-0 px-2 py-1 border border-indigo-200 dark:border-indigo-800 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                   placeholder="0.00"
                 />
               </div>
@@ -544,12 +1107,12 @@ export default function DCFCalculator() {
 
             {/* Shares Outstanding */}
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">📈</span>
                 Shares Outstanding
               </h3>
               <div className="flex items-center gap-1">
-                <label className="w-10 text-xs font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-1 py-1 rounded">#:</label>
+                <label className="w-10 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-1 py-1 rounded text-center flex-shrink-0">#:</label>
                 <input
                   type="number"
                   step="1"
@@ -561,11 +1124,11 @@ export default function DCFCalculator() {
                       storeDCFData(updatedData);
                     }
                   }}
-                  className="flex-1 px-2 py-1 border border-purple-200 dark:border-purple-800 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 dark:bg-gray-800 dark:text-white text-xs"
+                  className="flex-1 min-w-0 px-2 py-1 border border-purple-200 dark:border-purple-800 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                   placeholder="50000000"
                 />
               </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
                 {dcfData && dcfData.sharesOutstanding === 0 ? '⚠️ Not loaded from Company Research' : '✓ Loaded from Company Research'}
               </div>
             </div>
@@ -573,24 +1136,35 @@ export default function DCFCalculator() {
 
           {/* Buttons Row with EPS Input */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex justify-center items-center h-full">
-              <button
-                onClick={handleRefresh}
-                className="w-4/5 h-2/5 bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300 transition-colors duration-200 font-medium text-sm flex items-center justify-center"
-              >
-                <span className="mr-1">🔄</span>
-                Refresh
-              </button>
+            {/* Symbol Display */}
+            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
+                <span className="mr-1">📈</span>
+                Symbol
+              </h3>
+              <div className="flex items-center gap-2">
+                <label className="w-12 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">SYM:</label>
+                <input
+                  type="text"
+                  value={dcfData?.symbol || ''}
+                  placeholder="Symbol"
+                  readOnly
+                  className="flex-1 px-3 py-2 border border-indigo-200 dark:border-indigo-800 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-semibold text-center"
+                />
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {dcfData?.symbol ? `✓ Loaded from database` : 'No symbol loaded'}
+              </div>
             </div>
 
             {/* EPS Input */}
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center">
+              <h3 className="font-bold text-gray-800 dark:text-gray-200 mb-3 text-sm flex items-center justify-center">
                 <span className="mr-1">📊</span>
                 Current EPS
               </h3>
               <div className="flex items-center gap-2">
-                <label className="w-12 text-xs font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">EPS:</label>
+                <label className="w-12 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-center flex-shrink-0">EPS:</label>
                 <input
                   type="number"
                   step="0.01"
@@ -602,47 +1176,77 @@ export default function DCFCalculator() {
                       storeDCFData(updatedData);
                     }
                   }}
-                  className="flex-1 px-3 py-2 border border-purple-200 dark:border-purple-800 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 dark:bg-gray-800 dark:text-white text-sm"
+                  className="flex-1 min-w-0 px-3 py-2 border border-purple-200 dark:border-purple-800 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
                   placeholder="0.00"
                 />
               </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
                 {dcfData && dcfData.currentEps === 0 ? '⚠️ Not loaded from Company Research' : '✓ Loaded from Company Research'}
               </div>
             </div>
 
-            <div className="flex justify-center items-center h-full">
+            <div className="flex flex-col justify-center items-center h-full gap-2">
               <button
-                onClick={() => {
-                  localStorage.removeItem('dcfData');
-                  window.location.reload();
-                }}
-                className="w-4/5 h-2/5 bg-pink-200 text-pink-800 rounded-md hover:bg-pink-300 transition-colors duration-200 font-medium text-sm flex items-center justify-center"
+                onClick={loadDcfList}
+                disabled={loadingList}
+                className="w-4/5 h-2/5 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm flex items-center justify-center"
               >
-                <span className="mr-1">🗑️</span>
-                Reset
+                {loadingList ? 'Loading...' : (
+                  <>
+                    <span className="mr-1">🔄</span>
+                    Refresh
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
 
+        {/* Reset Button - Outside and under 2nd section */}
+        <div className="flex justify-center mb-8">
+          <button
+            onClick={() => {
+              localStorage.removeItem('dcfData');
+              window.location.reload();
+            }}
+            className="px-6 py-2 bg-pink-200 text-pink-800 rounded-md hover:bg-pink-300 transition-colors duration-200 font-medium text-sm flex items-center justify-center"
+          >
+            <span className="mr-1">🗑️</span>
+            Reset
+          </button>
+        </div>
+
         {/* Share Price Summary */}
         {dcfData && projections && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-6 text-center">Share Price Summary</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Share Price Summary</h2>
+              <button
+                onClick={handleAddToWatchlist}
+                disabled={savingToWatchlist || !dcfData?.symbol}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {savingToWatchlist ? 'Adding...' : '💾 Add To WatchList data'}
+              </button>
+            </div>
             
             {/* Current Price Row */}
             <div className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/20 dark:to-slate-900/20 rounded-lg p-6 mb-4 border border-gray-200 dark:border-gray-700">
-              <h3 className="font-bold text-gray-600 mb-4 text-lg">Current Market Price</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Current Price</div>
+                  <div className="text-lg text-white mb-1">Current Market Price</div>
+                  <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">
+                    &nbsp;
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Current Price</div>
                   <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">
                     {formatCurrency(dcfData?.stockPrice || 0)}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Investment Signal</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Investment Signal</div>
                   <div className={`text-2xl font-bold ${dcfData && dcfData.stockPrice < ((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2) ? 'text-green-600' : 'text-red-600'}`}>
                     {dcfData && dcfData.stockPrice < ((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2) ? 'BUY' : 'HOLD'}
                   </div>
@@ -652,22 +1256,27 @@ export default function DCFCalculator() {
             
             {/* Bear Case Row */}
             <div className="bg-gradient-to-r from-red-50 to-pink-50 dark:from-red-900/20 dark:to-pink-900/20 rounded-lg p-6 mb-4 border border-red-200 dark:border-red-800">
-              <h3 className="font-bold text-red-600 mb-4 text-lg">Bear Case</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Average Price</div>
+                  <div className="text-lg text-white mb-1">Bear Case</div>
+                  <div className="text-xl font-bold text-red-600">
+                    &nbsp;
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Average Price</div>
                   <div className="text-xl font-bold text-red-600">
                     {formatCurrency((projections.sharePriceLow.bear[4] + projections.sharePriceHigh.bear[4]) / 2)}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Low Price</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Low Price</div>
                   <div className="text-xl font-bold text-red-600">
                     {formatCurrency(projections.sharePriceLow.bear[4])}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">High Price</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">High Price</div>
                   <div className="text-xl font-bold text-red-600">
                     {formatCurrency(projections.sharePriceHigh.bear[4])}
                   </div>
@@ -677,22 +1286,27 @@ export default function DCFCalculator() {
 
             {/* Base Case Row */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 mb-4 border border-blue-200 dark:border-blue-800">
-              <h3 className="font-bold text-blue-600 mb-4 text-lg">Base Case</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Average Price</div>
+                  <div className="text-lg text-white mb-1">Base Case</div>
+                  <div className="text-xl font-bold text-blue-600">
+                    &nbsp;
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Average Price</div>
                   <div className="text-xl font-bold text-blue-600">
                     {formatCurrency((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2)}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Low Price</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Low Price</div>
                   <div className="text-xl font-bold text-blue-600">
                     {formatCurrency(projections.sharePriceLow.base[4])}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">High Price</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">High Price</div>
                   <div className="text-xl font-bold text-blue-600">
                     {formatCurrency(projections.sharePriceHigh.base[4])}
                   </div>
@@ -702,22 +1316,27 @@ export default function DCFCalculator() {
 
             {/* Bull Case Row */}
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-6 mb-4 border border-green-200 dark:border-green-800">
-              <h3 className="font-bold text-green-600 mb-4 text-lg">Bull Case</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Average Price</div>
+                  <div className="text-lg text-white mb-1">Bull Case</div>
+                  <div className="text-xl font-bold text-green-600">
+                    &nbsp;
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Average Price</div>
                   <div className="text-xl font-bold text-green-600">
                     {formatCurrency((projections.sharePriceLow.bull[4] + projections.sharePriceHigh.bull[4]) / 2)}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Low Price</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Low Price</div>
                   <div className="text-xl font-bold text-green-600">
                     {formatCurrency(projections.sharePriceLow.bull[4])}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">High Price</div>
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">High Price</div>
                   <div className="text-xl font-bold text-green-600">
                     {formatCurrency(projections.sharePriceHigh.bull[4])}
                   </div>
@@ -785,7 +1404,7 @@ export default function DCFCalculator() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b-2 border-gray-300 dark:border-gray-600">
-                    <th className="text-left py-4 px-6 font-bold text-lg">Metric</th>
+                    <th className="text-left py-4 px-6 font-bold text-lg text-white">Metric</th>
                     <th className="text-center py-4 px-6 font-bold text-lg text-red-600 bg-red-50 dark:bg-red-900/20">Bear Case</th>
                     <th className="text-center py-4 px-6 font-bold text-lg text-blue-600 bg-blue-50 dark:bg-blue-900/20">Base Case</th>
                     <th className="text-center py-4 px-6 font-bold text-lg text-green-600 bg-green-50 dark:bg-green-900/20">Bull Case</th>
@@ -794,7 +1413,7 @@ export default function DCFCalculator() {
                 <tbody>
                   {/* Revenue Projections */}
                   <tr className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="py-4 px-6 font-semibold text-lg">Revenue</td>
+                    <td className="py-4 px-6 font-semibold text-lg text-white">Revenue</td>
                     <td className="py-4 px-6 text-center">
                       {projections.revenue.bear.map((value, index) => (
                         <div key={index} className="text-red-600 font-mono text-sm mb-1">
@@ -820,7 +1439,7 @@ export default function DCFCalculator() {
 
                   {/* Net Income Projections */}
                   <tr className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="py-4 px-6 font-semibold text-lg">Net Income</td>
+                    <td className="py-4 px-6 font-semibold text-lg text-white">Net Income</td>
                     <td className="py-4 px-6 text-center">
                       {projections.netIncome.bear.map((value, index) => (
                         <div key={index} className="text-red-600 font-mono text-sm mb-1">
@@ -846,7 +1465,7 @@ export default function DCFCalculator() {
 
                   {/* EPS Projections */}
                   <tr className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="py-4 px-6 font-semibold text-lg">EPS</td>
+                    <td className="py-4 px-6 font-semibold text-lg text-white">EPS</td>
                     <td className="py-4 px-6 text-center">
                       {projections.eps.bear.map((value, index) => (
                         <div key={index} className="text-red-600 font-mono text-sm mb-1">
@@ -872,7 +1491,7 @@ export default function DCFCalculator() {
 
                   {/* Share Price Low Projections */}
                   <tr className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="py-4 px-6 font-semibold text-lg">Share Price Low</td>
+                    <td className="py-4 px-6 font-semibold text-lg text-white">Share Price Low</td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceLow.bear.map((value, index) => (
                         <div key={index} className="text-red-600 font-mono text-sm mb-1">
@@ -898,7 +1517,7 @@ export default function DCFCalculator() {
 
                   {/* Share Price High Projections */}
                   <tr className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="py-4 px-6 font-semibold text-lg">Share Price High</td>
+                    <td className="py-4 px-6 font-semibold text-lg text-white">Share Price High</td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceHigh.bear.map((value, index) => (
                         <div key={index} className="text-red-600 font-mono text-sm mb-1">
