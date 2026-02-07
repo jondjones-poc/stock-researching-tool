@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
 interface StockValuation {
   id?: number;
@@ -48,6 +49,18 @@ interface Link {
   stock_valuations_id: number;
 }
 
+interface NewsItem {
+  title: string;
+  url: string;
+  time_published: string;
+  authors: string[];
+  summary: string;
+  source: string;
+  sentiment_label: string;
+  sentiment_score: number;
+  relevance_score: number;
+}
+
 export default function CompanyWatchlistPage() {
   const [stockList, setStockList] = useState<StockListItem[]>([]);
   const [selectedStockId, setSelectedStockId] = useState<string>('');
@@ -61,6 +74,23 @@ export default function CompanyWatchlistPage() {
   const [newLink, setNewLink] = useState('');
   const [addingLink, setAddingLink] = useState(false);
   const [showSections, setShowSections] = useState(false);
+  const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
+  const [loadingMatchingEntries, setLoadingMatchingEntries] = useState(false);
+  const [earningsCalendar, setEarningsCalendar] = useState<{
+    symbol: string;
+    nextEarnings: {
+      date: string;
+      epsEstimate: number | null;
+      revenueEstimate: number | null;
+      quarter: string | null;
+      year: number | null;
+    } | null;
+    error?: string;
+  } | null>(null);
+  const [loadingEarnings, setLoadingEarnings] = useState(false);
+  const [savingEarnings, setSavingEarnings] = useState(false);
+  const [newsData, setNewsData] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState<boolean>(false);
   
   const [formData, setFormData] = useState<StockValuation>({
     stock: '',
@@ -96,6 +126,156 @@ export default function CompanyWatchlistPage() {
   useEffect(() => {
     loadStockList();
   }, []);
+
+  // Load matching DCF entries and earnings when stock symbol changes
+  useEffect(() => {
+    if (formData.stock) {
+      loadMatchingDcfEntries(formData.stock);
+      loadEarningsData(formData.stock);
+    } else {
+      setMatchingDcfEntries([]);
+      setEarningsCalendar(null);
+    }
+  }, [formData.stock]);
+
+  const loadEarningsData = async (symbol: string, forceRefresh: boolean = false) => {
+    if (!symbol) return;
+    
+    setLoadingEarnings(true);
+    try {
+      const url = forceRefresh 
+        ? `/api/earnings-calendar?symbol=${symbol.toUpperCase()}&force=true`
+        : `/api/earnings-calendar?symbol=${symbol.toUpperCase()}`;
+      
+      console.log(`[Client] Fetching earnings data for ${symbol}, forceRefresh: ${forceRefresh}, URL: ${url}`);
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      console.log(`[Client] Earnings API response for ${symbol}:`, JSON.stringify(data, null, 2));
+      console.log(`[Client] Response status: ${response.status}, ok: ${response.ok}`);
+      
+      if (response.ok) {
+        console.log(`[Client] Next earnings date:`, data.nextEarnings?.date);
+        console.log(`[Client] All earnings dates:`, data.allEarnings?.map((e: any) => e.date));
+        console.log(`[Client] Today's date:`, new Date().toISOString());
+        
+        if (data.nextEarnings) {
+          const earningsDate = new Date(data.nextEarnings.date);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          earningsDate.setHours(0, 0, 0, 0);
+          console.log(`[Client] Earnings date comparison: ${earningsDate.toISOString()} > ${today.toISOString()} = ${earningsDate > today}`);
+        }
+        
+        setEarningsCalendar(data);
+      } else {
+        console.error(`[Client] Earnings API error:`, data);
+        setEarningsCalendar({
+          symbol: symbol.toUpperCase(),
+          nextEarnings: null,
+          error: data.error || 'Failed to fetch earnings data'
+        });
+      }
+    } catch (error: any) {
+      console.error('[Client] Error loading earnings data:', error);
+      setEarningsCalendar({
+        symbol: symbol.toUpperCase(),
+        nextEarnings: null,
+        error: 'Failed to fetch earnings data'
+      });
+    } finally {
+      setLoadingEarnings(false);
+    }
+  };
+
+  const handleSaveEarnings = async () => {
+    if (!earningsCalendar || !formData.stock) {
+      setMessage({ type: 'error', text: 'No earnings data to save' });
+      return;
+    }
+
+    setSavingEarnings(true);
+    try {
+      const earningsData = earningsCalendar.nextEarnings;
+      
+      if (!earningsData || !earningsData.date) {
+        setMessage({ type: 'error', text: 'No earnings date available to save' });
+        return;
+      }
+
+      const response = await fetch('/api/earnings-calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: formData.stock,
+          nextEarnings: earningsData
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setMessage({ type: 'success', text: 'Earnings data saved successfully!' });
+        // Refresh the earnings data
+        setTimeout(() => {
+          loadEarningsData(formData.stock);
+        }, 500);
+      } else {
+        setMessage({ type: 'error', text: result.error || 'Failed to save earnings data' });
+      }
+    } catch (error: any) {
+      console.error('Error saving earnings data:', error);
+      setMessage({ type: 'error', text: `Error saving earnings data: ${error.message}` });
+    } finally {
+      setSavingEarnings(false);
+    }
+  };
+
+  // Fetch news data for a symbol
+  const fetchNewsData = async (symbol: string) => {
+    setNewsLoading(true);
+    try {
+      const response = await fetch(`/api/news?symbol=${symbol}`);
+      
+      if (!response.ok) {
+        console.error('News API error:', response.status);
+        setNewsData([]);
+        return;
+      }
+      
+      const result = await response.json();
+      setNewsData(result.data || []);
+    } catch (error) {
+      console.error('Error fetching news data:', error);
+      setNewsData([]);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  const loadMatchingDcfEntries = async (symbol: string) => {
+    if (!symbol) return;
+    
+    setLoadingMatchingEntries(true);
+    try {
+      const response = await fetch(`/api/dcf/list?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
+      const result = await response.json();
+      
+      if (response.ok && result.data) {
+        setMatchingDcfEntries(result.data);
+      } else {
+        setMatchingDcfEntries([]);
+      }
+    } catch (error: any) {
+      console.error('Error loading matching DCF entries:', error);
+      setMatchingDcfEntries([]);
+    } finally {
+      setLoadingMatchingEntries(false);
+    }
+  };
 
   useEffect(() => {
     // Check if stock_id is in URL query params and auto-select it
@@ -230,6 +410,11 @@ export default function CompanyWatchlistPage() {
 
       // Show sections when stock is selected
       setShowSections(true);
+      
+      // Fetch news for the selected stock
+      if (data.stock) {
+        fetchNewsData(data.stock);
+      }
 
       // Load links for this stock
       await loadLinks(result.id);
@@ -363,11 +548,12 @@ export default function CompanyWatchlistPage() {
 
     try {
       // Fetch data from APIs
-      const [financialsRes, peRatiosRes, earningsGrowthRes, fmpRes] = await Promise.allSettled([
+      const [financialsRes, peRatiosRes, earningsGrowthRes, fmpRes, keyMetricsRes] = await Promise.allSettled([
         fetch(`/api/financials?symbol=${formData.stock.toUpperCase()}`),
         fetch(`/api/pe-ratios?symbol=${formData.stock.toUpperCase()}`),
         fetch(`/api/earnings-growth?symbol=${formData.stock.toUpperCase()}`),
-        fetch(`/api/fmp?symbol=${formData.stock.toUpperCase()}`)
+        fetch(`/api/fmp?symbol=${formData.stock.toUpperCase()}`),
+        fetch(`/api/key-metrics?symbol=${formData.stock.toUpperCase()}`)
       ]);
 
       const updatedFields: Partial<StockValuation> = {};
@@ -381,7 +567,7 @@ export default function CompanyWatchlistPage() {
         }
       }
 
-      // Process PE Ratios data for Dividend Per Share, PE, Change %, Year High, Year Low
+      // Process PE Ratios data for Dividend Per Share, PE, Change %, Year High, Year Low, Active Price
       if (peRatiosRes.status === 'fulfilled' && peRatiosRes.value.ok) {
         const peRatios = await peRatiosRes.value.json();
         if (peRatios.dividendPerShare !== null && peRatios.dividendPerShare !== undefined) {
@@ -392,6 +578,11 @@ export default function CompanyWatchlistPage() {
         if (peRatios.currentPE !== null && peRatios.currentPE !== undefined) {
           // Round to 2 decimal places
           updatedFields.pe = Math.round(peRatios.currentPE * 100) / 100;
+        }
+        // Get Active Price (current price) from Finnhub
+        if (peRatios.currentPrice !== null && peRatios.currentPrice !== undefined) {
+          // Round to 2 decimal places
+          updatedFields.active_price = Math.round(peRatios.currentPrice * 100) / 100;
         }
         // Get Change % from Finnhub (prioritize over FMP)
         if (peRatios.changePercent !== null && peRatios.changePercent !== undefined) {
@@ -420,10 +611,14 @@ export default function CompanyWatchlistPage() {
         }
       }
 
-      // Process FMP data for Year High, Year Low, and Change (%) - use as fallback if not from pe-ratios
+      // Process FMP data for Year High, Year Low, Change (%), PE, and Active Price - use as fallback if not from pe-ratios
       if (fmpRes.status === 'fulfilled' && fmpRes.value.ok) {
         const fmp = await fmpRes.value.json();
         // Only use FMP values if not already set from pe-ratios
+        if (!updatedFields.active_price && fmp.price !== null && fmp.price !== undefined) {
+          // Round to 2 decimal places
+          updatedFields.active_price = Math.round(fmp.price * 100) / 100;
+        }
         if (!updatedFields.year_high && fmp.yearHigh !== null && fmp.yearHigh !== undefined) {
           // Round to 2 decimal places
           updatedFields.year_high = Math.round(fmp.yearHigh * 100) / 100;
@@ -441,6 +636,48 @@ export default function CompanyWatchlistPage() {
         if (!updatedFields.pe && fmp.fmpPE !== null && fmp.fmpPE !== undefined) {
           // Round to 2 decimal places
           updatedFields.pe = Math.round(fmp.fmpPE * 100) / 100;
+        }
+      }
+
+      // Process Key Metrics data for ROIC (%)
+      if (keyMetricsRes.status === 'fulfilled' && keyMetricsRes.value.ok) {
+        try {
+          const keyMetrics = await keyMetricsRes.value.json();
+          console.log('Key Metrics full response:', JSON.stringify(keyMetrics, null, 2));
+          
+          // Check if there's an error in the response (API might return 200 with error field)
+          if (keyMetrics.error) {
+            console.log('Key Metrics API returned error:', keyMetrics.error);
+          } else {
+            console.log('ROIC value:', keyMetrics.roic);
+            console.log('ROIC type:', typeof keyMetrics.roic);
+            console.log('ROIC is null?', keyMetrics.roic === null);
+            console.log('ROIC is undefined?', keyMetrics.roic === undefined);
+            
+            // ROIC is returned as a decimal (e.g., 0.20 = 20%), convert to percentage
+            // Check explicitly for null/undefined, but allow 0 as a valid value
+            if (keyMetrics.roic !== null && keyMetrics.roic !== undefined && typeof keyMetrics.roic === 'number') {
+              // Convert decimal to percentage and round to 2 decimal places (e.g., 0.20 -> 20.00)
+              updatedFields.roic = Math.round((keyMetrics.roic * 100) * 100) / 100;
+              console.log('ROIC converted to percentage:', updatedFields.roic);
+            } else {
+              console.log('ROIC not set - value is null/undefined or not a number:', keyMetrics.roic);
+            }
+          }
+        } catch (jsonError) {
+          console.error('Error parsing Key Metrics JSON:', jsonError);
+        }
+      } else {
+        if (keyMetricsRes.status === 'fulfilled') {
+          console.log('Key Metrics API response not OK. Status:', keyMetricsRes.value.status);
+          try {
+            const errorText = await keyMetricsRes.value.text();
+            console.log('Key Metrics error response:', errorText);
+          } catch (e) {
+            console.log('Could not read error response');
+          }
+        } else {
+          console.log('Key Metrics API request rejected:', keyMetricsRes.reason);
         }
       }
 
@@ -592,16 +829,9 @@ export default function CompanyWatchlistPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">
-          Company Data
-        </h1>
-
         {/* Dropdown Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
           <div className="flex items-center gap-4">
-            <label htmlFor="stock-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Select Stock:
-            </label>
             <select
               id="stock-select"
               value={selectedStockId}
@@ -610,9 +840,9 @@ export default function CompanyWatchlistPage() {
               className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">-- Select a stock --</option>
-              {stockList.map((entry) => (
+              {[...stockList].sort((a, b) => a.stock.localeCompare(b.stock)).map((entry) => (
                 <option key={entry.id} value={entry.id}>
-                  {entry.stock} - {new Date(entry.created_at).toLocaleDateString()}
+                  {entry.stock}
                 </option>
               ))}
             </select>
@@ -653,9 +883,9 @@ export default function CompanyWatchlistPage() {
                 setNewLink('');
                 setMessage(null);
               }}
-              className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              New
+              Clear
             </button>
           </div>
         </div>
@@ -758,171 +988,191 @@ export default function CompanyWatchlistPage() {
             <button
               onClick={handleUpdateFromLive}
               disabled={saving || !formData.stock}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
             >
-              {saving ? 'Updating...' : '🔄 Update From Live'}
+              {saving ? 'Updating...' : '🔄 Refresh'}
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Gross Profit (%) */}
-            <div>
-              <label htmlFor="gross_profit_pct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Gross Profit (%)
-              </label>
-              <input
-                type="number"
-                id="gross_profit_pct"
-                step="0.01"
-                value={formData.gross_profit_pct ?? ''}
-                onChange={(e) => handleInputChange('gross_profit_pct', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+          <div className="space-y-6">
+            {/* Row 1: PE, EPS, Change (%) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* PE */}
+              <div>
+                <label htmlFor="pe" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  PE
+                </label>
+                <input
+                  type="number"
+                  id="pe"
+                  step="0.01"
+                  value={formData.pe ?? ''}
+                  onChange={(e) => handleInputChange('pe', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* EPS */}
+              <div>
+                <label htmlFor="eps" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  EPS
+                </label>
+                <input
+                  type="number"
+                  id="eps"
+                  step="0.01"
+                  value={formData.eps ?? ''}
+                  onChange={(e) => handleInputChange('eps', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Change (%) */}
+              <div>
+                <label htmlFor="change_pct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Change (%)
+                </label>
+                <input
+                  type="number"
+                  id="change_pct"
+                  step="0.01"
+                  value={formData.change_pct ?? ''}
+                  onChange={(e) => handleInputChange('change_pct', e.target.value)}
+                  placeholder="0.00"
+                  className={`w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    formData.change_pct !== null && formData.change_pct !== undefined
+                      ? formData.change_pct > 0
+                        ? 'border-green-500 text-green-600 dark:text-green-400 dark:border-green-400'
+                        : formData.change_pct < 0
+                        ? 'border-red-500 text-red-600 dark:text-red-400 dark:border-red-400'
+                        : 'border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100'
+                  }`}
+                />
+              </div>
             </div>
 
-            {/* ROIC */}
-            <div>
-              <label htmlFor="roic" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                ROIC (%)
-              </label>
-              <input
-                type="number"
-                id="roic"
-                step="0.01"
-                value={formData.roic ?? ''}
-                onChange={(e) => handleInputChange('roic', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+            {/* Row 2: Year Low, Year High, Gross Profit (%) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Year Low */}
+              <div>
+                <label htmlFor="year_low" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Year Low
+                </label>
+                <input
+                  type="number"
+                  id="year_low"
+                  step="0.01"
+                  value={formData.year_low ?? ''}
+                  onChange={(e) => handleInputChange('year_low', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Year High */}
+              <div>
+                <label htmlFor="year_high" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Year High
+                </label>
+                <input
+                  type="number"
+                  id="year_high"
+                  step="0.01"
+                  value={formData.year_high ?? ''}
+                  onChange={(e) => handleInputChange('year_high', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Gross Profit (%) */}
+              <div>
+                <label htmlFor="gross_profit_pct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Gross Profit (%)
+                </label>
+                <input
+                  type="number"
+                  id="gross_profit_pct"
+                  step="0.01"
+                  value={formData.gross_profit_pct ?? ''}
+                  onChange={(e) => handleInputChange('gross_profit_pct', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
 
-            {/* EPS */}
-            <div>
-              <label htmlFor="eps" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                EPS
-              </label>
-              <input
-                type="number"
-                id="eps"
-                step="0.01"
-                value={formData.eps ?? ''}
-                onChange={(e) => handleInputChange('eps', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+            {/* Row 3: Long Term Earning Growth (%), ROIC (%), Simplywall.st Valuation (%) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Long Term Earning Growth */}
+              <div>
+                <label htmlFor="long_term_earning_growth" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Long Term Earning Growth (%)
+                </label>
+                <input
+                  type="number"
+                  id="long_term_earning_growth"
+                  step="0.01"
+                  value={formData.long_term_earning_growth ?? ''}
+                  onChange={(e) => handleInputChange('long_term_earning_growth', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* ROIC */}
+              <div>
+                <label htmlFor="roic" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  ROIC (%)
+                </label>
+                <input
+                  type="number"
+                  id="roic"
+                  step="0.01"
+                  value={formData.roic ?? ''}
+                  onChange={(e) => handleInputChange('roic', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Simplywall.st Valuation */}
+              <div>
+                <label htmlFor="simplywall_valuation" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Simplywall.st Valuation (%)
+                </label>
+                <input
+                  type="number"
+                  id="simplywall_valuation"
+                  step="0.01"
+                  value={formData.simplywall_valuation ?? ''}
+                  onChange={(e) => handleInputChange('simplywall_valuation', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
 
-            {/* PE */}
-            <div>
-              <label htmlFor="pe" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                PE
-              </label>
-              <input
-                type="number"
-                id="pe"
-                step="0.01"
-                value={formData.pe ?? ''}
-                onChange={(e) => handleInputChange('pe', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Long Term Earning Growth */}
-            <div>
-              <label htmlFor="long_term_earning_growth" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Long Term Earning Growth (%)
-              </label>
-              <input
-                type="number"
-                id="long_term_earning_growth"
-                step="0.01"
-                value={formData.long_term_earning_growth ?? ''}
-                onChange={(e) => handleInputChange('long_term_earning_growth', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Change %} */}
-            <div>
-              <label htmlFor="change_pct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Change (%)
-              </label>
-              <input
-                type="number"
-                id="change_pct"
-                step="0.01"
-                value={formData.change_pct ?? ''}
-                onChange={(e) => handleInputChange('change_pct', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Year High */}
-            <div>
-              <label htmlFor="year_high" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Year High
-              </label>
-              <input
-                type="number"
-                id="year_high"
-                step="0.01"
-                value={formData.year_high ?? ''}
-                onChange={(e) => handleInputChange('year_high', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Year Low */}
-            <div>
-              <label htmlFor="year_low" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Year Low
-              </label>
-              <input
-                type="number"
-                id="year_low"
-                step="0.01"
-                value={formData.year_low ?? ''}
-                onChange={(e) => handleInputChange('year_low', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Dividend Per Share */}
-            <div>
-              <label htmlFor="dividend_per_share" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Dividend Per Share
-              </label>
-              <input
-                type="number"
-                id="dividend_per_share"
-                step="0.01"
-                value={formData.dividend_per_share ?? ''}
-                onChange={(e) => handleInputChange('dividend_per_share', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Simplywall.st Valuation */}
-            <div>
-              <label htmlFor="simplywall_valuation" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Simplywall.st Valuation (%)
-              </label>
-              <input
-                type="number"
-                id="simplywall_valuation"
-                step="0.01"
-                value={formData.simplywall_valuation ?? ''}
-                onChange={(e) => handleInputChange('simplywall_valuation', e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+            {/* Rest of the fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Dividend Per Share */}
+              <div>
+                <label htmlFor="dividend_per_share" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Dividend Per Share
+                </label>
+                <input
+                  type="number"
+                  id="dividend_per_share"
+                  step="0.01"
+                  value={formData.dividend_per_share ?? ''}
+                  onChange={(e) => handleInputChange('dividend_per_share', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
           </div>
 
@@ -1039,6 +1289,133 @@ export default function CompanyWatchlistPage() {
                 </div>
               </div>
             )}
+
+            {/* DCF Entry Buttons */}
+            {matchingDcfEntries.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {matchingDcfEntries.map((entry) => (
+                    <Link
+                      key={entry.id}
+                      href={`/dcf?id=${entry.id}`}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                    >
+                      Calculations - {new Date(entry.created_at).toLocaleDateString()}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Earnings Section */}
+        {showSections && formData.stock && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                <span>📅</span> Earnings
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadEarningsData(formData.stock, true)}
+                  disabled={loadingEarnings || !formData.stock}
+                  className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                  title="Refresh from API"
+                >
+                  {loadingEarnings ? 'Loading...' : '🔄 Refresh'}
+                </button>
+                {earningsCalendar && earningsCalendar.nextEarnings && (
+                  <button
+                    onClick={handleSaveEarnings}
+                    disabled={savingEarnings}
+                    className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                  >
+                    {savingEarnings ? 'Saving...' : '💾 Save'}
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              {(() => {
+                if (loadingEarnings) {
+                  return (
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                        Loading earnings data...
+                      </p>
+                    </div>
+                  );
+                }
+                
+                if (!earningsCalendar) {
+                  return (
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                        No earnings data available
+                      </p>
+                    </div>
+                  );
+                }
+                
+                if (!earningsCalendar.nextEarnings) {
+                  return (
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                        {earningsCalendar?.error || 'No earnings data available'}
+                      </p>
+                      {earningsCalendar?.error && earningsCalendar.error.includes('API_NINJAS_API_KEY') && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                          Please add your API Ninjas key to the environment variables to use this feature.
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                
+                const nextEarnings = earningsCalendar.nextEarnings;
+                
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Next Earnings Date: </span>
+                      <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 ml-1">
+                        {new Date(nextEarnings.date).toLocaleDateString('en-US', { 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </span>
+                    </div>
+                    {nextEarnings.quarter && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Quarter:</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {nextEarnings.quarter} {nextEarnings.year}
+                        </span>
+                      </div>
+                    )}
+                    {nextEarnings.epsEstimate !== null && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">EPS Estimate:</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          ${nextEarnings.epsEstimate.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    {nextEarnings.revenueEstimate !== null && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Revenue Estimate:</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          ${(nextEarnings.revenueEstimate / 1000000).toFixed(2)}M
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -1197,6 +1574,89 @@ export default function CompanyWatchlistPage() {
               >
                 🗑️ Delete
               </button>
+            )}
+          </div>
+        )}
+
+        {/* News Section - Bottom of page */}
+        {showSections && formData.stock && (
+          <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 mt-8">
+            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">Latest News</h2>
+            {newsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-gray-500 dark:text-gray-400">Loading news...</div>
+              </div>
+            ) : newsData.length > 0 ? (
+              <div className="space-y-2">
+                {newsData.map((news, index) => {
+                  // Parse the timestamp
+                  const timeStr = news.time_published;
+                  const year = timeStr.slice(0, 4);
+                  const month = timeStr.slice(4, 6);
+                  const day = timeStr.slice(6, 8);
+                  const hour = timeStr.slice(9, 11);
+                  const minute = timeStr.slice(11, 13);
+                  const formattedDate = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+                  const timeAgo = Math.floor((Date.now() - formattedDate.getTime()) / (1000 * 60 * 60));
+                  
+                  // Determine sentiment color
+                  const sentimentColor = 
+                    news.sentiment_label === 'Bullish' ? 'text-green-600 dark:text-green-400' :
+                    news.sentiment_label === 'Bearish' ? 'text-red-600 dark:text-red-400' :
+                    news.sentiment_label === 'Somewhat-Bullish' ? 'text-green-500 dark:text-green-500' :
+                    news.sentiment_label === 'Somewhat-Bearish' ? 'text-orange-500 dark:text-orange-400' :
+                    'text-gray-600 dark:text-gray-400';
+                  
+                  return (
+                    <a
+                      key={index}
+                      href={news.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block p-3 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <h5 className="text-sm font-medium text-green-900 dark:text-green-300 line-clamp-2 mb-1">
+                            {news.title}
+                          </h5>
+                          <p className="text-xs text-green-700 dark:text-green-400 line-clamp-2 mb-2">
+                            {news.summary}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-500">
+                            <span className="font-medium">{news.source}</span>
+                            <span>•</span>
+                            <span>{timeAgo}h ago</span>
+                            {news.sentiment_label && (
+                              <>
+                                <span>•</span>
+                                <span className={sentimentColor}>{news.sentiment_label}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <svg className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-3 rounded bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                <div className="flex items-center space-x-2">
+                  <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <h5 className="text-sm font-medium text-orange-900 dark:text-orange-300">No News Available</h5>
+                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">
+                      Unable to fetch news. This may be due to API rate limiting.
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

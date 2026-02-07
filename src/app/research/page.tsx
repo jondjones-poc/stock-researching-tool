@@ -1209,16 +1209,20 @@ export default function Home() {
                     })() : (
                       <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg border border-gray-300 dark:border-gray-600">
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                          Historical Dividends (2020-Current)
+                          Historical Dividends (Last 6 Years)
                         </p>
                         <p className="text-sm text-red-500 dark:text-red-400 italic">
-                          ⚠️ API failed - rate limit
+                          ⚠️ API failed - rate limit or no data available
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                          All dividend APIs (FMP, Finnhub, Alpha Vantage) are rate-limited or unavailable. Please try again later.
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
               )}
+
 
               {data.finnhub && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">

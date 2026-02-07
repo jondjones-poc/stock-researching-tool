@@ -129,19 +129,19 @@ export default function ComparePage() {
   };
 
   const metrics = [
-    { label: 'TTM PE', key: 'ttmPE' as keyof CompareData },
-    { label: 'Forward PE', key: 'forwardPE' as keyof CompareData },
-    { label: '2 Year PE', key: 'twoYearPE' as keyof CompareData },
-    { label: 'TTM EPS Growth', key: 'ttmEPSGrowth' as keyof CompareData },
-    { label: 'Current Year Expected EPS Growth', key: 'currentYearExpectedEPSGrowth' as keyof CompareData },
-    { label: 'Next Year EPS Growth', key: 'nextYearEPSGrowth' as keyof CompareData },
-    { label: 'TTM Revenue Growth', key: 'ttmRevenueGrowth' as keyof CompareData },
-    { label: 'Current Year Expected Revenue Growth', key: 'currentYearExpectedRevenueGrowth' as keyof CompareData },
-    { label: 'Next Year Revenue Growth', key: 'nextYearRevenueGrowth' as keyof CompareData },
-    { label: 'Gross Margin', key: 'grossMargin' as keyof CompareData },
-    { label: 'Net Margin', key: 'netMargin' as keyof CompareData },
-    { label: 'TTM P/S Ratio', key: 'ttmPSRatio' as keyof CompareData },
-    { label: 'Forward P/S Ratio', key: 'forwardPSRatio' as keyof CompareData }
+    { label: 'TTM PE', key: 'ttmPE' as keyof CompareData, benchmark: 'Many Stocks Trade 20-28' },
+    { label: 'Forward PE', key: 'forwardPE' as keyof CompareData, benchmark: 'Many Stocks Trade 18-26' },
+    { label: '2 Year PE ', key: 'twoYearPE' as keyof CompareData, benchmark: 'Many Stocks Trade 18-24' },
+    { label: 'TTM EPS Growth', key: 'ttmEPSGrowth' as keyof CompareData, benchmark: 'Many Stocks Trade 8-12%' },
+    { label: 'Current Year Expected EPS Growth', key: 'currentYearExpectedEPSGrowth' as keyof CompareData, benchmark: 'Many Stocks Trade 8-12%' },
+    { label: 'Next Year EPS Growth', key: 'nextYearEPSGrowth' as keyof CompareData, benchmark: 'Many Stocks Trade 8-12%' },
+    { label: 'TTM Revenue Growth', key: 'ttmRevenueGrowth' as keyof CompareData, benchmark: 'Many Stocks Trade 4.5-6.5%' },
+    { label: 'Current Year Expected Revenue Growth', key: 'currentYearExpectedRevenueGrowth' as keyof CompareData, benchmark: 'Many Stocks Trade 4.5-6.5%' },
+    { label: 'Next Year Revenue Growth', key: 'nextYearRevenueGrowth' as keyof CompareData, benchmark: 'Many Stocks Trade 4.5-6.5%' },
+    { label: 'Gross Margin', key: 'grossMargin' as keyof CompareData, benchmark: 'Many Stocks Trade 40-48%' },
+    { label: 'Net Margin', key: 'netMargin' as keyof CompareData, benchmark: 'Many Stocks Trade 8-10%' },
+    { label: 'TTM P/S Ratio', key: 'ttmPSRatio' as keyof CompareData, benchmark: 'Many Stocks Trade 1.8-2.6' },
+    { label: 'Forward P/S Ratio', key: 'forwardPSRatio' as keyof CompareData, benchmark: 'Many Stocks Trade 1.8-2.6' }
   ];
 
   return (
@@ -153,7 +153,7 @@ export default function ComparePage() {
 
         {/* Symbol Input Section */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {symbols.map((symbol, index) => (
               <div key={index}>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -173,14 +173,16 @@ export default function ComparePage() {
                 />
               </div>
             ))}
+            <div className="flex items-end">
+              <button
+                onClick={handleCompare}
+                disabled={loading || symbols.every(s => !s.trim())}
+                className="w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                {loading ? 'Loading...' : 'Compare'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={handleCompare}
-            disabled={loading || symbols.every(s => !s.trim())}
-            className="w-full md:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-          >
-            {loading ? 'Loading...' : 'Compare'}
-          </button>
         </div>
 
         {/* Errors */}
@@ -197,54 +199,78 @@ export default function ComparePage() {
 
         {/* Comparison Table */}
         {data.length > 0 && data.some(d => d.symbol) && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
-            {/* Header Row */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-0 bg-gray-100 dark:bg-gray-700 border-b border-gray-300 dark:border-gray-600">
-              <div className="p-4 border-r border-gray-300 dark:border-gray-600">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">MANDATORY METRICS</h3>
-              </div>
-              {data.map((stock, index) => (
-                stock.symbol && (
-                  <div key={index} className="p-4 border-r border-gray-300 dark:border-gray-600 last:border-r-0 text-center">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{stock.symbol}</h3>
-                  </div>
-                )
-              ))}
-            </div>
-            
-            {/* Content Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-0">
-              {/* Metric Column */}
-              <div className="bg-gray-50 dark:bg-gray-900 p-4 border-r border-gray-300 dark:border-gray-700">
-                <div className="space-y-2">
-                  {metrics.map((metric, index) => (
-                    <div
-                      key={index}
-                      className="bg-white dark:bg-gray-800 rounded-lg px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 shadow-sm"
-                    >
-                      {metric.label}
-                    </div>
-                  ))}
+          <div className="flex gap-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden flex-1">
+              {/* Header Row */}
+              <div className="grid grid-cols-1 md:grid-cols-[400px_repeat(3,1fr)] gap-0 bg-gray-100 dark:bg-gray-700 border-b border-gray-300 dark:border-gray-600">
+                <div className="p-4 border-r border-gray-300 dark:border-gray-600">
                 </div>
+                {data.map((stock, index) => (
+                  stock.symbol && (
+                    <div key={index} className="p-4 border-r border-gray-300 dark:border-gray-600 last:border-r-0 text-center">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{stock.symbol}</h3>
+                    </div>
+                  )
+                ))}
               </div>
               
-              {/* Stock Value Columns */}
-              {data.map((stock, stockIndex) => (
-                stock.symbol && (
-                  <div key={stockIndex} className="p-4 border-r border-gray-300 dark:border-gray-700 last:border-r-0">
-                    <div className="space-y-2">
-                      {metrics.map((metric, metricIndex) => (
-                        <div
-                          key={metricIndex}
-                          className="bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-sm text-center text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
-                        >
-                          {formatValue(stock[metric.key] as number | null)}
-                        </div>
-                      ))}
-                    </div>
+              {/* Content Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-[400px_repeat(3,1fr)] gap-0">
+                {/* Metric Column */}
+                <div className="bg-gray-50 dark:bg-gray-900 p-4 border-r border-gray-300 dark:border-gray-700">
+                  <div className="space-y-2">
+                    {metrics.map((metric, index) => (
+                      <div
+                        key={index}
+                        className={`bg-white dark:bg-gray-800 rounded-lg px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 shadow-sm ${
+                          metric.label === '2 Year PE ' || metric.label === 'Next Year EPS Growth' || metric.label === 'Next Year Revenue Growth' ? 'mb-8' : ''
+                        }`}
+                      >
+                        {metric.label}
+                      </div>
+                    ))}
                   </div>
-                )
-              ))}
+                </div>
+                
+                {/* Stock Value Columns */}
+                {data.map((stock, stockIndex) => (
+                  stock.symbol && (
+                    <div key={stockIndex} className="p-4 border-r border-gray-300 dark:border-gray-700 last:border-r-0">
+                      <div className="space-y-2">
+                        {metrics.map((metric, metricIndex) => (
+                          <div
+                            key={metricIndex}
+                            className={`bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-sm text-center text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 ${
+                              metric.label === '2 Year PE ' || metric.label === 'Next Year EPS Growth' || metric.label === 'Next Year Revenue Growth' ? 'mb-8' : ''
+                            }`}
+                          >
+                            {formatValue(stock[metric.key] as number | null)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                ))}
+              </div>
+            </div>
+            
+            {/* Benchmark Labels Column - Outside Table */}
+            <div className="w-64">
+              {/* Header spacer to match table header */}
+              <div className="p-4 border-b border-transparent">
+              </div>
+              <div className="px-4 pt-4 pb-4 space-y-2">
+                {metrics.map((metric, index) => (
+                  <div
+                    key={index}
+                    className={`px-0 py-3 text-sm font-semibold text-white dark:text-white ${
+                      metric.label === '2 Year PE ' || metric.label === 'Next Year EPS Growth' || metric.label === 'Next Year Revenue Growth' ? 'mb-8' : ''
+                    }`}
+                  >
+                    {metric.benchmark}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

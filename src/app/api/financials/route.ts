@@ -35,6 +35,63 @@ export async function GET(request: NextRequest) {
     const latestFinancials = response.data.data[0];
     console.log('Latest financials:', JSON.stringify(latestFinancials, null, 2));
     
+    // Extract Total Debt and Cash from Balance Sheet (bs)
+    let totalDebt = null;
+    let cashAndCashEquivalents = null;
+    
+    if (latestFinancials.report && latestFinancials.report.bs) {
+      const balanceSheet = latestFinancials.report.bs;
+      
+      // Find Total Debt - try different field names
+      const debtItem = balanceSheet.find((item: any) => 
+        item.concept === "us-gaap_Liabilities" ||
+        item.concept === "us-gaap_DebtCurrent" ||
+        item.concept === "us-gaap_DebtNoncurrent" ||
+        item.concept === "us-gaap_LongTermDebt" ||
+        item.concept === "us-gaap_ShortTermBorrowings" ||
+        item.label?.includes("Debt") ||
+        item.label?.includes("Liabilities")
+      );
+      
+      if (debtItem) {
+        totalDebt = debtItem.value;
+        console.log('Total Debt from Balance Sheet:', totalDebt, 'concept:', debtItem.concept);
+      }
+      
+      // Find Cash and Cash Equivalents
+      const cashItem = balanceSheet.find((item: any) => 
+        item.concept === "us-gaap_CashAndCashEquivalentsAtCarryingValue" ||
+        item.concept === "us-gaap_CashCashEquivalentsAndShortTermInvestments" ||
+        item.concept === "us-gaap_Cash" ||
+        item.concept === "CashAndCashEquivalents" ||
+        item.label?.includes("Cash") ||
+        item.label?.includes("Cash and cash equivalents")
+      );
+      
+      if (cashItem) {
+        cashAndCashEquivalents = cashItem.value;
+        console.log('Cash from Balance Sheet:', cashAndCashEquivalents, 'concept:', cashItem.concept);
+      }
+      
+      // If we didn't find debt directly, try to sum current and non-current debt
+      if (!totalDebt) {
+        const currentDebt = balanceSheet.find((item: any) => 
+          item.concept === "us-gaap_DebtCurrent" ||
+          item.concept === "us-gaap_ShortTermBorrowings"
+        )?.value || 0;
+        
+        const nonCurrentDebt = balanceSheet.find((item: any) => 
+          item.concept === "us-gaap_DebtNoncurrent" ||
+          item.concept === "us-gaap_LongTermDebt"
+        )?.value || 0;
+        
+        if (currentDebt > 0 || nonCurrentDebt > 0) {
+          totalDebt = currentDebt + nonCurrentDebt;
+          console.log('Total Debt calculated from current + non-current:', totalDebt);
+        }
+      }
+    }
+    
     // Calculate gross profit margin from the correct structure
     let grossProfitMargin = null;
     
@@ -141,6 +198,8 @@ export async function GET(request: NextRequest) {
       costOfGoodsSold: costOfGoodsSold || null,
       netIncome: netIncome || null,
       eps: eps || null,
+      totalDebt: totalDebt || null,
+      cashAndCashEquivalents: cashAndCashEquivalents || null,
     });
 
   } catch (error: any) {

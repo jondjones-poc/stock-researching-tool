@@ -51,7 +51,9 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [customSymbols, setCustomSymbols] = useState<WatchlistSymbol[]>([]);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<{ [key: string]: WatchlistSymbol[] }>({});
+  const [allWatchlistSymbols, setAllWatchlistSymbols] = useState<WatchlistSymbol[]>([]);
+  const [loadingWatchlist, setLoadingWatchlist] = useState<boolean>(true);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newSymbol, setNewSymbol] = useState<string>('');
   const [newSymbolCategory, setNewSymbolCategory] = useState<'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('WATCHLIST');
@@ -62,6 +64,99 @@ export default function DashboardPage() {
   const [earningsLoading, setEarningsLoading] = useState<boolean>(false);
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState<boolean>(false);
+  const [stockValuationIds, setStockValuationIds] = useState<{ [symbol: string]: number }>({});
+  const [deletingStock, setDeletingStock] = useState<string | null>(null);
+  const [deletingFromWatchlist, setDeletingFromWatchlist] = useState<string | null>(null);
+
+  // Delete stock valuation from database
+  const handleDeleteStockValuation = async (symbol: string, id: number) => {
+    if (!confirm(`Are you sure you want to delete ${symbol} from the database?`)) {
+      return;
+    }
+
+    setDeletingStock(symbol);
+    try {
+      const response = await fetch(`/api/stock-valuations?id=${id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Remove from local state
+        const updatedIds = { ...stockValuationIds };
+        delete updatedIds[symbol.toUpperCase()];
+        setStockValuationIds(updatedIds);
+        
+        // Refresh the mapping to ensure consistency
+        if (allWatchlistSymbols.length > 0) {
+          const symbolList = allWatchlistSymbols.map((s: WatchlistSymbol) => s.symbol.toUpperCase()).join(',');
+          const valuationsResponse = await fetch(`/api/stock-valuations/by-symbols?symbols=${symbolList}`);
+          if (valuationsResponse.ok) {
+            const valuationsResult = await valuationsResponse.json();
+            setStockValuationIds(valuationsResult.data || {});
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        alert(`Failed to delete: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      console.error('Error deleting stock valuation:', error);
+      alert(`Error deleting stock valuation: ${error.message || 'Unknown error'}`);
+    } finally {
+      setDeletingStock(null);
+    }
+  };
+
+  // Fetch watchlist symbols from database
+  const fetchWatchlistSymbols = async () => {
+    setLoadingWatchlist(true);
+    try {
+      const response = await fetch('/api/dashboard-watchlist');
+      
+      if (!response.ok) {
+        console.error('Failed to fetch watchlist symbols from database');
+        // Fallback to config if database fails
+        setWatchlistSymbols(dashboardConfig.watchlist);
+        setAllWatchlistSymbols(Object.values(dashboardConfig.watchlist).flat());
+        return;
+      }
+      
+      const result = await response.json();
+      if (result.data) {
+        setWatchlistSymbols(result.data);
+        const symbols = result.symbols || Object.values(result.data).flat();
+        setAllWatchlistSymbols(symbols);
+        
+        // Fetch stock_valuations IDs for these symbols
+        if (symbols.length > 0) {
+          const symbolList = symbols.map((s: WatchlistSymbol) => s.symbol.toUpperCase()).join(',');
+          try {
+            const valuationsResponse = await fetch(`/api/stock-valuations/by-symbols?symbols=${symbolList}`);
+            if (valuationsResponse.ok) {
+              const valuationsResult = await valuationsResponse.json();
+              setStockValuationIds(valuationsResult.data || {});
+            } else {
+              const errorData = await valuationsResponse.json().catch(() => ({}));
+              console.error('Failed to fetch stock valuations:', errorData);
+            }
+          } catch (error) {
+            console.error('Error fetching stock valuations IDs:', error);
+          }
+        }
+      } else {
+        // Fallback to config
+        setWatchlistSymbols(dashboardConfig.watchlist);
+        setAllWatchlistSymbols(Object.values(dashboardConfig.watchlist).flat());
+      }
+    } catch (error) {
+      console.error('Error fetching watchlist symbols:', error);
+      // Fallback to config
+      setWatchlistSymbols(dashboardConfig.watchlist);
+      setAllWatchlistSymbols(Object.values(dashboardConfig.watchlist).flat());
+    } finally {
+      setLoadingWatchlist(false);
+    }
+  };
 
   // Fetch watchlist data - only for visible symbols in current category
   const fetchWatchlistData = async () => {
@@ -69,12 +164,9 @@ export default function DashboardPage() {
       let symbolsToFetch: WatchlistSymbol[] = [];
       
       if (categoryFilter === 'ALL') {
-        const configSymbols = Object.values(dashboardConfig.watchlist).flat();
-        symbolsToFetch = [...configSymbols, ...customSymbols];
+        symbolsToFetch = allWatchlistSymbols;
       } else {
-        const categorySymbols = dashboardConfig.watchlist[categoryFilter] || [];
-        const customCategorySymbols = customSymbols.filter(s => s.category === categoryFilter);
-        symbolsToFetch = [...categorySymbols, ...customCategorySymbols];
+        symbolsToFetch = watchlistSymbols[categoryFilter] || [];
       }
       
       const symbolList = symbolsToFetch.map(symbol => symbol.symbol);
@@ -200,9 +292,7 @@ export default function DashboardPage() {
       const { from, to } = getDateRange(period);
       
       // Find the symbol configuration to check data source
-      const symbolConfig = Object.values(dashboardConfig.watchlist)
-        .flat()
-        .find(s => s.symbol === symbol);
+      const symbolConfig = allWatchlistSymbols.find(s => s.symbol === symbol);
       
       // Build URL with data source parameters
       let url = `/api/historical-prices?symbol=${symbol}&from=${from}&to=${to}`;
@@ -240,11 +330,34 @@ export default function DashboardPage() {
     }
   };
 
+  // Load watchlist symbols from database on mount
   useEffect(() => {
-    fetchWatchlistData();
-    fetchChartData(selectedSymbol, selectedPeriod);
+    fetchWatchlistSymbols();
+  }, []);
+
+  // Set default symbol when watchlist loads
+  useEffect(() => {
+    if (!loadingWatchlist && allWatchlistSymbols.length > 0 && selectedSymbol === 'VIX') {
+      // Check if VIX exists, otherwise use first MARKETS symbol or first available
+      const vixSymbol = allWatchlistSymbols.find(s => s.symbol === 'VIX');
+      if (!vixSymbol) {
+        const marketsSymbols = watchlistSymbols['MARKETS'] || [];
+        if (marketsSymbols.length > 0) {
+          setSelectedSymbol(marketsSymbols[0].symbol);
+        } else if (allWatchlistSymbols.length > 0) {
+          setSelectedSymbol(allWatchlistSymbols[0].symbol);
+        }
+      }
+    }
+  }, [loadingWatchlist, allWatchlistSymbols, watchlistSymbols, selectedSymbol]);
+
+  useEffect(() => {
+    if (!loadingWatchlist) {
+      fetchWatchlistData();
+      fetchChartData(selectedSymbol, selectedPeriod);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSymbol, selectedPeriod, customSymbols, categoryFilter]);
+  }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, watchlistSymbols, allWatchlistSymbols]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -255,45 +368,98 @@ export default function DashboardPage() {
     }
   }, [contextMenu]);
 
-  const handleAddStock = () => {
+  const handleAddStock = async () => {
     if (!newSymbol.trim()) return;
     
-    const symbolToAdd: WatchlistSymbol = {
-      symbol: newSymbol.toUpperCase(),
-      name: newSymbol.toUpperCase(), // Use symbol as name
-      category: newSymbolCategory,
-      icon: '📌',
-      color: 'blue',
-      dataSource: 'FMP' // Default to FMP for custom stocks
-    };
-    
     // Check if symbol already exists
-    const allSymbols = [...Object.values(dashboardConfig.watchlist).flat(), ...customSymbols];
-    if (allSymbols.some(s => s.symbol === symbolToAdd.symbol)) {
+    if (allWatchlistSymbols.some(s => s.symbol === newSymbol.toUpperCase())) {
       alert('This symbol is already in the watchlist');
       return;
     }
     
-    setCustomSymbols([...customSymbols, symbolToAdd]);
-    setNewSymbol('');
-    setNewSymbolCategory('WATCHLIST');
-    setShowAddModal(false);
-  };
+    try {
+      // Fetch company name from API
+      let companyName = newSymbol.toUpperCase();
+      try {
+        const nameResponse = await fetch(`/api/company-name?symbol=${newSymbol.toUpperCase()}`);
+        if (nameResponse.ok) {
+          const nameData = await nameResponse.json();
+          if (nameData && nameData.name) {
+            companyName = `${nameData.name} (${newSymbol.toUpperCase()})`;
+          }
+        }
+      } catch (apiError) {
+        console.error('Error fetching company name:', apiError);
+        // Continue with just the symbol if API fails
+      }
+      
+      const response = await fetch('/api/dashboard-watchlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: newSymbol.toUpperCase(),
+          name: companyName,
+          category: newSymbolCategory,
+          icon: '📌',
+          color: 'blue',
+          data_source: 'FMP'
+        }),
+      });
 
-  const handleDeleteStock = (symbolToDelete: string) => {
-    setCustomSymbols(customSymbols.filter(s => s.symbol !== symbolToDelete));
-    setContextMenu(null);
-    
-    // If the deleted symbol was selected, switch to the default symbol
-    if (selectedSymbol === symbolToDelete) {
-      setSelectedSymbol(dashboardConfig.defaultSymbol);
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.error || 'Failed to add symbol to watchlist');
+        return;
+      }
+
+      // Reload watchlist symbols from database
+      await fetchWatchlistSymbols();
+      setNewSymbol('');
+      setNewSymbolCategory('WATCHLIST');
+      setShowAddModal(false);
+    } catch (error: any) {
+      console.error('Error adding stock:', error);
+      alert('Failed to add symbol to watchlist');
     }
   };
 
-  const handleDoubleClick = (e: React.MouseEvent, symbol: string, isCustom: boolean) => {
-    // Only show context menu for custom symbols
-    if (!isCustom) return;
-    
+  const handleDeleteStock = async (symbolToDelete: string) => {
+    if (!confirm(`Are you sure you want to remove ${symbolToDelete} from the watchlist?`)) {
+      return;
+    }
+
+    setDeletingFromWatchlist(symbolToDelete);
+    try {
+      const response = await fetch(`/api/dashboard-watchlist?symbol=${symbolToDelete}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.error || 'Failed to remove symbol from watchlist');
+        return;
+      }
+
+      // Reload watchlist symbols from database
+      await fetchWatchlistSymbols();
+      setContextMenu(null);
+      
+      // If the deleted symbol was selected, switch to the default symbol
+      if (selectedSymbol === symbolToDelete) {
+        setSelectedSymbol(dashboardConfig.defaultSymbol);
+      }
+    } catch (error: any) {
+      console.error('Error deleting stock:', error);
+      alert('Failed to remove symbol from watchlist');
+    } finally {
+      setDeletingFromWatchlist(null);
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent, symbol: string) => {
+    // Show context menu for all symbols (they're all in database now)
     e.preventDefault();
     setContextMenu({
       x: e.clientX,
@@ -341,9 +507,7 @@ export default function DashboardPage() {
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <span className="text-lg font-semibold">
-              {Object.values(dashboardConfig.watchlist).flat().find(s => s.symbol === selectedSymbol)?.name || 
-               customSymbols.find(s => s.symbol === selectedSymbol)?.name || 
-               selectedSymbol}
+              {allWatchlistSymbols.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
             </span>
             <span className="text-sm text-gray-500 dark:text-gray-400">· 1W · NYSE</span>
           </div>
@@ -403,7 +567,7 @@ export default function DashboardPage() {
           {/* Chart Title */}
           <div className="px-4 py-2 border-b border-gray-700">
             <h2 className="text-lg font-semibold">
-              {dashboardConfig.watchlist.GROWTH.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
+              {allWatchlistSymbols.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
             </h2>
           </div>
 
@@ -1043,8 +1207,8 @@ export default function DashboardPage() {
         </div>
 
         {/* Watchlist Sidebar */}
-        <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col h-screen">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-gray-900 dark:text-white">Watchlist</h3>
             </div>
@@ -1061,68 +1225,117 @@ export default function DashboardPage() {
             </select>
           </div>
 
-          <div className="overflow-y-auto max-h-screen">
-            {Object.entries(dashboardConfig.watchlist)
-              .filter(([category]) => categoryFilter === 'ALL' || category === categoryFilter)
-              .map(([category, symbols]) => {
-              // Merge config symbols with custom symbols for this category
-              const customSymbolsForCategory = customSymbols.filter(s => s.category === category);
-              const allSymbolsForCategory = [...symbols, ...customSymbolsForCategory];
-              
-              return (
-                <div key={category} className="border-b border-gray-200 dark:border-gray-700">
-                  {allSymbolsForCategory.map((symbol) => {
-                    const data = getWatchlistData(symbol.symbol);
-                    const isSelected = selectedSymbol === symbol.symbol;
-                    const isCustom = customSymbols.some(s => s.symbol === symbol.symbol);
-                    
-                    return (
-                      <div
-                        key={symbol.symbol}
-                        onClick={() => setSelectedSymbol(symbol.symbol)}
-                        onDoubleClick={(e) => handleDoubleClick(e, symbol.symbol, isCustom)}
-                        className={`px-4 py-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 ${
-                          isSelected ? 'bg-blue-100 dark:bg-blue-900/30 border-l-2 border-blue-500' : ''
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div 
-                            className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
-                            onClick={() => handleStockClick(symbol.symbol)}
-                            title="Click to view earnings information"
+          <div className="flex-1 overflow-y-auto">
+            {loadingWatchlist ? (
+              <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                Loading watchlist...
+              </div>
+            ) : (
+              Object.entries(watchlistSymbols)
+                .filter(([category]) => categoryFilter === 'ALL' || category === categoryFilter)
+                .map(([category, symbols]) => {
+                  return (
+                    <div key={category} className="border-b border-gray-200 dark:border-gray-700">
+                      {symbols.map((symbol) => {
+                        const data = getWatchlistData(symbol.symbol);
+                        const isSelected = selectedSymbol === symbol.symbol;
+                        const stockValuationId = stockValuationIds[symbol.symbol.toUpperCase()];
+                        
+                        return (
+                          <div
+                            key={symbol.symbol}
+                            onClick={() => setSelectedSymbol(symbol.symbol)}
+                            onDoubleClick={(e) => handleDoubleClick(e, symbol.symbol)}
+                            className={`px-4 py-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 ${
+                              isSelected ? 'bg-blue-100 dark:bg-blue-900/30 border-l-2 border-blue-500' : ''
+                            }`}
                           >
-                            <div className="flex items-center space-x-2">
-                              <span className="text-lg">{symbol.icon}</span>
-                              <span className="font-medium text-sm text-gray-900 dark:text-white">
-                                {symbol.name}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 ml-7">
-                              ({symbol.symbol})
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div 
+                                  className="cursor-pointer hover:opacity-80 transition-opacity"
+                                  onClick={() => handleStockClick(symbol.symbol)}
+                                  title="Click to view earnings information"
+                                >
+                                  <div className="flex items-start">
+                                    <span className="text-lg mr-2 flex-shrink-0">{symbol.icon || '📌'}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-sm text-gray-900 dark:text-white">
+                                        {symbol.name}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {stockValuationId && (
+                                    <div className="flex items-start">
+                                      <span className="text-lg mr-2 flex-shrink-0 opacity-0 pointer-events-none">{symbol.icon || '📌'}</span>
+                                      <div className="flex-1">
+                                        <Link
+                                          href={`/watchlist?stock_id=${stockValuationId}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline transition-colors"
+                                          title="View company data"
+                                        >
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                                          </svg>
+                                          Company Research
+                                        </Link>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteStock(symbol.symbol);
+                                  }}
+                                  disabled={deletingFromWatchlist === symbol.symbol}
+                                  className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Remove from watchlist"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                                <div className="text-right">
+                                  {data ? (
+                                    <>
+                                      <div className="text-sm font-medium">{formatPrice(data.last)}</div>
+                                      <div className={`text-xs ${data.isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                                        {formatChange(data.change)}
+                                      </div>
+                                      <div className={`text-xs ${data.isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                                        {formatChangePercent(data.changePercent)}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">Loading...</div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            {data ? (
-                              <>
-                                <div className="text-sm font-medium">{formatPrice(data.last)}</div>
-                                <div className={`text-xs ${data.isPositive ? 'text-green-400' : 'text-red-400'}`}>
-                                  {formatChange(data.change)}
-                                </div>
-                                <div className={`text-xs ${data.isPositive ? 'text-green-400' : 'text-red-400'}`}>
-                                  {formatChangePercent(data.changePercent)}
-                                </div>
-                            </>
-                          ) : (
-                            <div className="text-xs text-gray-500 dark:text-gray-400">Loading...</div>
-                          )}
-                        </div>
-                      </div>
+                        );
+                      })}
                     </div>
                   );
-                })}
-              </div>
-            );
-          })}
+                })
+            )}
+          </div>
+          
+          {/* Add Stock Button - Pinned to bottom */}
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Stock
+            </button>
           </div>
         </div>
       </div>

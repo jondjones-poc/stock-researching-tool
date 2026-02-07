@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 
 const FMP_API_KEY = process.env.FMP_API_KEY;
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY;
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -11,31 +13,204 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Stock symbol is required' }, { status: 400 });
   }
 
-  if (!FMP_API_KEY) {
-    return NextResponse.json({ error: 'FMP_API_KEY environment variable is not set' }, { status: 500 });
+  if (!FMP_API_KEY && !FINNHUB_API_KEY && !ALPHA_VANTAGE_API_KEY) {
+    return NextResponse.json({ error: 'At least one API key (FMP, Finnhub, or Alpha Vantage) is required' }, { status: 500 });
   }
 
   try {
-    const fmpUrl = `https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol}&apikey=${FMP_API_KEY}`;
-    const response = await axios.get(fmpUrl, { timeout: 10000 });
+    // Try multiple endpoints in parallel with fallbacks
+    const [fmpResponse, finnhubResponse, alphaVantageResponse] = await Promise.allSettled([
+      FMP_API_KEY ? axios.get(`https://financialmodelingprep.com/stable/historical-price-full/stock_dividend?symbol=${symbol}&apikey=${FMP_API_KEY}`, { timeout: 10000 }) : Promise.resolve({ data: null }),
+      FINNHUB_API_KEY ? axios.get(`https://finnhub.io/api/v1/stock/dividend?symbol=${symbol}&from=2020-01-01&to=${new Date().getFullYear()}-12-31&token=${FINNHUB_API_KEY}`, { timeout: 10000 }) : Promise.resolve({ data: null }),
+      ALPHA_VANTAGE_API_KEY ? axios.get(`https://www.alphavantage.co/query?function=DIVIDENDS&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}`, { timeout: 10000 }) : Promise.resolve({ data: null })
+    ]);
 
-    if (!response.data || !response.data.historical) {
-      return NextResponse.json({ error: 'No dividend data available' }, { status: 404 });
+    let allDividends: any[] = [];
+    let source = '';
+
+    // Try FMP first (primary source) - try both URL formats
+    if (fmpResponse.status === 'fulfilled' && fmpResponse.value.status === 200 && fmpResponse.value.data) {
+      const data = fmpResponse.value.data;
+      console.log(`FMP response status for ${symbol}:`, fmpResponse.value.status);
+      console.log(`FMP response data type:`, typeof data, Array.isArray(data));
+      console.log(`FMP response for ${symbol}:`, JSON.stringify(data).substring(0, 1000));
+      
+      // FMP can return data in different formats
+      if (data.historical && Array.isArray(data.historical) && data.historical.length > 0) {
+        // Transform FMP format to our format - FMP uses 'adjDividend' or 'dividend'
+        allDividends = data.historical.map((item: any) => ({
+          date: item.date,
+          dividend: item.dividend || item.adjDividend || 0,
+          adjustedDividend: item.adjDividend || item.dividend || 0
+        })).filter((item: any) => item.date && (item.dividend > 0 || item.adjustedDividend > 0));
+        source = 'FMP';
+        console.log(`Using FMP dividend data for ${symbol}: ${allDividends.length} records`);
+      } else if (Array.isArray(data) && data.length > 0) {
+        // Sometimes FMP returns array directly
+        allDividends = data.map((item: any) => ({
+          date: item.date,
+          dividend: item.dividend || item.adjDividend || 0,
+          adjustedDividend: item.adjDividend || item.dividend || 0
+        })).filter((item: any) => item.date && (item.dividend > 0 || item.adjustedDividend > 0));
+        source = 'FMP';
+        console.log(`Using FMP dividend data (array format) for ${symbol}: ${allDividends.length} records`);
+      } else {
+        console.log(`FMP response structure for ${symbol}:`, Object.keys(data || {}));
+        if (data && typeof data === 'object') {
+          console.log(`FMP response has 'historical' key:`, 'historical' in data);
+          console.log(`FMP response 'historical' value:`, data.historical);
+        }
+      }
+    } else if (fmpResponse.status === 'rejected') {
+      const error = fmpResponse.reason;
+      const status = error?.response?.status;
+      const statusText = error?.response?.statusText;
+      const responseData = error?.response?.data;
+      console.log(`FMP request failed for ${symbol}:`, status, statusText, error?.message);
+      console.log(`FMP error response data:`, JSON.stringify(responseData).substring(0, 500));
+      
+      // Try alternative FMP URL format if first one failed (v3 API)
+      if (FMP_API_KEY && status === 404) {
+        try {
+          console.log(`Trying FMP v3 API endpoint for ${symbol}`);
+          const altResponse = await axios.get(`https://financialmodelingprep.com/api/v3/historical-price-full/stock_dividend/${symbol}?apikey=${FMP_API_KEY}`, { timeout: 10000 });
+          console.log(`FMP v3 API response status:`, altResponse.status);
+          console.log(`FMP v3 API response data keys:`, Object.keys(altResponse.data || {}));
+          if (altResponse.data) {
+            const altData = altResponse.data;
+            if (altData.historical && Array.isArray(altData.historical) && altData.historical.length > 0) {
+              allDividends = altData.historical.map((item: any) => ({
+                date: item.date,
+                dividend: item.dividend || item.adjDividend || 0,
+                adjustedDividend: item.adjDividend || item.dividend || 0
+              })).filter((item: any) => item.date && item.dividend > 0);
+              source = 'FMP (v3 API)';
+              console.log(`Using FMP dividend data (v3 API) for ${symbol}: ${allDividends.length} records`);
+            } else if (Array.isArray(altData) && altData.length > 0) {
+              allDividends = altData.map((item: any) => ({
+                date: item.date,
+                dividend: item.dividend || item.adjDividend || 0,
+                adjustedDividend: item.adjDividend || item.dividend || 0
+              })).filter((item: any) => item.date && item.dividend > 0);
+              source = 'FMP (v3 API)';
+              console.log(`Using FMP dividend data (v3 API, array format) for ${symbol}: ${allDividends.length} records`);
+            }
+          }
+        } catch (altError: any) {
+          console.log(`FMP v3 API also failed for ${symbol}:`, altError?.response?.status, altError?.message);
+        }
+      }
     }
 
-    // Get all dividend data
-    const allDividends = response.data.historical;
-    
+    // Fallback to Finnhub
+    if (allDividends.length === 0 && finnhubResponse.status === 'fulfilled' && finnhubResponse.value.data) {
+      const data = finnhubResponse.value.data;
+      console.log(`Finnhub response for ${symbol}:`, JSON.stringify(data).substring(0, 500));
+      
+      if (Array.isArray(data) && data.length > 0) {
+        // Finnhub returns array of {date, amount} or {exDate, amount}
+        allDividends = data.map((div: any) => ({
+          date: div.date || div.exDate,
+          dividend: parseFloat(div.amount || div.dividend || 0),
+          adjustedDividend: parseFloat(div.amount || div.dividend || 0)
+        })).filter((div: any) => div.date && div.dividend > 0);
+        source = 'Finnhub';
+        console.log(`Using Finnhub dividend data for ${symbol}: ${allDividends.length} records`);
+      }
+    } else if (finnhubResponse.status === 'rejected') {
+      console.log(`Finnhub request failed for ${symbol}:`, finnhubResponse.reason?.response?.status, finnhubResponse.reason?.message);
+    }
+
+    // Fallback to Alpha Vantage
+    if (allDividends.length === 0 && alphaVantageResponse.status === 'fulfilled' && alphaVantageResponse.value.data) {
+      const data = alphaVantageResponse.value.data;
+      console.log(`Alpha Vantage response for ${symbol}:`, JSON.stringify(data).substring(0, 500));
+      
+      // Check for error messages from Alpha Vantage
+      if (data['Error Message'] || data['Note']) {
+        console.log(`Alpha Vantage error/note for ${symbol}:`, data['Error Message'] || data['Note']);
+      } else if (data.dividends && Array.isArray(data.dividends) && data.dividends.length > 0) {
+        // Alpha Vantage returns {dividends: [{date, dividend}]}
+        allDividends = data.dividends.map((div: any) => ({
+          date: div.date,
+          dividend: parseFloat(div.dividend || 0),
+          adjustedDividend: parseFloat(div.dividend || 0)
+        })).filter((div: any) => div.date && div.dividend > 0);
+        source = 'Alpha Vantage';
+        console.log(`Using Alpha Vantage dividend data for ${symbol}: ${allDividends.length} records`);
+      }
+    } else if (alphaVantageResponse.status === 'rejected') {
+      console.log(`Alpha Vantage request failed for ${symbol}:`, alphaVantageResponse.reason?.response?.status, alphaVantageResponse.reason?.message);
+    }
+
+
     if (allDividends.length === 0) {
-      return NextResponse.json({ error: 'No dividend data available' }, { status: 404 });
+      // Collect error details from all failed requests
+      const errors: string[] = [];
+      
+      if (fmpResponse.status === 'rejected') {
+        const error = fmpResponse.reason;
+        const status = error?.response?.status;
+        if (status === 429) {
+          errors.push('FMP: Rate limit exceeded');
+        } else if (status === 404) {
+          errors.push('FMP: Endpoint not found');
+        } else {
+          errors.push(`FMP: ${error?.message || 'Request failed'}`);
+        }
+      } else if (fmpResponse.status === 'fulfilled' && fmpResponse.value.data) {
+        const data = fmpResponse.value.data;
+        if (!data.historical || (Array.isArray(data.historical) && data.historical.length === 0)) {
+          errors.push('FMP: No dividend data in response');
+        }
+      }
+      
+      if (finnhubResponse.status === 'rejected') {
+        const error = finnhubResponse.reason;
+        const status = error?.response?.status;
+        if (status === 429) {
+          errors.push('Finnhub: Rate limit exceeded');
+        } else {
+          errors.push(`Finnhub: ${error?.message || 'Request failed'}`);
+        }
+      } else if (finnhubResponse.status === 'fulfilled' && finnhubResponse.value.data) {
+        const data = finnhubResponse.value.data;
+        if (!Array.isArray(data) || data.length === 0) {
+          errors.push('Finnhub: No dividend data in response');
+        }
+      }
+      
+      if (alphaVantageResponse.status === 'rejected') {
+        const error = alphaVantageResponse.reason;
+        errors.push(`Alpha Vantage: ${error?.message || 'Request failed'}`);
+      } else if (alphaVantageResponse.status === 'fulfilled' && alphaVantageResponse.value.data) {
+        const data = alphaVantageResponse.value.data;
+        if (data['Error Message'] || data['Note']) {
+          errors.push(`Alpha Vantage: ${data['Error Message'] || data['Note']}`);
+        } else if (!data.dividends || (Array.isArray(data.dividends) && data.dividends.length === 0)) {
+          errors.push('Alpha Vantage: No dividend data in response');
+        }
+      }
+      
+      const errorMessage = errors.length > 0 
+        ? `No dividend data available. All APIs failed: ${errors.join('; ')}`
+        : 'No dividend data available from any API source';
+      
+      return NextResponse.json({ 
+        error: errorMessage,
+        details: errors 
+      }, { status: 404 });
     }
 
-    // Calculate the cutoff date (6 years ago from the most recent dividend)
-    const mostRecentDate = new Date(allDividends[0].date);
-    const cutoffDate = new Date(mostRecentDate);
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - 6);
+    // Sort by date descending (most recent first)
+    allDividends.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Filter dividends to only include those from the last 6 years (dynamic)
+    const today = new Date();
+    const cutoffDate = new Date(today);
+    cutoffDate.setFullYear(today.getFullYear() - 6);
+    cutoffDate.setMonth(0, 1); // Start of the year 6 years ago
     
-    // Filter dividends to only include those from the last 6 years
     const historicalDividends = allDividends.filter((dividend: any) => {
       const dividendDate = new Date(dividend.date);
       return dividendDate >= cutoffDate;
@@ -151,9 +326,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result);
 
   } catch (error: any) {
-    console.error('Error fetching dividend history from FMP:', error.message);
+    console.error('Error fetching dividend history:', error.message);
     return NextResponse.json(
-      { error: 'Failed to fetch dividend history data from FMP', details: error.message },
+      { error: 'Failed to fetch dividend history data', details: error.message },
       { status: 500 }
     );
   }

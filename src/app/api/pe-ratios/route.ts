@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
       forwardPE1Year: null,
       forwardPE2Year: null,
       currentPrice: null,
+      marketCap: null,
       eps2025: null,
       eps2026: null,
       dividendPerShare: null,
@@ -76,16 +77,19 @@ export async function GET(request: NextRequest) {
       yearLow: null
     };
 
-    // Process quote data for current price, change percent, year high/low
+    // Process quote data for current price, market cap, change percent, year high/low
     if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
       const quote = quoteResponse.value.data;
       result.currentPrice = quote.c;
+      // Finnhub quote API returns mc (market cap) field
+      result.marketCap = quote.mc !== null && quote.mc !== undefined ? quote.mc : null;
       // Finnhub quote API returns dp (change percent) as a percentage value (e.g., 1.5 = 1.5%)
       result.changePercent = quote.dp !== null && quote.dp !== undefined ? quote.dp : null;
       result.yearHigh = quote.h !== null && quote.h !== undefined ? quote.h : null;
       result.yearLow = quote.l !== null && quote.l !== undefined ? quote.l : null;
       
       console.log('Quote data:', JSON.stringify(quote, null, 2));
+      console.log('Market Cap from Finnhub Quote (mc):', result.marketCap);
       console.log('Change % from Finnhub:', result.changePercent);
       console.log('Year High from Finnhub:', result.yearHigh);
       console.log('Year Low from Finnhub:', result.yearLow);

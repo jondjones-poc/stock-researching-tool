@@ -66,22 +66,175 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Process Finnhub Profile for forward PE estimates
+    // Get current price for manual calculations
+    let currentPrice = null;
+    if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
+      currentPrice = quoteResponse.value.data.c;
+    }
+
+    // Process Finnhub Profile for forward PE estimates and Next Year EPS Growth
     if (profileResponse.status === 'fulfilled' && profileResponse.value.data) {
       const profile = profileResponse.value.data;
-      if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
-        const currentPrice = quoteResponse.value.data.c;
+      
+      if (currentPrice && profile.estimates && profile.estimates.length > 0) {
+        const currentYear = new Date().getFullYear();
+        console.log(`Finnhub estimates for ${symbol}:`, JSON.stringify(profile.estimates.map((e: any) => ({ period: e.period, epsAvg: e.epsAvg })), null, 2));
         
-        if (profile.estimates && profile.estimates.length > 0) {
-          const currentYear = new Date().getFullYear();
-          const eps2025 = profile.estimates.find((est: any) => est.period && est.period.includes(String(currentYear)))?.epsAvg;
-          const eps2026 = profile.estimates.find((est: any) => est.period && est.period.includes(String(currentYear + 1)))?.epsAvg;
+        // Try multiple period formats: "2025", "FY2025", "2025-12-31", etc.
+        const epsCurrentYear = profile.estimates.find((est: any) => {
+          if (!est.period) return false;
+          const period = String(est.period);
+          return period.includes(String(currentYear)) || period.includes(`FY${currentYear}`);
+        })?.epsAvg;
+        const epsNextYear = profile.estimates.find((est: any) => {
+          if (!est.period) return false;
+          const period = String(est.period);
+          return period.includes(String(currentYear + 1)) || period.includes(`FY${currentYear + 1}`);
+        })?.epsAvg;
+        const epsTwoYears = profile.estimates.find((est: any) => {
+          if (!est.period) return false;
+          const period = String(est.period);
+          return period.includes(String(currentYear + 2)) || period.includes(`FY${currentYear + 2}`);
+        })?.epsAvg;
+        
+        if (epsCurrentYear && currentPrice) {
+          result.forwardPE = currentPrice / epsCurrentYear;
+        }
+        if (epsNextYear && currentPrice) {
+          result.twoYearPE = currentPrice / epsNextYear;
+        }
+        
+        // Calculate Next Year EPS Growth: (EPS_FY+1 / EPS_FY) - 1
+        if (epsCurrentYear && epsNextYear && epsCurrentYear > 0) {
+          result.nextYearEPSGrowth = ((epsNextYear / epsCurrentYear) - 1) * 100; // Convert to percentage
+          console.log(`Calculated Next Year EPS Growth from Finnhub: ${result.nextYearEPSGrowth}% (FY: ${epsCurrentYear}, FY+1: ${epsNextYear})`);
+        } else {
+          // Fallback: If we can't find by year, try using first two estimates sorted by period
+          const sortedEstimates = [...profile.estimates].sort((a: any, b: any) => {
+            const periodA = String(a.period || '').replace(/[^0-9]/g, '');
+            const periodB = String(b.period || '').replace(/[^0-9]/g, '');
+            return periodA.localeCompare(periodB);
+          });
           
-          if (eps2025 && currentPrice) {
-            result.forwardPE = currentPrice / eps2025;
+          if (sortedEstimates.length >= 2 && sortedEstimates[0].epsAvg && sortedEstimates[1].epsAvg && sortedEstimates[0].epsAvg > 0) {
+            result.nextYearEPSGrowth = ((sortedEstimates[1].epsAvg / sortedEstimates[0].epsAvg) - 1) * 100;
+            console.log(`Calculated Next Year EPS Growth from Finnhub (fallback): ${result.nextYearEPSGrowth}% (Est1: ${sortedEstimates[0].epsAvg}, Est2: ${sortedEstimates[1].epsAvg})`);
           }
-          if (eps2026 && currentPrice) {
-            result.twoYearPE = currentPrice / eps2026;
+        }
+        
+        // Also calculate Current Year Expected EPS Growth if we have previous year
+        if (epsNextYear && epsTwoYears && epsNextYear > 0) {
+          result.currentYearExpectedEPSGrowth = ((epsTwoYears / epsNextYear) - 1) * 100; // Convert to percentage
+          console.log(`Calculated Current Year Expected EPS Growth from Finnhub: ${result.currentYearExpectedEPSGrowth}% (FY+1: ${epsNextYear}, FY+2: ${epsTwoYears})`);
+        }
+      }
+    }
+    
+    // Fallback: Calculate Next Year EPS Growth from FMP Analyst Estimates
+    if (!result.nextYearEPSGrowth && analystEstimatesResponse.status === 'fulfilled' && analystEstimatesResponse.value.data) {
+      let estimates = analystEstimatesResponse.value.data;
+      
+      // Handle different response structures
+      if (estimates && !Array.isArray(estimates) && estimates.data) {
+        estimates = estimates.data;
+      }
+      
+      if (estimates && Array.isArray(estimates) && estimates.length > 0) {
+        console.log(`FMP Analyst Estimates for ${symbol}:`, JSON.stringify(estimates.slice(0, 3), null, 2));
+        const currentYear = new Date().getFullYear();
+        // FMP returns dates in format like "2025-12-31" or fiscal year in "date" or "fiscalDateEnding" field
+        // Also check if it's an object with date properties
+        const currentYearEst = estimates.find((est: any) => {
+          if (!est) return false;
+          const estDate = est.date || est.fiscalDateEnding || est.period || '';
+          if (!estDate) return false;
+          try {
+            const estYear = new Date(estDate).getFullYear();
+            return estYear === currentYear;
+          } catch {
+            return estDate.includes(String(currentYear));
+          }
+        });
+        const nextYearEst = estimates.find((est: any) => {
+          if (!est) return false;
+          const estDate = est.date || est.fiscalDateEnding || est.period || '';
+          if (!estDate) return false;
+          try {
+            const estYear = new Date(estDate).getFullYear();
+            return estYear === currentYear + 1;
+          } catch {
+            return estDate.includes(String(currentYear + 1));
+          }
+        });
+        
+        // Also try sorting by date and taking first two if we can't find by year
+        let sortedEstimates = estimates;
+        try {
+          sortedEstimates = [...estimates].sort((a: any, b: any) => {
+            const dateA = a.date || a.fiscalDateEnding || a.period || '';
+            const dateB = b.date || b.fiscalDateEnding || b.period || '';
+            return new Date(dateA).getTime() - new Date(dateB).getTime();
+          });
+        } catch (e) {
+          // If sorting fails, use original array
+        }
+        
+        // If we found estimates, use them; otherwise try first two sorted by date
+        const fyEst = currentYearEst || sortedEstimates[0];
+        const fyPlus1Est = nextYearEst || sortedEstimates[1];
+        
+        if (fyEst && fyPlus1Est && fyEst.epsAvg && fyEst.epsAvg > 0 && fyPlus1Est.epsAvg) {
+          result.nextYearEPSGrowth = ((fyPlus1Est.epsAvg / fyEst.epsAvg) - 1) * 100; // Convert to percentage
+          console.log(`Calculated Next Year EPS Growth from FMP: ${result.nextYearEPSGrowth}% (FY: ${fyEst.epsAvg}, FY+1: ${fyPlus1Est.epsAvg})`);
+        }
+      }
+    }
+
+    // Fallback: Manually calculate forward PE and 2-year PE from EPS and growth rate
+    if (currentPrice && incomeStatementResponse.status === 'fulfilled' && incomeStatementResponse.value.data) {
+      const incomeData = incomeStatementResponse.value.data;
+      if (Array.isArray(incomeData) && incomeData.length > 0) {
+        const sortedData = incomeData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const latestEPS = sortedData[sortedData.length - 1].eps;
+        
+        if (latestEPS && latestEPS > 0) {
+          // Try to get EPS growth rate from metrics
+          let epsGrowthRate = null;
+          if (metricsResponse.status === 'fulfilled' && metricsResponse.value.data) {
+            const metrics = metricsResponse.value.data;
+            if (metrics.metric) {
+              // Prefer 3-year growth rate, fallback to 1-year or 2-year
+              epsGrowthRate = metrics.metric.epsGrowth3Y || metrics.metric.epsGrowth2Y || metrics.metric.epsGrowth1Y;
+              if (epsGrowthRate) {
+                epsGrowthRate = epsGrowthRate / 100; // Convert percentage to decimal
+              }
+            }
+          }
+          
+          // If no growth rate from metrics, calculate from historical EPS
+          if (!epsGrowthRate && sortedData.length >= 2) {
+            const previousEPS = sortedData[sortedData.length - 2].eps;
+            if (previousEPS && previousEPS > 0) {
+              epsGrowthRate = (latestEPS - previousEPS) / previousEPS;
+            }
+          }
+          
+          // Calculate forward PE (1 year) if not already set
+          if (!result.forwardPE && epsGrowthRate !== null) {
+            const projectedEPS1Year = latestEPS * (1 + epsGrowthRate);
+            if (projectedEPS1Year > 0) {
+              result.forwardPE = currentPrice / projectedEPS1Year;
+              console.log(`Calculated Forward PE manually: ${result.forwardPE} (EPS: ${latestEPS}, Growth: ${epsGrowthRate * 100}%, Projected EPS: ${projectedEPS1Year})`);
+            }
+          }
+          
+          // Calculate 2-year PE if not already set
+          if (!result.twoYearPE && epsGrowthRate !== null) {
+            const projectedEPS2Year = latestEPS * Math.pow(1 + epsGrowthRate, 2);
+            if (projectedEPS2Year > 0) {
+              result.twoYearPE = currentPrice / projectedEPS2Year;
+              console.log(`Calculated 2-Year PE manually: ${result.twoYearPE} (EPS: ${latestEPS}, Growth: ${epsGrowthRate * 100}%, Projected EPS: ${projectedEPS2Year})`);
+            }
           }
         }
       }
@@ -135,33 +288,141 @@ export async function GET(request: NextRequest) {
           if (revenues && costOfGoodsSold && revenues > 0) {
             const grossProfit = revenues - costOfGoodsSold;
             result.grossMargin = (grossProfit / revenues) * 100;
+            console.log(`Calculated Gross Margin from Finnhub: ${result.grossMargin}%`);
           }
+        }
+      }
+    }
+    
+    // Fallback: Calculate Gross Margin from FMP Income Statement
+    if (!result.grossMargin && incomeStatementResponse.status === 'fulfilled' && incomeStatementResponse.value.data) {
+      const incomeData = incomeStatementResponse.value.data;
+      if (Array.isArray(incomeData) && incomeData.length > 0) {
+        const sortedData = incomeData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const latest = sortedData[sortedData.length - 1];
+        
+        const revenue = latest.revenue || latest.revenues;
+        const costOfRevenue = latest.costOfRevenue || latest.costOfGoodsSold || latest.costOfSales;
+        const grossProfit = latest.grossProfit;
+        
+        // Calculate from revenue and cost of revenue
+        if (revenue && costOfRevenue && revenue > 0) {
+          const calculatedGrossProfit = revenue - costOfRevenue;
+          result.grossMargin = (calculatedGrossProfit / revenue) * 100;
+          console.log(`Calculated Gross Margin from FMP Income Statement: ${result.grossMargin}% (Revenue: ${revenue}, COGS: ${costOfRevenue})`);
+        }
+        // Or use gross profit directly if available
+        else if (revenue && grossProfit && revenue > 0) {
+          result.grossMargin = (grossProfit / revenue) * 100;
+          console.log(`Calculated Gross Margin from FMP (using grossProfit): ${result.grossMargin}% (Revenue: ${revenue}, Gross Profit: ${grossProfit})`);
+        }
+      }
+    }
+    
+    // Additional fallback: Try FMP key metrics for gross margin
+    if (!result.grossMargin && keyMetricsResponse.status === 'fulfilled' && keyMetricsResponse.value.data) {
+      const keyMetricsData = keyMetricsResponse.value.data;
+      if (Array.isArray(keyMetricsData) && keyMetricsData.length > 0) {
+        const latestMetrics = keyMetricsData[0];
+        // FMP key metrics might have grossProfitMargin or similar
+        if (latestMetrics.grossProfitMargin) {
+          result.grossMargin = latestMetrics.grossProfitMargin * 100; // Convert to percentage
+          console.log(`Got Gross Margin from FMP Key Metrics: ${result.grossMargin}%`);
         }
       }
     }
 
     // Process Analyst Estimates for revenue growth
     if (analystEstimatesResponse.status === 'fulfilled' && analystEstimatesResponse.value.data) {
-      const estimates = analystEstimatesResponse.value.data;
+      let estimates = analystEstimatesResponse.value.data;
+      
+      // Handle different response structures
+      if (estimates && !Array.isArray(estimates) && estimates.data) {
+        estimates = estimates.data;
+      }
+      
       if (estimates && Array.isArray(estimates) && estimates.length > 0) {
+        console.log(`FMP Revenue Estimates for ${symbol}:`, JSON.stringify(estimates.slice(0, 3), null, 2));
         const currentYear = new Date().getFullYear();
-        const currentYearEst = estimates.find((est: any) => est.date && est.date.includes(String(currentYear)));
-        const nextYearEst = estimates.find((est: any) => est.date && est.date.includes(String(currentYear + 1)));
-        
-        if (incomeStatementResponse.status === 'fulfilled' && incomeStatementResponse.value.data) {
-          const incomeData = incomeStatementResponse.value.data;
-          if (Array.isArray(incomeData) && incomeData.length > 0) {
-            const sortedData = incomeData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            const lastRevenue = sortedData[sortedData.length - 1].revenue || sortedData[sortedData.length - 1].revenues;
-            
-            if (currentYearEst && currentYearEst.revenueAvg && lastRevenue && lastRevenue > 0) {
-              result.currentYearExpectedRevenueGrowth = ((currentYearEst.revenueAvg - lastRevenue) / lastRevenue) * 100;
-            }
-            
-            if (nextYearEst && currentYearEst && currentYearEst.revenueAvg && currentYearEst.revenueAvg > 0) {
-              result.nextYearRevenueGrowth = ((nextYearEst.revenueAvg - currentYearEst.revenueAvg) / currentYearEst.revenueAvg) * 100;
-            }
+        // FMP returns dates in format like "2025-12-31" or fiscal year in "date" or "fiscalDateEnding" field
+        const currentYearEst = estimates.find((est: any) => {
+          if (!est) return false;
+          const estDate = est.date || est.fiscalDateEnding || est.period || '';
+          if (!estDate) return false;
+          try {
+            const estYear = new Date(estDate).getFullYear();
+            return estYear === currentYear;
+          } catch {
+            return estDate.includes(String(currentYear));
           }
+        });
+        const previousYearEst = estimates.find((est: any) => {
+          if (!est) return false;
+          const estDate = est.date || est.fiscalDateEnding || est.period || '';
+          if (!estDate) return false;
+          try {
+            const estYear = new Date(estDate).getFullYear();
+            return estYear === currentYear - 1;
+          } catch {
+            return estDate.includes(String(currentYear - 1));
+          }
+        });
+        const nextYearEst = estimates.find((est: any) => {
+          if (!est) return false;
+          const estDate = est.date || est.fiscalDateEnding || est.period || '';
+          if (!estDate) return false;
+          try {
+            const estYear = new Date(estDate).getFullYear();
+            return estYear === currentYear + 1;
+          } catch {
+            return estDate.includes(String(currentYear + 1));
+          }
+        });
+        
+        // Also try sorting by date and taking consecutive years if we can't find by year
+        let sortedEstimates = estimates;
+        try {
+          sortedEstimates = [...estimates].sort((a: any, b: any) => {
+            const dateA = a.date || a.fiscalDateEnding || a.period || '';
+            const dateB = b.date || b.fiscalDateEnding || b.period || '';
+            return new Date(dateA).getTime() - new Date(dateB).getTime();
+          });
+        } catch (e) {
+          // If sorting fails, use original array
+        }
+        
+        // If we found estimates, use them; otherwise try sorted estimates
+        const fyMinus1Est = previousYearEst || sortedEstimates[0];
+        const fyEst = currentYearEst || sortedEstimates[1];
+        const fyPlus1Est = nextYearEst || sortedEstimates[2];
+        
+        // Calculate Current Year Expected Revenue Growth: (Revenue_FY / Revenue_FY-1) - 1
+        if (fyEst && fyMinus1Est && fyEst.revenueAvg && fyMinus1Est.revenueAvg && fyMinus1Est.revenueAvg > 0) {
+          result.currentYearExpectedRevenueGrowth = ((fyEst.revenueAvg / fyMinus1Est.revenueAvg) - 1) * 100;
+          console.log(`Calculated Current Year Expected Revenue Growth from FMP: ${result.currentYearExpectedRevenueGrowth}% (FY-1: ${fyMinus1Est.revenueAvg}, FY: ${fyEst.revenueAvg})`);
+        }
+        
+        // Calculate Next Year Revenue Growth: (Revenue_FY+1 / Revenue_FY) - 1
+        if (fyPlus1Est && fyEst && fyEst.revenueAvg && fyEst.revenueAvg > 0 && fyPlus1Est.revenueAvg) {
+          result.nextYearRevenueGrowth = ((fyPlus1Est.revenueAvg / fyEst.revenueAvg) - 1) * 100;
+          console.log(`Calculated Next Year Revenue Growth from FMP: ${result.nextYearRevenueGrowth}% (FY: ${fyEst.revenueAvg}, FY+1: ${fyPlus1Est.revenueAvg})`);
+        }
+      }
+    }
+    
+    // Fallback: Try to get revenue estimates from Finnhub (if they have a revenue estimates endpoint)
+    // Note: Finnhub may not have a direct revenue estimates endpoint, but we can try profile2 estimates
+    if (!result.currentYearExpectedRevenueGrowth && profileResponse.status === 'fulfilled' && profileResponse.value.data) {
+      const profile = profileResponse.value.data;
+      if (profile.estimates && profile.estimates.length > 0) {
+        const currentYear = new Date().getFullYear();
+        const currentYearEst = profile.estimates.find((est: any) => est.period && est.period.includes(String(currentYear)));
+        const previousYearEst = profile.estimates.find((est: any) => est.period && est.period.includes(String(currentYear - 1)));
+        
+        // Some estimates might have revenue fields
+        if (currentYearEst && previousYearEst && currentYearEst.revenueAvg && previousYearEst.revenueAvg && previousYearEst.revenueAvg > 0) {
+          result.currentYearExpectedRevenueGrowth = ((currentYearEst.revenueAvg / previousYearEst.revenueAvg) - 1) * 100;
+          console.log(`Calculated Current Year Expected Revenue Growth from Finnhub: ${result.currentYearExpectedRevenueGrowth}%`);
         }
       }
     }

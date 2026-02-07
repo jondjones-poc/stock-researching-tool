@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getDCFData, DCFData, hasDCFData, storeDCFData } from '../utils/dcfData';
 import Decimal from 'decimal.js';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 interface DCFProjections {
   revenue: { bear: number[]; base: number[]; bull: number[] };
@@ -34,12 +35,58 @@ export default function DCFCalculator() {
   const [selectedDcfId, setSelectedDcfId] = useState<string>('');
   const [loadingList, setLoadingList] = useState(false);
   const [savingToWatchlist, setSavingToWatchlist] = useState(false);
+  const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
+  const [loadingMatchingEntries, setLoadingMatchingEntries] = useState(false);
+
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     loadDcfList();
     loadData();
+    
+    // Check for id parameter in URL
+    const idParam = searchParams.get('id');
+    if (idParam) {
+      // Scroll to top when loading from URL parameter
+      window.scrollTo(0, 0);
+      handleDcfSelect(idParam);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
+
+  // Load matching DCF entries when symbol changes
+  useEffect(() => {
+    if (dcfData?.symbol) {
+      loadMatchingDcfEntries(dcfData.symbol);
+    } else {
+      setMatchingDcfEntries([]);
+    }
+  }, [dcfData?.symbol, dcfDbId]);
+
+  const loadMatchingDcfEntries = async (symbol: string) => {
+    if (!symbol) return;
+    
+    setLoadingMatchingEntries(true);
+    try {
+      const response = await fetch(`/api/dcf/list?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
+      const result = await response.json();
+      
+      if (response.ok && result.data) {
+        // Filter out the current entry if we have a dcfDbId
+        const filtered = dcfDbId 
+          ? result.data.filter((entry: { id: string }) => entry.id !== dcfDbId)
+          : result.data;
+        setMatchingDcfEntries(filtered);
+      } else {
+        setMatchingDcfEntries([]);
+      }
+    } catch (error: any) {
+      console.error('Error loading matching DCF entries:', error);
+      setMatchingDcfEntries([]);
+    } finally {
+      setLoadingMatchingEntries(false);
+    }
+  };
 
   const loadDcfList = async () => {
     setLoadingList(true);
@@ -127,6 +174,9 @@ export default function DCFCalculator() {
 
       // Calculate projections
       calculateProjections(data);
+
+      // Scroll to top after loading data
+      window.scrollTo(0, 0);
 
       setDbMessage({ type: 'success', text: `Loaded DCF data for ${data.symbol} from database` });
     } catch (error: any) {
@@ -428,6 +478,9 @@ export default function DCFCalculator() {
 
       // Calculate projections
       calculateProjections(data);
+
+      // Scroll to top after loading data
+      window.scrollTo(0, 0);
 
       setDbMessage({ type: 'success', text: `Loaded DCF data for ${data.symbol} from database` });
     } catch (error: any) {
@@ -781,9 +834,9 @@ export default function DCFCalculator() {
                     className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Select a DCF entry --</option>
-                    {dcfList.map((entry) => (
+                    {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
                       <option key={entry.id} value={entry.id}>
-                        {entry.symbol} - {new Date(entry.created_at).toLocaleDateString()}
+                        {entry.symbol}
                       </option>
                     ))}
                   </select>
@@ -821,7 +874,6 @@ export default function DCFCalculator() {
 
         {/* DCF Dropdown Section */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 mb-8 border border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Previous Research</h2>
           <div className="flex items-center gap-4">
             <select
               value={selectedDcfId}
@@ -830,9 +882,9 @@ export default function DCFCalculator() {
               className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
             >
               <option value="">-- Select a DCF entry --</option>
-              {dcfList.map((entry) => (
+              {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
                 <option key={entry.id} value={entry.id}>
-                  {entry.symbol} - {new Date(entry.created_at).toLocaleDateString()}
+                  {entry.symbol}
                 </option>
               ))}
             </select>

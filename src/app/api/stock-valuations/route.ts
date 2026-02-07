@@ -29,6 +29,11 @@ interface StockValuation {
   bull_case_avg_price?: number | null;
   bull_case_low_price?: number | null;
   bull_case_high_price?: number | null;
+  next_earnings_date?: string | null;
+  next_earnings_eps_estimate?: number | null;
+  next_earnings_revenue_estimate?: number | null;
+  next_earnings_quarter?: string | null;
+  next_earnings_year?: number | null;
 }
 
 // GET - Fetch stock valuation by stock symbol or ID
