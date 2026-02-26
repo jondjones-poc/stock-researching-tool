@@ -61,6 +61,10 @@ interface InsiderData {
     dividendGrowthRate: number | null;
     latestDividend: number | null;
   };
+  dividendHistoryError?: {
+    message: string;
+    details: string[];
+  };
   finnhubMetrics?: {
     metric: {
       marketCapitalization: number;
@@ -200,17 +204,59 @@ export default function Home() {
       }
 
       // Process Dividend History data
-      if (dividendHistoryRes.status === 'fulfilled' && dividendHistoryRes.value.ok) {
-        result.dividendHistory = await dividendHistoryRes.value.json();
-        console.log('Dividend History data received:', result.dividendHistory);
-        console.log('Dividend History dividendsByYear:', result.dividendHistory?.dividendsByYear);
-        console.log('Dividend History currentYearProjected:', result.dividendHistory?.currentYearProjected);
-      } else {
-        console.log('Dividend History request failed:', dividendHistoryRes);
-        if (dividendHistoryRes.status === 'fulfilled') {
-          console.log('Dividend History response status:', dividendHistoryRes.value?.status);
-          console.log('Dividend History response text:', await dividendHistoryRes.value?.text());
+      if (dividendHistoryRes.status === 'fulfilled') {
+        try {
+          // Try to parse JSON regardless of status code (API might return JSON error with 404)
+          const dividendData = await dividendHistoryRes.value.json().catch(async () => {
+            // If JSON parse fails, try text
+            const text = await dividendHistoryRes.value.text().catch(() => 'Unknown error');
+            return { error: `Failed to parse response: ${text}` };
+          });
+          
+          // Check for data FIRST - even if there's an error field or non-200 status, data might still be present
+          const hasData = dividendData.historicalDividends && Array.isArray(dividendData.historicalDividends) && dividendData.historicalDividends.length > 0;
+          const hasDividendsByYear = dividendData.dividendsByYear && Object.keys(dividendData.dividendsByYear || {}).length > 0;
+          
+          if (hasData || hasDividendsByYear) {
+            // Data exists - use it even if there's an error field or non-200 status (e.g., rate limit warning)
+            result.dividendHistory = dividendData;
+            console.log('Dividend History data received (status:', dividendHistoryRes.value?.status, '):', result.dividendHistory);
+            console.log('Dividend History dividendsByYear:', result.dividendHistory?.dividendsByYear);
+            console.log('Dividend History currentYearProjected:', result.dividendHistory?.currentYearProjected);
+            if (dividendData.error) {
+              console.log('Note: API returned data but also an error/warning:', dividendData.error);
+            }
+          } else if (dividendData.error) {
+            // No data but there's an error - show the error
+            console.log('Dividend History API error (status:', dividendHistoryRes.value?.status, '):', dividendData.error, dividendData.details);
+            result.dividendHistoryError = {
+              message: dividendData.error,
+              details: dividendData.details || []
+            };
+          } else if (!dividendHistoryRes.value.ok) {
+            // Non-200 status and no data/error field - show status error
+            console.log('Dividend History request failed with status:', dividendHistoryRes.value?.status);
+            result.dividendHistoryError = {
+              message: `API request failed with status ${dividendHistoryRes.value?.status}`,
+              details: [JSON.stringify(dividendData)]
+            };
+          } else {
+            // No data and no error - might be a stock that doesn't pay dividends
+            console.log('Dividend History: No data and no error - stock may not pay dividends');
+          }
+        } catch (error: any) {
+          console.error('Error processing dividend history response:', error);
+          result.dividendHistoryError = {
+            message: 'Failed to process dividend history response',
+            details: [error?.message || 'Unknown error']
+          };
         }
+      } else {
+        console.log('Dividend History request rejected:', dividendHistoryRes.reason);
+        result.dividendHistoryError = {
+          message: 'Failed to fetch dividend history',
+          details: [dividendHistoryRes.reason?.message || 'Network error']
+        };
       }
 
       // Process Finnhub Metrics data
@@ -333,7 +379,8 @@ export default function Home() {
         symbol: data.symbol || 'UNKNOWN',
         timestamp: new Date().toISOString(),
         // Dividend data for DDM page
-        dividendHistory: data.dividendHistory || null
+        dividendHistory: data.dividendHistory || null,
+        dividendHistoryError: data.dividendHistoryError || null
       };
 
       // Store in localStorage with additional error handling
@@ -1160,41 +1207,70 @@ export default function Home() {
                     </div>
 
                     {/* Historical Dividends */}
-                    {data.dividendHistory && data.dividendHistory.dividendsByYear ? (() => {
-                      // Use pre-aggregated dividends by year from API (includes projected current year)
-                      const dividendsByYear = data.dividendHistory.dividendsByYear;
-                      const currentYear = new Date().getFullYear().toString();
-                      const isCurrentYearProjected = data.dividendHistory.currentYearProjected || false;
+                    {(() => {
+                      const currentYear = new Date().getFullYear();
+                      const currentYearStr = currentYear.toString();
                       
-                      console.log('Dividends by year:', dividendsByYear);
-                      console.log('Current year projected:', isCurrentYearProjected);
+                      // Get last 6 years (current year and 5 previous years)
+                      const years = [];
+                      for (let i = 0; i < 6; i++) {
+                        years.push((currentYear - i).toString());
+                      }
+                      years.reverse(); // Oldest to newest
                       
-                      // Get last 6 years sorted (most recent first) - 2020 to current year
-                      const sortedYears = Object.keys(dividendsByYear).sort((a, b) => parseInt(b) - parseInt(a)).slice(0, 6);
+                      // Use data if available, otherwise default to 0.00 for all years
+                      const dividendsByYear = data.dividendHistory?.dividendsByYear || {};
+                      const isCurrentYearProjected = data.dividendHistory?.currentYearProjected || false;
+                      
+                      // Create default values for all 6 years
+                      const displayData = years.map(year => ({
+                        year,
+                        amount: dividendsByYear[year] || 0
+                      }));
                       
                       return (
                         <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                            Historical Dividends (2020-Current)
+                            Historical Dividends (Last 6 Years)
                             {isCurrentYearProjected && (
                               <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">
-                                *{currentYear} projected
+                                *{currentYearStr} projected
                               </span>
                             )}
                           </p>
+                          
+                          {/* Show error message if API call failed */}
+                          {data.dividendHistoryError && (
+                            <div className="mb-3 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                              <p className="text-xs text-red-600 dark:text-red-400 font-semibold mb-1">
+                                ⚠️ {data.dividendHistoryError.message}
+                              </p>
+                              {data.dividendHistoryError.details && data.dividendHistoryError.details.length > 0 && (
+                                <div className="text-xs text-red-500 dark:text-red-400">
+                                  {data.dividendHistoryError.details[0]}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
                           <div className="space-y-1">
-                            {sortedYears.map((year, index) => (
+                            {displayData.map((item, index) => (
                               <div key={index} className="flex justify-between items-center text-sm">
                                 <span className="text-gray-600 dark:text-gray-400">
-                                  {year}{year === currentYear && isCurrentYearProjected ? '*' : ''}
+                                  {item.year}{item.year === currentYearStr && isCurrentYearProjected ? '*' : ''}
                                 </span>
-                                <span className="font-semibold text-green-600 dark:text-green-400">
-                                  ${dividendsByYear[year].toFixed(2)}
+                                <span className={`font-semibold ${
+                                  item.amount > 0 
+                                    ? 'text-green-600 dark:text-green-400' 
+                                    : 'text-gray-400 dark:text-gray-500'
+                                }`}>
+                                  £{item.amount.toFixed(2)}
                                 </span>
                               </div>
                             ))}
                           </div>
-                          {data.dividendHistory.dividendGrowthRate && (
+                          
+                          {data.dividendHistory?.dividendGrowthRate && (
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                               Avg Growth: {(data.dividendHistory.dividendGrowthRate * 100).toFixed(1)}%
                             </p>
@@ -1206,19 +1282,7 @@ export default function Home() {
                           )}
                         </div>
                       );
-                    })() : (
-                      <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg border border-gray-300 dark:border-gray-600">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                          Historical Dividends (Last 6 Years)
-                        </p>
-                        <p className="text-sm text-red-500 dark:text-red-400 italic">
-                          ⚠️ API failed - rate limit or no data available
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                          All dividend APIs (FMP, Finnhub, Alpha Vantage) are rate-limited or unavailable. Please try again later.
-                        </p>
-                      </div>
-                    )}
+                    })()}
                   </div>
                 </div>
               )}

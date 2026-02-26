@@ -103,8 +103,10 @@ export async function GET(request: NextRequest) {
         date: item.date, 
         quarter: item.quarter, 
         year: item.year,
-        eps_estimate: item.eps_estimate,
-        revenue_estimate: item.revenue_estimate
+        actual_eps: item.actual_eps,
+        estimated_eps: item.estimated_eps,
+        actual_revenue: item.actual_revenue,
+        estimated_revenue: item.estimated_revenue
       })));
       console.log(`[Server] Full API response structure (first item):`, JSON.stringify(response.data[0], null, 2));
       console.log(`[Server] Full API response structure (last item):`, JSON.stringify(response.data[response.data.length - 1], null, 2));
@@ -159,15 +161,19 @@ export async function GET(request: NextRequest) {
       symbol: symbol.toUpperCase(),
       nextEarnings: nextEarnings ? {
         date: nextEarnings.date,
-        epsEstimate: nextEarnings.eps_estimate || null,
-        revenueEstimate: nextEarnings.revenue_estimate || null,
+        actualEps: nextEarnings.actual_eps || null,
+        estimatedEps: nextEarnings.estimated_eps || null,
+        actualRevenue: nextEarnings.actual_revenue || null,
+        estimatedRevenue: nextEarnings.estimated_revenue || null,
         quarter: nextEarnings.quarter || null,
         year: nextEarnings.year || null
       } : null,
       allEarnings: sortedEarnings.map((item: any) => ({
         date: item.date,
-        epsEstimate: item.eps_estimate || null,
-        revenueEstimate: item.revenue_estimate || null,
+        actualEps: item.actual_eps || null,
+        estimatedEps: item.estimated_eps || null,
+        actualRevenue: item.actual_revenue || null,
+        estimatedRevenue: item.estimated_revenue || null,
         quarter: item.quarter || null,
         year: item.year || null
       }))

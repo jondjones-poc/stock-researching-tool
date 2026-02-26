@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface DividendProjection {
@@ -25,8 +25,20 @@ interface DDMCalculation {
   presentValue: number;
 }
 
+interface StockOption {
+  symbol: string;
+  lastUpdated: string;
+}
+
 export default function DDMPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  const [stocks, setStocks] = useState<StockOption[]>([]);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [saveMessage, setSaveMessage] = useState<string>('');
   
   const [inputs, setInputs] = useState<DDMInputs>({
     currentPrice: 0,
@@ -37,96 +49,133 @@ export default function DDMPage() {
   });
 
   const [showCurrentPrice, setShowCurrentPrice] = useState<boolean>(false);
-
   const [dividendProjections, setDividendProjections] = useState<DividendProjection[]>([]);
-
   const [ddmCalculations, setDdmCalculations] = useState<DDMCalculation[]>([]);
   const [intrinsicValue, setIntrinsicValue] = useState<number>(0);
   const [ddmWithSafety, setDdmWithSafety] = useState<number>(0);
   const [terminalValue, setTerminalValue] = useState<number>(0);
   const [verdict, setVerdict] = useState<string>('');
-  const [symbol, setSymbol] = useState<string>('');
 
-  // Function to load data from localStorage
-  const loadDataFromStorage = () => {
+  // Initialize dividend projections with all years (2020 to current)
+  useEffect(() => {
+    const currentYear = new Date().getFullYear();
+    const startYear = 2020;
+    const years: string[] = [];
+    for (let year = startYear; year <= currentYear; year++) {
+      years.push(year.toString());
+    }
+    
+    const defaultProjections: DividendProjection[] = years.map(year => ({
+      year,
+      dividend: 0,
+      growthRate: 0
+    }));
+    
+    setDividendProjections(defaultProjections);
+  }, []);
+
+  // Load list of stocks from database
+  useEffect(() => {
+    const fetchStocks = async () => {
+      try {
+        const response = await fetch('/api/ddm-data');
+        if (response.ok) {
+          const data = await response.json();
+          setStocks(data.stocks || []);
+        }
+      } catch (error) {
+        console.error('Error fetching stocks:', error);
+      }
+    };
+    fetchStocks();
+  }, []);
+
+  // Check for symbol query parameter on mount
+  useEffect(() => {
+    const symbolParam = searchParams.get('symbol');
+    if (symbolParam && symbolParam !== selectedSymbol) {
+      setSelectedSymbol(symbolParam.toUpperCase());
+      loadStockData(symbolParam.toUpperCase());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Load DDM data when symbol is selected
+  const loadStockData = async (symbol: string) => {
+    if (!symbol) {
+      // Reset to empty state
+      setInputs({
+        currentPrice: 0,
+        wacc: 8.5,
+        marginOfSafety: 20.0,
+        highGrowthYears: 5,
+        stableGrowthRate: 3.0
+      });
+      setDividendProjections([]);
+      setShowCurrentPrice(false);
+      return;
+    }
+
+    setLoading(true);
     try {
-      const dcfData = localStorage.getItem('dcfData');
-      if (dcfData) {
-        const parsedData = JSON.parse(dcfData);
+      const response = await fetch(`/api/ddm-data?symbol=${symbol}`);
+      if (response.ok) {
+        const data = await response.json();
         
-        // Load symbol
-        if (parsedData.symbol) {
-          setSymbol(parsedData.symbol);
-        }
+        // Load inputs
+        setInputs({
+          currentPrice: data.currentPrice || 0,
+          wacc: data.wacc || 8.5,
+          marginOfSafety: data.marginOfSafety || 20.0,
+          highGrowthYears: data.highGrowthYears || 5,
+          stableGrowthRate: data.stableGrowthRate || 3.0
+        });
         
-        // Load current price
-        if (parsedData.stockPrice && parsedData.stockPrice > 0) {
-          setInputs(prev => ({
-            ...prev,
-            currentPrice: parsedData.stockPrice
-          }));
-          setShowCurrentPrice(true);
-        }
+        setShowCurrentPrice(data.currentPrice > 0);
         
-        // Load saved DDM input parameters if they exist
-        if (parsedData.ddmInputs) {
-          setInputs(prev => ({
-            ...prev,
-            wacc: parsedData.ddmInputs.wacc || prev.wacc,
-            marginOfSafety: parsedData.ddmInputs.marginOfSafety || prev.marginOfSafety,
-            highGrowthYears: parsedData.ddmInputs.highGrowthYears || prev.highGrowthYears,
-            stableGrowthRate: parsedData.ddmInputs.stableGrowthRate || prev.stableGrowthRate
-          }));
-        }
-        
-          // Load dividend history - ONLY use pre-aggregated dividendsByYear from API
-          if (parsedData.dividendHistory && parsedData.dividendHistory.dividendsByYear) {
-            const dividendsByYear = parsedData.dividendHistory.dividendsByYear;
-            const currentYear = new Date().getFullYear();
+        // Load dividend projections
+        if (data.dividendProjections && Array.isArray(data.dividendProjections)) {
+          setDividendProjections(data.dividendProjections);
+        } else if (data.dividendsByYear) {
+          // Fallback: create projections from dividendsByYear
+          const currentYear = new Date().getFullYear();
+          const startYear = 2020;
+          const sortedYears = Object.keys(data.dividendsByYear)
+            .sort((a, b) => parseInt(a) - parseInt(b))
+            .filter(year => parseInt(year) >= startYear && parseInt(year) <= currentYear);
+          
+          const projections: DividendProjection[] = sortedYears.map((year, index) => {
+            const dividend = data.dividendsByYear[year];
+            let growthRate = 0;
             
-            console.log('DDM Loading - Dividends by year:', dividendsByYear);
-            console.log('DDM Loading - Current year:', currentYear);
-            console.log('DDM Loading - Projected?:', parsedData.dividendHistory.currentYearProjected);
-            
-            // Get years from 2020 to current year only
-            const startYear = 2020;
-            const sortedYears = Object.keys(dividendsByYear)
-              .sort((a, b) => parseInt(a) - parseInt(b))
-              .filter(year => parseInt(year) >= startYear && parseInt(year) <= currentYear);
-            
-            // Transform into DividendProjection format with calculated growth rates
-            const projections: DividendProjection[] = sortedYears.map((year, index) => {
-              const dividend = dividendsByYear[year];
-              
-              // Calculate growth rate compared to previous year
-              let growthRate = 0;
-              if (index > 0) {
-                const previousYear = sortedYears[index - 1];
-                const previousDividend = dividendsByYear[previousYear];
-                if (previousDividend > 0) {
-                  growthRate = ((dividend - previousDividend) / previousDividend) * 100;
-                }
+            if (index > 0) {
+              const previousYear = sortedYears[index - 1];
+              const previousDividend = data.dividendsByYear[previousYear];
+              if (previousDividend > 0) {
+                growthRate = ((dividend - previousDividend) / previousDividend) * 100;
               }
-              
-              return {
-                year,
-                dividend,
-                growthRate
-              };
-            });
+            }
             
-            setDividendProjections(projections);
-          }
+            return { year, dividend, growthRate };
+          });
+          
+          setDividendProjections(projections);
+        }
+      } else {
+        console.error('Failed to load stock data');
       }
     } catch (error) {
-      console.log('Error loading data from localStorage:', error);
+      console.error('Error loading stock data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Load data on component mount
-  useEffect(() => {
-    loadDataFromStorage();
-  }, []);
+  // Handle symbol selection
+  const handleSymbolChange = (symbol: string) => {
+    setSelectedSymbol(symbol);
+    loadStockData(symbol);
+  };
 
   // Calculate discount factor for a given year
   const calculateDiscountFactor = (yearNumber: number): number => {
@@ -153,7 +202,6 @@ export default function DDMPage() {
       
       // Calculate dividend for this year
       const previousDividend = i === 0 ? latestDividend : calculations[i - 1].ddmPrice;
-      // Use latest growth rate for ALL high growth years (stable rate only applies to terminal value)
       const growthRate = latestGrowthRate;
       const ddmPrice = previousDividend * (1 + growthRate / 100);
       
@@ -176,17 +224,12 @@ export default function DDMPage() {
     const ddmCalculations = calculateDDMProjections();
     if (ddmCalculations.length === 0) return 0;
     
-    // Get the LAST projected DDM dividend (e.g., 2030 if projecting 5 years)
     const lastProjectedDividend = ddmCalculations[ddmCalculations.length - 1].ddmPrice;
-    
-    // Terminal value = Last projected dividend * (1 + stable growth rate) / (WACC - stable growth rate)
     const terminalDividend = lastProjectedDividend * (1 + inputs.stableGrowthRate / 100);
     
-    // Avoid division by zero or negative values
     if (inputs.wacc <= inputs.stableGrowthRate) return 0;
     
     const terminalValue = terminalDividend / ((inputs.wacc - inputs.stableGrowthRate) / 100);
-    
     return terminalValue;
   };
 
@@ -205,18 +248,13 @@ export default function DDMPage() {
     setTerminalValue(terminalVal);
     
     const terminalPV = calculateTerminalValuePV(terminalVal);
-    
-    // Calculate intrinsic value (sum of present values + terminal value PV)
     const totalPV = calculations.reduce((sum, calc) => sum + calc.presentValue, 0);
     const intrinsicVal = totalPV + terminalPV;
     setIntrinsicValue(intrinsicVal);
     
-    // Calculate DDM with safety
     const ddmSafety = intrinsicVal * (1 - inputs.marginOfSafety / 100);
     setDdmWithSafety(ddmSafety);
     
-    // Determine verdict based on spreadsheet logic: =IF(A2<=C2,"BUY",IF(A2<=C2,"HOLD","WAIT"))
-    // But the second condition should be A2<=B2 (Intrinsic Value) for HOLD
     let verdictText = 'WAIT';
     if (inputs.currentPrice <= ddmSafety) {
       verdictText = 'BUY';
@@ -228,28 +266,10 @@ export default function DDMPage() {
   }, [inputs, dividendProjections]);
 
   const handleInputChange = (field: keyof DDMInputs, value: number) => {
-    const updatedInputs = {
-      ...inputs,
+    setInputs(prev => ({
+      ...prev,
       [field]: value
-    };
-    setInputs(updatedInputs);
-    
-    // Save DDM inputs to localStorage (excluding currentPrice which comes from stock data)
-    try {
-      const dcfData = localStorage.getItem('dcfData');
-      if (dcfData) {
-        const parsedData = JSON.parse(dcfData);
-        parsedData.ddmInputs = {
-          wacc: updatedInputs.wacc,
-          marginOfSafety: updatedInputs.marginOfSafety,
-          highGrowthYears: updatedInputs.highGrowthYears,
-          stableGrowthRate: updatedInputs.stableGrowthRate
-        };
-        localStorage.setItem('dcfData', JSON.stringify(parsedData));
-      }
-    } catch (error) {
-      console.log('Error saving DDM inputs to localStorage:', error);
-    }
+    }));
   };
 
   const handleDividendChange = (index: number, field: keyof DividendProjection, value: number) => {
@@ -260,11 +280,82 @@ export default function DDMPage() {
     );
   };
 
+  // Save DDM data to database
+  const handleSave = async () => {
+    if (!selectedSymbol) {
+      setSaveMessage('Please select a stock symbol first');
+      setTimeout(() => setSaveMessage(''), 3000);
+      return;
+    }
+
+    setSaving(true);
+    setSaveMessage('');
+
+    try {
+      // Check if symbol exists
+      const checkResponse = await fetch(`/api/ddm-data?symbol=${selectedSymbol}`);
+      const exists = checkResponse.ok;
+
+      const saveData = {
+        symbol: selectedSymbol,
+        wacc: inputs.wacc,
+        marginOfSafety: inputs.marginOfSafety,
+        highGrowthYears: inputs.highGrowthYears,
+        stableGrowthRate: inputs.stableGrowthRate,
+        currentPrice: inputs.currentPrice || null,
+        dividendProjections: dividendProjections,
+        intrinsicValue: intrinsicValue,
+        ddmWithSafety: ddmWithSafety,
+        terminalValue: terminalValue
+      };
+
+      let response;
+      if (exists) {
+        // Update existing
+        response = await fetch('/api/ddm-data', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(saveData)
+        });
+      } else {
+        // Create new
+        response = await fetch('/api/ddm-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(saveData)
+        });
+      }
+
+      if (response.ok) {
+        setSaveMessage(`✅ ${exists ? 'Updated' : 'Saved'} successfully!`);
+        setTimeout(() => setSaveMessage(''), 3000);
+        
+        // Refresh stocks list
+        const stocksResponse = await fetch('/api/ddm-data');
+        if (stocksResponse.ok) {
+          const data = await stocksResponse.json();
+          setStocks(data.stocks || []);
+        }
+      } else {
+        const error = await response.json();
+        setSaveMessage(`❌ Error: ${error.error || 'Failed to save'}`);
+        setTimeout(() => setSaveMessage(''), 5000);
+      }
+    } catch (error: any) {
+      setSaveMessage(`❌ Error: ${error.message || 'Failed to save'}`);
+      setTimeout(() => setSaveMessage(''), 5000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRecalculate = () => {
+    // Recalculate is handled automatically by useEffect
+    // This function can be used to trigger a manual recalculation if needed
+  };
+
   const handleReset = () => {
-    // Clear localStorage
-    localStorage.clear();
-    
-    // Reset all inputs to defaults
+    setSelectedSymbol('');
     setInputs({
       currentPrice: 0,
       wacc: 8.5,
@@ -272,48 +363,71 @@ export default function DDMPage() {
       highGrowthYears: 5,
       stableGrowthRate: 3.0
     });
-    
-    // Clear dividend projections
     setDividendProjections([]);
-    
-    // Hide current price display
     setShowCurrentPrice(false);
-    
-    // Redirect to company information page
-    router.push('/');
   };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 w-full">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">
             Dividend Discount Model (DDM) Calculator
           </h1>
 
+          {/* Stock Selection Dropdown */}
+          <div className="mb-4">
+            <select
+              id="stock-select"
+              value={selectedSymbol}
+              onChange={(e) => handleSymbolChange(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- Select a stock --</option>
+              {stocks.map((stock) => (
+                <option key={stock.symbol} value={stock.symbol}>
+                  {stock.symbol}
+                </option>
+              ))}
+            </select>
+            {loading && (
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+            )}
+          </div>
+
           {/* Summary/Verdict Section */}
           <div className="grid grid-cols-5 gap-4 mb-8">
-            {symbol && (
-              <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-                <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Symbol</h3>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{symbol}</p>
+            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Symbol</h3>
+              <input
+                type="text"
+                value={selectedSymbol}
+                onChange={(e) => {
+                  const newSymbol = e.target.value.toUpperCase();
+                  setSelectedSymbol(newSymbol);
+                  if (newSymbol) {
+                    loadStockData(newSymbol);
+                  } else {
+                    handleReset();
+                  }
+                }}
+                className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-gray-300 dark:border-gray-600 focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 w-full"
+                placeholder="Enter symbol"
+              />
+            </div>
+            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Current Price</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-gray-900 dark:text-white">£</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={inputs.currentPrice}
+                  onChange={(e) => handleInputChange('currentPrice', parseFloat(e.target.value) || 0)}
+                  className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-none outline-none flex-1 min-w-0"
+                />
               </div>
-            )}
-            {showCurrentPrice && (
-              <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-                <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Current Price</h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-gray-900 dark:text-white">£</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={inputs.currentPrice}
-                    onChange={(e) => handleInputChange('currentPrice', parseFloat(e.target.value) || 0)}
-                    className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-none outline-none w-24"
-                  />
-                </div>
-              </div>
-            )}
+            </div>
 
             <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
               <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Intrinsic Value</h3>
@@ -339,60 +453,113 @@ export default function DDMPage() {
                   : verdict === 'HOLD' 
                   ? 'text-yellow-600 dark:text-yellow-400' 
                   : 'text-red-600 dark:text-red-400'
-              }`}>{verdict}</p>
+              }`}>{verdict || 'N/A'}</p>
             </div>
           </div>
 
           {/* Annual Dividend Projections */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Annual Dividend Projections & Growth Rates</h2>
-            {dividendProjections.length === 0 ? (
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6 text-center">
-                <p className="text-gray-600 dark:text-gray-400 mb-2">
-                  No dividend data loaded. Please search for a dividend-paying stock on the Company Research page first.
-                </p>
-                <Link
-                  href="/research"
-                  className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                >
-                  Go to Company Research →
-                </Link>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-800 text-white">
-                      <th className="border border-gray-600 px-4 py-2 text-left">Year</th>
-                      <th className="border border-gray-600 px-4 py-2 text-left">Annual Dividend ($)</th>
-                      <th className="border border-gray-600 px-4 py-2 text-left">Growth Rate (%)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dividendProjections.map((projection, index) => (
-                      <tr key={projection.year} className="bg-yellow-50 dark:bg-yellow-900/20">
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 font-semibold">{projection.year}</td>
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
-                          <div className="flex items-center justify-center gap-1">
-                            <span className="text-gray-600 dark:text-gray-400">$</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={projection.dividend.toFixed(2)}
-                              onChange={(e) => handleDividendChange(index, 'dividend', parseFloat(e.target.value) || 0)}
-                              className="w-20 bg-transparent border-none outline-none text-center"
-                            />
-                          </div>
-                        </td>
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center">
-                          {projection.growthRate.toFixed(2)}%
-                        </td>
+            {(() => {
+              // Always show years from 2020 to current year
+              const currentYear = new Date().getFullYear();
+              const startYear = 2020;
+              const years: string[] = [];
+              for (let year = startYear; year <= currentYear; year++) {
+                years.push(year.toString());
+              }
+
+              // Create projections array with default values, merging with existing data
+              const displayProjections: DividendProjection[] = years.map((year, index) => {
+                // Find existing projection for this year
+                const existing = dividendProjections.find(p => p.year === year);
+                
+                if (existing) {
+                  return { ...existing };
+                } else {
+                  return {
+                    year,
+                    dividend: 0,
+                    growthRate: 0
+                  };
+                }
+              });
+
+              // Calculate growth rates for all projections
+              displayProjections.forEach((projection, index) => {
+                if (index > 0) {
+                  const prevProjection = displayProjections[index - 1];
+                  if (prevProjection.dividend > 0 && projection.dividend > 0) {
+                    projection.growthRate = ((projection.dividend - prevProjection.dividend) / prevProjection.dividend) * 100;
+                  } else {
+                    projection.growthRate = 0;
+                  }
+                }
+              });
+
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-800 text-white">
+                        <th className="border border-gray-600 px-4 py-2 text-center">Year</th>
+                        <th className="border border-gray-600 px-4 py-2 text-center">Annual Dividend (£)</th>
+                        <th className="border border-gray-600 px-4 py-2 text-center">Growth Rate (%)</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {displayProjections.map((projection, index) => (
+                        <tr key={projection.year} className={index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'}>
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold text-gray-900 dark:text-white">{projection.year}</td>
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <span className="text-gray-700 dark:text-gray-300 font-medium">£</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={projection.dividend === 0 ? '' : projection.dividend}
+                                onChange={(e) => {
+                                  const newValue = parseFloat(e.target.value) || 0;
+                                  
+                                  // Create updated projections array
+                                  const updated = years.map((year, idx) => {
+                                    const existing = idx === index 
+                                      ? { year, dividend: newValue, growthRate: 0 }
+                                      : displayProjections[idx];
+                                    return { ...existing };
+                                  });
+                                  
+                                  // Recalculate growth rates
+                                  updated.forEach((proj, idx) => {
+                                    if (idx > 0) {
+                                      const prevProj = updated[idx - 1];
+                                      if (prevProj.dividend > 0 && proj.dividend > 0) {
+                                        proj.growthRate = ((proj.dividend - prevProj.dividend) / prevProj.dividend) * 100;
+                                      } else {
+                                        proj.growthRate = 0;
+                                      }
+                                    } else {
+                                      proj.growthRate = 0;
+                                    }
+                                  });
+                                  
+                                  setDividendProjections(updated);
+                                }}
+                                placeholder="0.00"
+                                className="w-24 bg-white dark:bg-gray-900 border-2 border-gray-400 dark:border-gray-500 rounded px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white font-medium"
+                              />
+                            </div>
+                          </td>
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center text-gray-900 dark:text-white font-medium">
+                            {projection.growthRate.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Key Input Parameters */}
@@ -473,11 +640,19 @@ export default function DDMPage() {
             </div>
           </div>
 
-          {/* Reset and Recalculate Buttons */}
+          {/* Save, Recalculate and Reset Buttons */}
           <div className="mb-8">
-            <div className="flex justify-center gap-4">
+            <div className="flex justify-between gap-4">
               <button
-                onClick={loadDataFromStorage}
+                onClick={handleSave}
+                disabled={saving || !selectedSymbol}
+                className="bg-green-500 text-white rounded-md hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm px-6 py-2 flex items-center justify-center"
+              >
+                <span className="mr-2">{saving ? '⏳' : '💾'}</span>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={handleRecalculate}
                 className="bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300 transition-colors duration-200 font-medium text-sm px-6 py-2 flex items-center justify-center"
               >
                 <span className="mr-2">🔄</span>
@@ -491,6 +666,11 @@ export default function DDMPage() {
                 Reset All Values
               </button>
             </div>
+            {saveMessage && (
+              <p className={`mt-3 text-center text-sm ${saveMessage.includes('✅') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                {saveMessage}
+              </p>
+            )}
           </div>
 
           {/* Detailed DDM Calculation */}

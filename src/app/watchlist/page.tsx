@@ -84,13 +84,35 @@ export default function CompanyWatchlistPage() {
       revenueEstimate: number | null;
       quarter: string | null;
       year: number | null;
+      actualEps?: number | null;
+      estimatedEps?: number | null;
+      actualRevenue?: number | null;
+      estimatedRevenue?: number | null;
     } | null;
+    allEarnings?: Array<{
+      date: string;
+      epsEstimate: number | null;
+      revenueEstimate: number | null;
+      quarter: string | null;
+      year: number | null;
+      actualEps?: number | null;
+      estimatedEps?: number | null;
+      actualRevenue?: number | null;
+      estimatedRevenue?: number | null;
+    }>;
     error?: string;
   } | null>(null);
   const [loadingEarnings, setLoadingEarnings] = useState(false);
   const [savingEarnings, setSavingEarnings] = useState(false);
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState<boolean>(false);
+  const [ddmData, setDdmData] = useState<{
+    currentPrice: number | null;
+    intrinsicValue: number | null;
+    ddmWithSafety: number | null;
+    verdict: string | null;
+  } | null>(null);
+  const [ddmLoading, setDdmLoading] = useState<boolean>(false);
   
   const [formData, setFormData] = useState<StockValuation>({
     stock: '',
@@ -256,6 +278,52 @@ export default function CompanyWatchlistPage() {
     }
   };
 
+  // Fetch DDM data for a symbol
+  const fetchDdmData = async (symbol: string) => {
+    setDdmLoading(true);
+    try {
+      const response = await fetch(`/api/ddm-data?symbol=${symbol}`);
+      
+      if (!response.ok) {
+        // If 404, no DDM data exists for this symbol
+        if (response.status === 404) {
+          setDdmData(null);
+          return;
+        }
+        console.error('DDM API error:', response.status);
+        setDdmData(null);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      // Determine verdict based on current price, DDM with safety, and intrinsic value
+      // Logic matches DDM page: BUY if price <= ddmWithSafety, HOLD if price <= intrinsicValue, else WAIT
+      let verdict: string | null = null;
+      if (result.currentPrice !== null && result.ddmWithSafety !== null && result.intrinsicValue !== null) {
+        if (result.currentPrice <= result.ddmWithSafety) {
+          verdict = 'BUY';
+        } else if (result.currentPrice <= result.intrinsicValue) {
+          verdict = 'HOLD';
+        } else {
+          verdict = 'WAIT';
+        }
+      }
+      
+      setDdmData({
+        currentPrice: result.currentPrice,
+        intrinsicValue: result.intrinsicValue,
+        ddmWithSafety: result.ddmWithSafety,
+        verdict: verdict
+      });
+    } catch (error) {
+      console.error('Error fetching DDM data:', error);
+      setDdmData(null);
+    } finally {
+      setDdmLoading(false);
+    }
+  };
+
   const loadMatchingDcfEntries = async (symbol: string) => {
     if (!symbol) return;
     
@@ -359,6 +427,8 @@ export default function CompanyWatchlistPage() {
       setLinks([]);
       setNewLink('');
       setShowSections(false);
+      setDdmData(null);
+      setNewsData([]);
       return;
     }
     
@@ -411,9 +481,10 @@ export default function CompanyWatchlistPage() {
       // Show sections when stock is selected
       setShowSections(true);
       
-      // Fetch news for the selected stock
+      // Fetch news and DDM data for the selected stock
       if (data.stock) {
         fetchNewsData(data.stock);
+        fetchDdmData(data.stock);
       }
 
       // Load links for this stock
@@ -1309,6 +1380,69 @@ export default function CompanyWatchlistPage() {
           </div>
         )}
 
+        {/* Dividend Projections Section */}
+        {showSections && formData.stock && ddmData && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
+            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">Dividend Projections</h2>
+            {ddmLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-gray-500 dark:text-gray-400">Loading DDM data...</div>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
+                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Current Price</h3>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {ddmData.currentPrice !== null ? `£${ddmData.currentPrice.toFixed(2)}` : 'N/A'}
+                    </p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
+                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Intrinsic Value</h3>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {ddmData.intrinsicValue !== null ? `£${ddmData.intrinsicValue.toFixed(2)}` : 'N/A'}
+                    </p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
+                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">DDM with Safety</h3>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {ddmData.ddmWithSafety !== null ? `£${ddmData.ddmWithSafety.toFixed(2)}` : 'N/A'}
+                    </p>
+                  </div>
+                  <div className={`p-4 rounded-lg ${
+                    ddmData.verdict === 'BUY' 
+                      ? 'bg-green-100 dark:bg-green-900/20' 
+                      : ddmData.verdict === 'HOLD' 
+                      ? 'bg-yellow-100 dark:bg-yellow-900/20' 
+                      : ddmData.verdict === 'WAIT'
+                      ? 'bg-gray-100 dark:bg-gray-700'
+                      : 'bg-gray-100 dark:bg-gray-700'
+                  }`}>
+                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Verdict</h3>
+                    <p className={`text-2xl font-bold ${
+                      ddmData.verdict === 'BUY' 
+                        ? 'text-green-600 dark:text-green-400' 
+                        : ddmData.verdict === 'HOLD' 
+                        ? 'text-yellow-600 dark:text-yellow-400' 
+                        : ddmData.verdict === 'WAIT'
+                        ? 'text-gray-600 dark:text-gray-400'
+                        : 'text-gray-600 dark:text-gray-400'
+                    }`}>{ddmData.verdict || 'N/A'}</p>
+                  </div>
+                </div>
+                <div className="flex justify-center mt-6">
+                  <Link
+                    href={`/ddm?symbol=${formData.stock}`}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    View Data
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Earnings Section */}
         {showSections && formData.stock && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
@@ -1375,41 +1509,127 @@ export default function CompanyWatchlistPage() {
                 }
                 
                 const nextEarnings = earningsCalendar.nextEarnings;
+                const allEarnings = earningsCalendar.allEarnings || [];
                 
                 return (
-                  <div className="space-y-2">
-                    <div className="flex items-center">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Next Earnings Date: </span>
-                      <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 ml-1">
-                        {new Date(nextEarnings.date).toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: 'long', 
-                          day: 'numeric' 
-                        })}
-                      </span>
-                    </div>
-                    {nextEarnings.quarter && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">Quarter:</span>
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          {nextEarnings.quarter} {nextEarnings.year}
-                        </span>
+                  <div className="space-y-4">
+                    {/* Next Earnings */}
+                    {nextEarnings && (
+                      <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Next Earnings</h3>
+                        <div className="space-y-2">
+                          <div className="flex items-center">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Date: </span>
+                            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 ml-1">
+                              {new Date(nextEarnings.date).toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })}
+                            </span>
+                          </div>
+                          {nextEarnings.quarter && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Quarter: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                {nextEarnings.quarter} {nextEarnings.year}
+                              </span>
+                            </div>
+                          )}
+                          {nextEarnings.actualEps !== null && nextEarnings.actualEps !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Actual EPS: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${nextEarnings.actualEps.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                          {nextEarnings.estimatedEps !== null && nextEarnings.estimatedEps !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Estimated EPS: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${nextEarnings.estimatedEps.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                          {nextEarnings.actualRevenue !== null && nextEarnings.actualRevenue !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Actual Revenue: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${(nextEarnings.actualRevenue / 1000000).toFixed(2)}M
+                              </span>
+                            </div>
+                          )}
+                          {nextEarnings.estimatedRevenue !== null && nextEarnings.estimatedRevenue !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Estimated Revenue: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${(nextEarnings.estimatedRevenue / 1000000).toFixed(2)}M
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
-                    {nextEarnings.epsEstimate !== null && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">EPS Estimate:</span>
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          ${nextEarnings.epsEstimate.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                    {nextEarnings.revenueEstimate !== null && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">Revenue Estimate:</span>
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          ${(nextEarnings.revenueEstimate / 1000000).toFixed(2)}M
-                        </span>
+                    
+                    {/* All Earnings */}
+                    {allEarnings.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">All Earnings</h3>
+                        <div className="space-y-4">
+                          {allEarnings.map((earnings: any, index: number) => (
+                            <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                              <div className="flex items-center mb-2">
+                                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                  {new Date(earnings.date).toLocaleDateString('en-US', { 
+                                    year: 'numeric', 
+                                    month: 'long', 
+                                    day: 'numeric' 
+                                  })}
+                                </span>
+                                {earnings.quarter && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                                    ({earnings.quarter} {earnings.year})
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                {earnings.actualEps !== null && (
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">Actual EPS: </span>
+                                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                                      ${earnings.actualEps.toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                                {earnings.estimatedEps !== null && (
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">Estimated EPS: </span>
+                                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                                      ${earnings.estimatedEps.toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                                {earnings.actualRevenue !== null && (
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">Actual Revenue: </span>
+                                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                                      ${(earnings.actualRevenue / 1000000).toFixed(2)}M
+                                    </span>
+                                  </div>
+                                )}
+                                {earnings.estimatedRevenue !== null && (
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">Estimated Revenue: </span>
+                                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                                      ${(earnings.estimatedRevenue / 1000000).toFixed(2)}M
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
