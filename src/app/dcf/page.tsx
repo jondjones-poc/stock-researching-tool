@@ -37,6 +37,15 @@ export default function DCFCalculator() {
   const [savingToWatchlist, setSavingToWatchlist] = useState(false);
   const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
   const [loadingMatchingEntries, setLoadingMatchingEntries] = useState(false);
+  const [bearPromptLoading, setBearPromptLoading] = useState(false);
+  const [basePromptLoading, setBasePromptLoading] = useState(false);
+  const [bullPromptLoading, setBullPromptLoading] = useState(false);
+  const [bearCopyLoading, setBearCopyLoading] = useState(false);
+  const [baseCopyLoading, setBaseCopyLoading] = useState(false);
+  const [bullCopyLoading, setBullCopyLoading] = useState(false);
+  const [bearCopyCopied, setBearCopyCopied] = useState(false);
+  const [baseCopyCopied, setBaseCopyCopied] = useState(false);
+  const [bullCopyCopied, setBullCopyCopied] = useState(false);
 
   const searchParams = useSearchParams();
 
@@ -62,6 +71,21 @@ export default function DCFCalculator() {
       setMatchingDcfEntries([]);
     }
   }, [dcfData?.symbol, dcfDbId]);
+
+  // If DCF data exists in local storage and there is a matching DB entry, auto-load that entry
+  useEffect(() => {
+    // Don't override an explicit selection from URL or user
+    if (!dcfData?.symbol || dcfList.length === 0 || selectedDcfId) return;
+
+    const upperSymbol = dcfData.symbol.toUpperCase();
+    const matchingEntry = dcfList.find(
+      (entry) => entry.symbol && entry.symbol.toUpperCase() === upperSymbol
+    );
+
+    if (matchingEntry) {
+      handleDcfSelect(matchingEntry.id);
+    }
+  }, [dcfData?.symbol, dcfList, selectedDcfId]);
 
   const loadMatchingDcfEntries = async (symbol: string) => {
     if (!symbol) return;
@@ -270,47 +294,53 @@ export default function DCFCalculator() {
       const sharePriceLowProjections: { bear: number[]; base: number[]; bull: number[] } = { bear: [], base: [], bull: [] };
       const sharePriceHighProjections: { bear: number[]; base: number[]; bull: number[] } = { bear: [], base: [], bull: [] };
 
-    // Calculate for each scenario
-    const scenarios: ('bear' | 'base' | 'bull')[] = ['bear', 'base', 'bull'];
-    
-    scenarios.forEach(scenario => {
-      let currentRevenue = new Decimal(data.revenue);
-      let currentNetIncome = new Decimal(data.netIncome);
+      // Calculate for each scenario
+      const scenarios: ('bear' | 'base' | 'bull')[] = ['bear', 'base', 'bull'];
       
-      const revenueGrowth = data.revenueGrowth[scenario];
-      const netIncomeGrowth = data.netIncomeGrowth[scenario];
-      const peLow = data.peLow[scenario];
-      const peHigh = data.peHigh[scenario];
-
-      for (let year = 0; year < years; year++) {
-        if (year > 0) {
-          currentRevenue = currentRevenue.mul(new Decimal(1).add(revenueGrowth));
-          currentNetIncome = currentNetIncome.mul(new Decimal(1).add(netIncomeGrowth));
-        }
+      scenarios.forEach(scenario => {
+        let currentRevenue = new Decimal(data.revenue);
+        let currentNetIncome = new Decimal(data.netIncome);
         
+        const revenueGrowth = data.revenueGrowth[scenario];
+        const netIncomeGrowth = data.netIncomeGrowth[scenario];
+        const peLow = data.peLow[scenario];
+        const peHigh = data.peHigh[scenario];
+
         // Handle zero or missing shares outstanding - use a reasonable default
         const sharesOutstanding = data.sharesOutstanding && data.sharesOutstanding > 0 
           ? data.sharesOutstanding 
           : 50000000; // Default to 50M shares if not available
-        
-        // Use input EPS for year 0, calculate for other years
-        let eps;
-        if (year === 0 && data.currentEps && data.currentEps > 0) {
-          eps = new Decimal(data.currentEps);
-        } else {
-          eps = currentNetIncome.div(sharesOutstanding);
-        }
-        
-        const sharePriceLow = eps.mul(peLow);
-        const sharePriceHigh = eps.mul(peHigh);
 
-        revenueProjections[scenario].push(currentRevenue.toNumber());
-        netIncomeProjections[scenario].push(currentNetIncome.toNumber());
-        epsProjections[scenario].push(eps.toNumber());
-        sharePriceLowProjections[scenario].push(sharePriceLow.toNumber());
-        sharePriceHighProjections[scenario].push(sharePriceHigh.toNumber());
-      }
-    });
+        // Track EPS separately so it grows with net income growth (assuming stable share count)
+        let currentEps: Decimal | null = null;
+        if (data.currentEps && data.currentEps > 0) {
+          currentEps = new Decimal(data.currentEps);
+        } else if (sharesOutstanding > 0) {
+          currentEps = currentNetIncome.div(sharesOutstanding);
+        }
+
+        for (let year = 0; year < years; year++) {
+          if (year > 0) {
+            currentRevenue = currentRevenue.mul(new Decimal(1).add(revenueGrowth));
+            currentNetIncome = currentNetIncome.mul(new Decimal(1).add(netIncomeGrowth));
+            if (currentEps) {
+              currentEps = currentEps.mul(new Decimal(1).add(netIncomeGrowth));
+            }
+          }
+          
+          // Fallback to deriving EPS from net income and shares if we don't have a starting EPS
+          const eps = currentEps ?? currentNetIncome.div(sharesOutstanding);
+          
+          const sharePriceLow = eps.mul(peLow);
+          const sharePriceHigh = eps.mul(peHigh);
+
+          revenueProjections[scenario].push(currentRevenue.toNumber());
+          netIncomeProjections[scenario].push(currentNetIncome.toNumber());
+          epsProjections[scenario].push(eps.toNumber());
+          sharePriceLowProjections[scenario].push(sharePriceLow.toNumber());
+          sharePriceHighProjections[scenario].push(sharePriceHigh.toNumber());
+        }
+      });
 
     // Calculate CAGR
     const cagrLow = {
@@ -355,13 +385,54 @@ export default function DCFCalculator() {
 
   const handleInputChange = (field: keyof typeof formData, scenario: 'bear' | 'base' | 'bull', value: string) => {
     const numValue = parseFloat(value) || 0;
-    setFormData(prev => ({
-      ...prev,
-      [field]: {
+    
+    setFormData(prev => {
+      const nextField = {
         ...(prev[field] as { bear: number; base: number; bull: number }),
         [scenario]: numValue
+      };
+
+      const nextForm = {
+        ...prev,
+        [field]: nextField
+      };
+
+      // Live-update projections to match textbox assumptions
+      if (dcfData) {
+        const updatedData: DCFData = {
+          ...dcfData,
+          revenueGrowth: {
+            bear: nextForm.revenueGrowth.bear / 100,
+            base: nextForm.revenueGrowth.base / 100,
+            bull: nextForm.revenueGrowth.bull / 100
+          },
+          netIncomeGrowth: {
+            bear: nextForm.netIncomeGrowth.bear / 100,
+            base: nextForm.netIncomeGrowth.base / 100,
+            bull: nextForm.netIncomeGrowth.bull / 100
+          },
+          peLow: {
+            bear: Math.round(nextForm.peLow.bear),
+            base: Math.round(nextForm.peLow.base),
+            bull: Math.round(nextForm.peLow.bull)
+          },
+          peHigh: {
+            bear: Math.round(nextForm.peHigh.bear),
+            base: Math.round(nextForm.peHigh.base),
+            bull: Math.round(nextForm.peHigh.bull)
+          },
+          stockPrice: nextForm.stockPrice,
+          sharesOutstanding: dcfData.sharesOutstanding || 50000000,
+          currentEps: dcfData.currentEps || 0,
+          revenue: dcfData.revenue,
+          netIncome: dcfData.netIncome
+        };
+
+        calculateProjections(updatedData);
       }
-    }));
+
+      return nextForm;
+    });
   };
 
   const handleRefresh = () => {
@@ -402,11 +473,12 @@ export default function DCFCalculator() {
         console.log('Saving updated data:', updatedData);
         console.log('EPS value being saved:', updatedData.currentEps);
         
-        // Store updated data in localStorage
+        // Update state and projections based on the latest textbox values
+        setDcfData(updatedData);
+        calculateProjections(updatedData);
+
+        // Store updated data in localStorage for persistence
         storeDCFData(updatedData);
-        
-        // Reload the page to refresh all data
-        window.location.reload();
       } else {
         console.warn('No DCF data available for refresh');
       }
@@ -1237,11 +1309,212 @@ export default function DCFCalculator() {
               </div>
             </div>
 
-            <div className="flex flex-col justify-center items-center h-full gap-2">
+            <div className="flex flex-col justify-center items-center h-full gap-3">
+              {/* AI Advice Buttons - Bear/Base/Bull for DCF */}
+              <div className="flex flex-col gap-2 w-full">
+                <button
+                  type="button"
+                  disabled={!dcfData?.symbol || bearPromptLoading}
+                  onClick={async () => {
+                      try {
+                        setBearPromptLoading(true);
+                        const lines: string[] = [];
+                        lines.push(
+                          'You are a financial analyst. Using up-to-date data, help me choose conservative (bear) DCF assumptions for this stock.'
+                        );
+                        if (dcfData?.symbol) {
+                          lines.push(`\nStock symbol: ${dcfData.symbol}`);
+                        }
+                        lines.push(
+                          '\nMy current bear-case DCF inputs (percentages are per year):',
+                          `- Revenue growth (bear): ${formData.revenueGrowth.bear.toFixed(2)}%`,
+                          `- Net income growth (bear): ${formData.netIncomeGrowth.bear.toFixed(2)}%`,
+                          `- P/E low (bear): ${formData.peLow.bear.toFixed(0)}x`,
+                          `- P/E high (bear): ${formData.peHigh.bear.toFixed(0)}x`,
+                          `- Current stock price: ${formatCurrency(formData.stockPrice)}`
+                        );
+                        if (projections) {
+                          lines.push(
+                            '\nBear-case 5-year output from my current model:',
+                            `- Average target price (year 5): ${formatCurrency((projections.sharePriceLow.bear[4] + projections.sharePriceHigh.bear[4]) / 2)}`,
+                            `- Low target price (year 5): ${formatCurrency(projections.sharePriceLow.bear[4])}`,
+                            `- High target price (year 5): ${formatCurrency(projections.sharePriceHigh.bear[4])}`
+                          );
+                        }
+                        lines.push(
+                          '\nInstructions (bear case):',
+                          '1. Based on recent fundamentals, growth, margins and valuation, suggest realistic bear-case values for revenue growth, net income growth, and P/E low/high.',
+                          '2. Highlight where my current bear assumptions are too optimistic or unnecessarily pessimistic.',
+                          '3. Suggest a reasonable 5-year bear-case price range and compare it to today’s price.',
+                          '4. Provide a short explanation of why your suggested bear-case inputs make sense.'
+                        );
+
+                        const prompt = lines.join('\n');
+
+                        if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                          await navigator.clipboard.writeText(prompt);
+                          setDbMessage({
+                            type: 'success',
+                            text: 'Bear-case advice prompt copied. Paste into ChatGPT to refine your bear assumptions.'
+                          });
+                        } else {
+                          setDbMessage({
+                            type: 'error',
+                            text: 'Could not access clipboard. Please copy the prompt manually.'
+                          });
+                        }
+                      } catch (error: any) {
+                        console.error('Error creating bear-case advice prompt for DCF:', error);
+                        setDbMessage({
+                          type: 'error',
+                          text: error?.message || 'Failed to create bear-case advice prompt.'
+                        });
+                      } finally {
+                        setBearPromptLoading(false);
+                      }
+                  }}
+                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                >
+                  {bearPromptLoading ? 'Bear Prompt...' : 'Bear Advice Prompt'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!dcfData?.symbol || basePromptLoading}
+                  onClick={async () => {
+                      try {
+                        setBasePromptLoading(true);
+                        const lines: string[] = [];
+                        lines.push(
+                          'You are a financial analyst. Using up-to-date data, help me choose realistic base-case DCF assumptions for this stock.'
+                        );
+                        if (dcfData?.symbol) {
+                          lines.push(`\nStock symbol: ${dcfData.symbol}`);
+                        }
+                        lines.push(
+                          '\nMy current base-case DCF inputs (percentages are per year):',
+                          `- Revenue growth (base): ${formData.revenueGrowth.base.toFixed(2)}%`,
+                          `- Net income growth (base): ${formData.netIncomeGrowth.base.toFixed(2)}%`,
+                          `- P/E low (base): ${formData.peLow.base.toFixed(0)}x`,
+                          `- P/E high (base): ${formData.peHigh.base.toFixed(0)}x`,
+                          `- Current stock price: ${formatCurrency(formData.stockPrice)}`
+                        );
+                        if (projections) {
+                          lines.push(
+                            '\nBase-case 5-year output from my current model:',
+                            `- Average target price (year 5): ${formatCurrency((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2)}`,
+                            `- Low target price (year 5): ${formatCurrency(projections.sharePriceLow.base[4])}`,
+                            `- High target price (year 5): ${formatCurrency(projections.sharePriceHigh.base[4])}`
+                          );
+                        }
+                        lines.push(
+                          '\nInstructions (base case):',
+                          '1. Suggest base-case revenue and net income growth rates that align with consensus expectations and recent company performance.',
+                          '2. Suggest reasonable P/E low and high values for a base scenario.',
+                          '3. Comment on whether my current base-case output looks realistic vs today’s price.',
+                          '4. Provide any tweaks you’d make to turn this into a solid, defensible base-case model.'
+                        );
+
+                        const prompt = lines.join('\n');
+
+                        if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                          await navigator.clipboard.writeText(prompt);
+                          setDbMessage({
+                            type: 'success',
+                            text: 'Base-case advice prompt copied. Paste into ChatGPT to refine your base assumptions.'
+                          });
+                        } else {
+                          setDbMessage({
+                            type: 'error',
+                            text: 'Could not access clipboard. Please copy the prompt manually.'
+                          });
+                        }
+                      } catch (error: any) {
+                        console.error('Error creating base-case advice prompt for DCF:', error);
+                        setDbMessage({
+                          type: 'error',
+                          text: error?.message || 'Failed to create base-case advice prompt.'
+                        });
+                      } finally {
+                        setBasePromptLoading(false);
+                      }
+                  }}
+                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                >
+                  {basePromptLoading ? 'Base Prompt...' : 'Base Advice Prompt'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!dcfData?.symbol || bullPromptLoading}
+                  onClick={async () => {
+                      try {
+                        setBullPromptLoading(true);
+                        const lines: string[] = [];
+                        lines.push(
+                          'You are a financial analyst. Using up-to-date data, help me choose optimistic but plausible bull-case DCF assumptions for this stock.'
+                        );
+                        if (dcfData?.symbol) {
+                          lines.push(`\nStock symbol: ${dcfData.symbol}`);
+                        }
+                        lines.push(
+                          '\nMy current bull-case DCF inputs (percentages are per year):',
+                          `- Revenue growth (bull): ${formData.revenueGrowth.bull.toFixed(2)}%`,
+                          `- Net income growth (bull): ${formData.netIncomeGrowth.bull.toFixed(2)}%`,
+                          `- P/E low (bull): ${formData.peLow.bull.toFixed(0)}x`,
+                          `- P/E high (bull): ${formData.peHigh.bull.toFixed(0)}x`,
+                          `- Current stock price: ${formatCurrency(formData.stockPrice)}`
+                        );
+                        if (projections) {
+                          lines.push(
+                            '\nBull-case 5-year output from my current model:',
+                            `- Average target price (year 5): ${formatCurrency((projections.sharePriceLow.bull[4] + projections.sharePriceHigh.bull[4]) / 2)}`,
+                            `- Low target price (year 5): ${formatCurrency(projections.sharePriceLow.bull[4])}`,
+                            `- High target price (year 5): ${formatCurrency(projections.sharePriceHigh.bull[4])}`
+                          );
+                        }
+                        lines.push(
+                          '\nInstructions (bull case):',
+                          '1. Suggest bull-case growth and P/E assumptions that are optimistic but still grounded in reality for this business and sector.',
+                          '2. Highlight if my current bull assumptions are unrealistic in either direction.',
+                          '3. Provide a reasonable bull-case 5-year price range and compare it to today’s price.',
+                          '4. Provide a short rationale for your suggested bull-case inputs.'
+                        );
+
+                        const prompt = lines.join('\n');
+
+                        if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                          await navigator.clipboard.writeText(prompt);
+                          setDbMessage({
+                            type: 'success',
+                            text: 'Bull-case advice prompt copied. Paste into ChatGPT to refine your bull assumptions.'
+                          });
+                        } else {
+                          setDbMessage({
+                            type: 'error',
+                            text: 'Could not access clipboard. Please copy the prompt manually.'
+                          });
+                        }
+                      } catch (error: any) {
+                        console.error('Error creating bull-case advice prompt for DCF:', error);
+                        setDbMessage({
+                          type: 'error',
+                          text: error?.message || 'Failed to create bull-case advice prompt.'
+                        });
+                      } finally {
+                        setBullPromptLoading(false);
+                      }
+                  }}
+                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                >
+                  {bullPromptLoading ? 'Bull Prompt...' : 'Bull Advice Prompt'}
+                </button>
+              </div>
+
               <button
                 onClick={loadDcfList}
                 disabled={loadingList}
-                className="w-4/5 h-2/5 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm flex items-center justify-center"
+                className="w-full px-3 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-xs flex items-center justify-center"
               >
                 {loadingList ? 'Loading...' : (
                   <>
@@ -1271,7 +1544,7 @@ export default function DCFCalculator() {
         {/* Share Price Summary */}
         {dcfData && projections && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 mb-4">
               <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Share Price Summary</h2>
               <button
                 onClick={handleAddToWatchlist}
@@ -1281,7 +1554,7 @@ export default function DCFCalculator() {
                 {savingToWatchlist ? 'Adding...' : '💾 Add To WatchList data'}
               </button>
             </div>
-            
+
             {/* Current Price Row */}
             <div className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/20 dark:to-slate-900/20 rounded-lg p-6 mb-4 border border-gray-200 dark:border-gray-700">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1395,6 +1668,202 @@ export default function DCFCalculator() {
                 </div>
               </div>
             </div>
+
+            {/* AI Validation Buttons */}
+            <div className="mt-4 mb-2 flex flex-col md:flex-row gap-3 md:gap-4 items-center">
+              <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">AI Prompt</span>
+              <button
+                type="button"
+                disabled={bearPromptLoading}
+                onClick={async () => {
+                  try {
+                    setBearPromptLoading(true);
+                    const lines: string[] = [];
+                    lines.push('You are a financial analyst. Please validate the following bearish DCF assumptions against up-to-date market data and recent business performance.');
+                    if (dcfData?.symbol) {
+                      lines.push(`\nStock symbol: ${dcfData.symbol}`);
+                    }
+                    lines.push(
+                      '\nBear Case Inputs (all per-year growth as %):',
+                      `- Revenue growth (bear): ${formData.revenueGrowth.bear.toFixed(2)}%`,
+                      `- Net income growth (bear): ${formData.netIncomeGrowth.bear.toFixed(2)}%`,
+                      `- P/E low (bear): ${formData.peLow.bear.toFixed(0)}x`,
+                      `- P/E high (bear): ${formData.peHigh.bear.toFixed(0)}x`,
+                      `- Current stock price: ${formatCurrency(formData.stockPrice)}`
+                    );
+
+                    lines.push(
+                      '\nBear Case 5-Year Price Outputs:',
+                      `- Average target price (year 5): ${formatCurrency((projections.sharePriceLow.bear[4] + projections.sharePriceHigh.bear[4]) / 2)}`,
+                      `- Low target price (year 5): ${formatCurrency(projections.sharePriceLow.bear[4])}`,
+                      `- High target price (year 5): ${formatCurrency(projections.sharePriceHigh.bear[4])}`
+                    );
+
+                    lines.push(
+                      '\nInstructions:',
+                      '1. Compare these bear-case assumptions to current analyst expectations and historical trends.',
+                      '2. Highlight where revenue growth, net income growth, or P/E multiples look too aggressive or too conservative.',
+                      "3. Comment on whether the year-5 bear-case price range is reasonable relative to today's price.",
+                      '4. Suggest any tweaks to the bear-case inputs to make the scenario more realistic.'
+                    );
+
+                    const prompt = lines.join('\n');
+
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(prompt);
+                      setDbMessage({
+                        type: 'success',
+                        text: 'Bear case AI prompt copied. Paste this into ChatGPT to validate your assumptions.'
+                      });
+                    } else {
+                      setDbMessage({
+                        type: 'error',
+                        text: 'Could not access clipboard. Please copy the prompt manually.'
+                      });
+                    }
+                  } catch (error: any) {
+                    console.error('Error creating bear-case AI prompt for DCF:', error);
+                    setDbMessage({
+                      type: 'error',
+                      text: error?.message || 'Failed to create bear-case AI prompt.'
+                    });
+                  } finally {
+                    setBearPromptLoading(false);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {bearPromptLoading ? 'Creating Bear Prompt...' : 'Validate Bear Case Prompt'}
+              </button>
+
+              <button
+                type="button"
+                disabled={basePromptLoading}
+                onClick={async () => {
+                  try {
+                    setBasePromptLoading(true);
+                    const lines: string[] = [];
+                    lines.push('You are a financial analyst. Please validate the following base-case DCF assumptions against up-to-date market data and recent business performance.');
+                    if (dcfData?.symbol) {
+                      lines.push(`\nStock symbol: ${dcfData.symbol}`);
+                    }
+                    lines.push(
+                      '\nBase Case Inputs (all per-year growth as %):',
+                      `- Revenue growth (base): ${formData.revenueGrowth.base.toFixed(2)}%`,
+                      `- Net income growth (base): ${formData.netIncomeGrowth.base.toFixed(2)}%`,
+                      `- P/E low (base): ${formData.peLow.base.toFixed(0)}x`,
+                      `- P/E high (base): ${formData.peHigh.base.toFixed(0)}x`,
+                      `- Current stock price: ${formatCurrency(formData.stockPrice)}`
+                    );
+
+                    lines.push(
+                      '\nBase Case 5-Year Price Outputs:',
+                      `- Average target price (year 5): ${formatCurrency((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2)}`,
+                      `- Low target price (year 5): ${formatCurrency(projections.sharePriceLow.base[4])}`,
+                      `- High target price (year 5): ${formatCurrency(projections.sharePriceHigh.base[4])}`
+                    );
+
+                    lines.push(
+                      '\nInstructions:',
+                      '1. Compare these base-case assumptions to current analyst expectations and historical trends.',
+                      '2. Highlight where revenue growth, net income growth, or P/E multiples look too aggressive or too conservative.',
+                      "3. Comment on whether the year-5 base-case price range is reasonable relative to today's price.",
+                      '4. Suggest any tweaks to the base-case inputs to make the scenario more realistic.'
+                    );
+
+                    const prompt = lines.join('\n');
+
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(prompt);
+                      setDbMessage({
+                        type: 'success',
+                        text: 'Base case AI prompt copied. Paste this into ChatGPT to validate your assumptions.'
+                      });
+                    } else {
+                      setDbMessage({
+                        type: 'error',
+                        text: 'Could not access clipboard. Please copy the prompt manually.'
+                      });
+                    }
+                  } catch (error: any) {
+                    console.error('Error creating base-case AI prompt for DCF:', error);
+                    setDbMessage({
+                      type: 'error',
+                      text: error?.message || 'Failed to create base-case AI prompt.'
+                    });
+                  } finally {
+                    setBasePromptLoading(false);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {basePromptLoading ? 'Creating Base Prompt...' : 'Validate Base Case Prompt'}
+              </button>
+
+              <button
+                type="button"
+                disabled={bullPromptLoading}
+                onClick={async () => {
+                  try {
+                    setBullPromptLoading(true);
+                    const lines: string[] = [];
+                    lines.push('You are a financial analyst. Please validate the following bull-case DCF assumptions against up-to-date market data and recent business performance.');
+                    if (dcfData?.symbol) {
+                      lines.push(`\nStock symbol: ${dcfData.symbol}`);
+                    }
+                    lines.push(
+                      '\nBull Case Inputs (all per-year growth as %):',
+                      `- Revenue growth (bull): ${formData.revenueGrowth.bull.toFixed(2)}%`,
+                      `- Net income growth (bull): ${formData.netIncomeGrowth.bull.toFixed(2)}%`,
+                      `- P/E low (bull): ${formData.peLow.bull.toFixed(0)}x`,
+                      `- P/E high (bull): ${formData.peHigh.bull.toFixed(0)}x`,
+                      `- Current stock price: ${formatCurrency(formData.stockPrice)}`
+                    );
+
+                    lines.push(
+                      '\nBull Case 5-Year Price Outputs:',
+                      `- Average target price (year 5): ${formatCurrency((projections.sharePriceLow.bull[4] + projections.sharePriceHigh.bull[4]) / 2)}`,
+                      `- Low target price (year 5): ${formatCurrency(projections.sharePriceLow.bull[4])}`,
+                      `- High target price (year 5): ${formatCurrency(projections.sharePriceHigh.bull[4])}`
+                    );
+
+                    lines.push(
+                      '\nInstructions:',
+                      '1. Compare these bull-case assumptions to current analyst expectations and historical trends.',
+                      '2. Highlight where revenue growth, net income growth, or P/E multiples look too aggressive or too conservative.',
+                      "3. Comment on whether the year-5 bull-case price range is reasonable relative to today's price.",
+                      '4. Suggest any tweaks to the bull-case inputs to make the scenario more realistic.'
+                    );
+
+                    const prompt = lines.join('\n');
+
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(prompt);
+                      setDbMessage({
+                        type: 'success',
+                        text: 'Bull case AI prompt copied. Paste this into ChatGPT to validate your assumptions.'
+                      });
+                    } else {
+                      setDbMessage({
+                        type: 'error',
+                        text: 'Could not access clipboard. Please copy the prompt manually.'
+                      });
+                    }
+                  } catch (error: any) {
+                    console.error('Error creating bull-case AI prompt for DCF:', error);
+                    setDbMessage({
+                      type: 'error',
+                      text: error?.message || 'Failed to create bull-case AI prompt.'
+                    });
+                  } finally {
+                    setBullPromptLoading(false);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {bullPromptLoading ? 'Creating Bull Prompt...' : 'Validate Bull Case Prompt'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1457,9 +1926,189 @@ export default function DCFCalculator() {
                 <thead>
                   <tr className="border-b-2 border-gray-300 dark:border-gray-600">
                     <th className="text-left py-4 px-6 font-bold text-lg text-white">Metric</th>
-                    <th className="text-center py-4 px-6 font-bold text-lg text-red-600 bg-red-50 dark:bg-red-900/20">Bear Case</th>
-                    <th className="text-center py-4 px-6 font-bold text-lg text-blue-600 bg-blue-50 dark:bg-blue-900/20">Base Case</th>
-                    <th className="text-center py-4 px-6 font-bold text-lg text-green-600 bg-green-50 dark:bg-green-900/20">Bull Case</th>
+                    <th className="py-4 px-6 font-bold text-lg text-red-600 bg-red-50 dark:bg-red-900/20">
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Bear Case</span>
+                          <button
+                          type="button"
+                          disabled={bearCopyLoading}
+                          onClick={async () => {
+                            try {
+                              setBearCopyLoading(true);
+                              if (!dcfData || !projections) return;
+                              const bearData = {
+                                case: 'bear',
+                                symbol: dcfData.symbol,
+                                currentPrice: dcfData.stockPrice,
+                                assumptions: {
+                                  revenueGrowthPercent: formData.revenueGrowth.bear,
+                                  netIncomeGrowthPercent: formData.netIncomeGrowth.bear,
+                                  peLow: formData.peLow.bear,
+                                  peHigh: formData.peHigh.bear,
+                                },
+                                projections: {
+                                  revenue: projections.revenue.bear,
+                                  netIncome: projections.netIncome.bear,
+                                  eps: projections.eps.bear,
+                                  sharePriceLow: projections.sharePriceLow.bear,
+                                  sharePriceHigh: projections.sharePriceHigh.bear,
+                                },
+                              };
+                              const json = JSON.stringify(bearData, null, 2);
+                              if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                                await navigator.clipboard.writeText(json);
+                                setBearCopyCopied(true);
+                                setTimeout(() => setBearCopyCopied(false), 2000);
+                              } else {
+                                setDbMessage({
+                                  type: 'error',
+                                  text: 'Could not access clipboard. Please copy the JSON manually.',
+                                });
+                              }
+                            } catch (error: any) {
+                              console.error('Error copying bear case projections JSON:', error);
+                              setDbMessage({
+                                type: 'error',
+                                text: error?.message || 'Failed to copy bear case projections JSON.',
+                              });
+                            } finally {
+                              setBearCopyLoading(false);
+                            }
+                          }}
+                          className="min-w-[64px] h-8 px-2 rounded-full bg-white/80 dark:bg-gray-900/60 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-300 flex items-center justify-center text-xs shadow-sm hover:bg-white dark:hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                          title="Copy bear column data as JSON"
+                        >
+                          {bearCopyLoading ? 'Copying...' : 'Copy'}
+                          </button>
+                        </div>
+                        {bearCopyCopied && (
+                          <span className="text-[11px] text-red-600 dark:text-red-300">Copied</span>
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-4 px-6 font-bold text-lg text-blue-600 bg-blue-50 dark:bg-blue-900/20">
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Base Case</span>
+                          <button
+                          type="button"
+                          disabled={baseCopyLoading}
+                          onClick={async () => {
+                            try {
+                              setBaseCopyLoading(true);
+                              if (!dcfData || !projections) return;
+                              const baseData = {
+                                case: 'base',
+                                symbol: dcfData.symbol,
+                                currentPrice: dcfData.stockPrice,
+                                assumptions: {
+                                  revenueGrowthPercent: formData.revenueGrowth.base,
+                                  netIncomeGrowthPercent: formData.netIncomeGrowth.base,
+                                  peLow: formData.peLow.base,
+                                  peHigh: formData.peHigh.base,
+                                },
+                                projections: {
+                                  revenue: projections.revenue.base,
+                                  netIncome: projections.netIncome.base,
+                                  eps: projections.eps.base,
+                                  sharePriceLow: projections.sharePriceLow.base,
+                                  sharePriceHigh: projections.sharePriceHigh.base,
+                                },
+                              };
+                              const json = JSON.stringify(baseData, null, 2);
+                              if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                                await navigator.clipboard.writeText(json);
+                                setBaseCopyCopied(true);
+                                setTimeout(() => setBaseCopyCopied(false), 2000);
+                              } else {
+                                setDbMessage({
+                                  type: 'error',
+                                  text: 'Could not access clipboard. Please copy the JSON manually.',
+                                });
+                              }
+                            } catch (error: any) {
+                              console.error('Error copying base case projections JSON:', error);
+                              setDbMessage({
+                                type: 'error',
+                                text: error?.message || 'Failed to copy base case projections JSON.',
+                              });
+                            } finally {
+                              setBaseCopyLoading(false);
+                            }
+                          }}
+                          className="min-w-[64px] h-8 px-2 rounded-full bg-white/80 dark:bg-gray-900/60 border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300 flex items-center justify-center text-xs shadow-sm hover:bg-white dark:hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                          title="Copy base column data as JSON"
+                        >
+                          {baseCopyLoading ? 'Copying...' : 'Copy'}
+                          </button>
+                        </div>
+                        {baseCopyCopied && (
+                          <span className="text-[11px] text-blue-600 dark:text-blue-300">Copied</span>
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-4 px-6 font-bold text-lg text-green-600 bg-green-50 dark:bg-green-900/20">
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Bull Case</span>
+                          <button
+                          type="button"
+                          disabled={bullCopyLoading}
+                          onClick={async () => {
+                            try {
+                              setBullCopyLoading(true);
+                              if (!dcfData || !projections) return;
+                              const bullData = {
+                                case: 'bull',
+                                symbol: dcfData.symbol,
+                                currentPrice: dcfData.stockPrice,
+                                assumptions: {
+                                  revenueGrowthPercent: formData.revenueGrowth.bull,
+                                  netIncomeGrowthPercent: formData.netIncomeGrowth.bull,
+                                  peLow: formData.peLow.bull,
+                                  peHigh: formData.peHigh.bull,
+                                },
+                                projections: {
+                                  revenue: projections.revenue.bull,
+                                  netIncome: projections.netIncome.bull,
+                                  eps: projections.eps.bull,
+                                  sharePriceLow: projections.sharePriceLow.bull,
+                                  sharePriceHigh: projections.sharePriceHigh.bull,
+                                },
+                              };
+                              const json = JSON.stringify(bullData, null, 2);
+                              if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                                await navigator.clipboard.writeText(json);
+                                setBullCopyCopied(true);
+                                setTimeout(() => setBullCopyCopied(false), 2000);
+                              } else {
+                                setDbMessage({
+                                  type: 'error',
+                                  text: 'Could not access clipboard. Please copy the JSON manually.',
+                                });
+                              }
+                            } catch (error: any) {
+                              console.error('Error copying bull case projections JSON:', error);
+                              setDbMessage({
+                                type: 'error',
+                                text: error?.message || 'Failed to copy bull case projections JSON.',
+                              });
+                            } finally {
+                              setBullCopyLoading(false);
+                            }
+                          }}
+                          className="min-w-[64px] h-8 px-2 rounded-full bg-white/80 dark:bg-gray-900/60 border border-green-300 dark:border-green-700 text-green-600 dark:text-green-300 flex items-center justify-center text-xs shadow-sm hover:bg-white dark:hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                          title="Copy bull column data as JSON"
+                        >
+                          {bullCopyLoading ? 'Copying...' : 'Copy'}
+                          </button>
+                        </div>
+                        {bullCopyCopied && (
+                          <span className="text-[11px] text-green-700 dark:text-green-300">Copied</span>
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1468,21 +2117,21 @@ export default function DCFCalculator() {
                     <td className="py-4 px-6 font-semibold text-lg text-white">Revenue</td>
                     <td className="py-4 px-6 text-center">
                       {projections.revenue.bear.map((value, index) => (
-                        <div key={index} className="text-red-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           {formatCurrency(value)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.revenue.base.map((value, index) => (
-                        <div key={index} className="text-blue-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           {formatCurrency(value)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.revenue.bull.map((value, index) => (
-                        <div key={index} className="text-green-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           {formatCurrency(value)}
                         </div>
                       ))}
@@ -1494,21 +2143,21 @@ export default function DCFCalculator() {
                     <td className="py-4 px-6 font-semibold text-lg text-white">Net Income</td>
                     <td className="py-4 px-6 text-center">
                       {projections.netIncome.bear.map((value, index) => (
-                        <div key={index} className="text-red-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           {formatCurrency(value)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.netIncome.base.map((value, index) => (
-                        <div key={index} className="text-blue-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           {formatCurrency(value)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.netIncome.bull.map((value, index) => (
-                        <div key={index} className="text-green-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           {formatCurrency(value)}
                         </div>
                       ))}
@@ -1520,21 +2169,21 @@ export default function DCFCalculator() {
                     <td className="py-4 px-6 font-semibold text-lg text-white">EPS</td>
                     <td className="py-4 px-6 text-center">
                       {projections.eps.bear.map((value, index) => (
-                        <div key={index} className="text-red-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.eps.base.map((value, index) => (
-                        <div key={index} className="text-blue-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.eps.bull.map((value, index) => (
-                        <div key={index} className="text-green-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
@@ -1546,21 +2195,21 @@ export default function DCFCalculator() {
                     <td className="py-4 px-6 font-semibold text-lg text-white">Share Price Low</td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceLow.bear.map((value, index) => (
-                        <div key={index} className="text-red-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceLow.base.map((value, index) => (
-                        <div key={index} className="text-blue-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceLow.bull.map((value, index) => (
-                        <div key={index} className="text-green-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
@@ -1572,21 +2221,21 @@ export default function DCFCalculator() {
                     <td className="py-4 px-6 font-semibold text-lg text-white">Share Price High</td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceHigh.bear.map((value, index) => (
-                        <div key={index} className="text-red-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceHigh.base.map((value, index) => (
-                        <div key={index} className="text-blue-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {projections.sharePriceHigh.bull.map((value, index) => (
-                        <div key={index} className="text-green-600 font-mono text-sm mb-1">
+                        <div key={index} className="text-white font-mono text-sm mb-1">
                           ${value.toFixed(2)}
                         </div>
                       ))}

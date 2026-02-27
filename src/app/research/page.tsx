@@ -87,6 +87,9 @@ export default function Home() {
   const [data, setData] = useState<InsiderData | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [ddmSaving, setDdmSaving] = useState(false);
+  const [ddmMessage, setDdmMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [loadingDividendHistory, setLoadingDividendHistory] = useState(false);
 
   // Auto-load data if symbol exists in localStorage
   useEffect(() => {
@@ -114,15 +117,15 @@ export default function Home() {
     setData(null);
 
     try {
-      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, Key Metrics, Dividend History, and Finnhub Metrics
-      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes, dividendHistoryRes, finnhubMetricsRes] = await Promise.allSettled([
+      // Fetch data from Finnhub, Financials, PE Ratios, FMP, Earnings Growth, Key Metrics, and Finnhub Metrics
+      // Note: Dividend History is loaded on-demand via button click to avoid rate limits
+      const [finnhubRes, financialsRes, peRatiosRes, fmpRes, earningsGrowthRes, keyMetricsRes, finnhubMetricsRes] = await Promise.allSettled([
         fetch(`/api/finnhub?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/financials?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/pe-ratios?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/fmp?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/earnings-growth?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/key-metrics?symbol=${symbolToFetch.toUpperCase()}`),
-        fetch(`/api/dividend-history?symbol=${symbolToFetch.toUpperCase()}`),
         fetch(`/api/finnhub-metrics?symbol=${symbolToFetch.toUpperCase()}`)
       ]);
 
@@ -201,62 +204,6 @@ export default function Home() {
           console.log('Key Metrics response status:', keyMetricsRes.value?.status);
           console.log('Key Metrics response text:', await keyMetricsRes.value?.text());
         }
-      }
-
-      // Process Dividend History data
-      if (dividendHistoryRes.status === 'fulfilled') {
-        try {
-          // Try to parse JSON regardless of status code (API might return JSON error with 404)
-          const dividendData = await dividendHistoryRes.value.json().catch(async () => {
-            // If JSON parse fails, try text
-            const text = await dividendHistoryRes.value.text().catch(() => 'Unknown error');
-            return { error: `Failed to parse response: ${text}` };
-          });
-          
-          // Check for data FIRST - even if there's an error field or non-200 status, data might still be present
-          const hasData = dividendData.historicalDividends && Array.isArray(dividendData.historicalDividends) && dividendData.historicalDividends.length > 0;
-          const hasDividendsByYear = dividendData.dividendsByYear && Object.keys(dividendData.dividendsByYear || {}).length > 0;
-          
-          if (hasData || hasDividendsByYear) {
-            // Data exists - use it even if there's an error field or non-200 status (e.g., rate limit warning)
-            result.dividendHistory = dividendData;
-            console.log('Dividend History data received (status:', dividendHistoryRes.value?.status, '):', result.dividendHistory);
-            console.log('Dividend History dividendsByYear:', result.dividendHistory?.dividendsByYear);
-            console.log('Dividend History currentYearProjected:', result.dividendHistory?.currentYearProjected);
-            if (dividendData.error) {
-              console.log('Note: API returned data but also an error/warning:', dividendData.error);
-            }
-          } else if (dividendData.error) {
-            // No data but there's an error - show the error
-            console.log('Dividend History API error (status:', dividendHistoryRes.value?.status, '):', dividendData.error, dividendData.details);
-            result.dividendHistoryError = {
-              message: dividendData.error,
-              details: dividendData.details || []
-            };
-          } else if (!dividendHistoryRes.value.ok) {
-            // Non-200 status and no data/error field - show status error
-            console.log('Dividend History request failed with status:', dividendHistoryRes.value?.status);
-            result.dividendHistoryError = {
-              message: `API request failed with status ${dividendHistoryRes.value?.status}`,
-              details: [JSON.stringify(dividendData)]
-            };
-          } else {
-            // No data and no error - might be a stock that doesn't pay dividends
-            console.log('Dividend History: No data and no error - stock may not pay dividends');
-          }
-        } catch (error: any) {
-          console.error('Error processing dividend history response:', error);
-          result.dividendHistoryError = {
-            message: 'Failed to process dividend history response',
-            details: [error?.message || 'Unknown error']
-          };
-        }
-      } else {
-        console.log('Dividend History request rejected:', dividendHistoryRes.reason);
-        result.dividendHistoryError = {
-          message: 'Failed to fetch dividend history',
-          details: [dividendHistoryRes.reason?.message || 'Network error']
-        };
       }
 
       // Process Finnhub Metrics data
@@ -449,6 +396,200 @@ export default function Home() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLoadDividendHistory = async () => {
+    if (!data || !data.symbol) {
+      return;
+    }
+
+    setLoadingDividendHistory(true);
+    
+    try {
+      const symbolToFetch = data.symbol.toUpperCase();
+      const dividendHistoryRes = await fetch(`/api/dividend-history?symbol=${symbolToFetch}`);
+
+      try {
+        // Try to parse JSON regardless of status code (API might return JSON error with 404)
+        const dividendData = await dividendHistoryRes.json().catch(async () => {
+          // If JSON parse fails, try text
+          const text = await dividendHistoryRes.text().catch(() => 'Unknown error');
+          return { error: `Failed to parse response: ${text}` };
+        });
+        
+        // Check for data FIRST - even if there's an error field or non-200 status, data might still be present
+        const hasData = dividendData.historicalDividends && Array.isArray(dividendData.historicalDividends) && dividendData.historicalDividends.length > 0;
+        const hasDividendsByYear = dividendData.dividendsByYear && Object.keys(dividendData.dividendsByYear || {}).length > 0;
+        
+        if (hasData || hasDividendsByYear) {
+          // Data exists - use it even if there's an error field or non-200 status (e.g., rate limit warning)
+          setData(prev => prev ? {
+            ...prev,
+            dividendHistory: dividendData,
+            dividendHistoryError: undefined
+          } : null);
+          console.log('Dividend History data received (status:', dividendHistoryRes.status, '):', dividendData);
+          if (dividendData.error) {
+            console.log('Note: API returned data but also an error/warning:', dividendData.error);
+          }
+        } else if (dividendData.error) {
+          // No data but there's an error - show the error
+          console.log('Dividend History API error (status:', dividendHistoryRes.status, '):', dividendData.error, dividendData.details);
+          setData(prev => prev ? {
+            ...prev,
+            dividendHistoryError: {
+              message: dividendData.error,
+              details: dividendData.details || []
+            }
+          } : null);
+        } else if (!dividendHistoryRes.ok) {
+          // Non-200 status and no data/error field - show status error
+          console.log('Dividend History request failed with status:', dividendHistoryRes.status);
+          setData(prev => prev ? {
+            ...prev,
+            dividendHistoryError: {
+              message: `API request failed with status ${dividendHistoryRes.status}`,
+              details: [JSON.stringify(dividendData)]
+            }
+          } : null);
+        } else {
+          // No data and no error - might be a stock that doesn't pay dividends
+          console.log('Dividend History: No data and no error - stock may not pay dividends');
+          setData(prev => prev ? {
+            ...prev,
+            dividendHistory: dividendData,
+            dividendHistoryError: undefined
+          } : null);
+        }
+      } catch (error: any) {
+        console.error('Error processing dividend history response:', error);
+        setData(prev => prev ? {
+          ...prev,
+          dividendHistoryError: {
+            message: 'Failed to process dividend history response',
+            details: [error?.message || 'Unknown error']
+          }
+        } : null);
+      }
+    } catch (error: any) {
+      console.error('Error fetching dividend history:', error);
+      setData(prev => prev ? {
+        ...prev,
+        dividendHistoryError: {
+          message: 'Failed to fetch dividend history',
+          details: [error?.message || 'Network error']
+        }
+      } : null);
+    } finally {
+      setLoadingDividendHistory(false);
+    }
+  };
+
+  const handleCreateDdm = async () => {
+    if (!data || !data.symbol) {
+      setDdmMessage({ type: 'error', text: 'No stock loaded. Please search for a symbol first.' });
+      return;
+    }
+
+    if (!data.dividendHistory) {
+      setDdmMessage({ type: 'error', text: 'No dividend history available. Please load dividend history first.' });
+      return;
+    }
+
+    setDdmSaving(true);
+    setDdmMessage(null);
+
+    try {
+      const symbol = data.symbol.toUpperCase();
+
+      const basePayload: any = {
+        symbol,
+        currentPrice: data.peRatios?.currentPrice || data.fmp?.price || null,
+        dividendsByYear: data.dividendHistory.dividendsByYear || null,
+        historicalDividends: data.dividendHistory.historicalDividends || null,
+        currentYearProjected: data.dividendHistory.currentYearProjected ?? false,
+        dividendGrowthRate: data.dividendHistory.dividendGrowthRate ?? null,
+        latestDividend: data.dividendHistory.latestDividend ?? null,
+      };
+
+      // Check if DDM entry already exists
+      const checkRes = await fetch(`/api/ddm-data?symbol=${symbol}`);
+
+      if (checkRes.ok) {
+        // Update existing entry
+        const updateRes = await fetch('/api/ddm-data', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(basePayload),
+        });
+
+        const updateResult = await updateRes.json();
+
+        if (!updateRes.ok) {
+          setDdmMessage({
+            type: 'error',
+            text: updateResult.error || 'Failed to update existing DDM entry.',
+          });
+          return;
+        }
+
+        setDdmMessage({
+          type: 'success',
+          text: `Updated DDM entry for ${symbol}.`,
+        });
+      } else if (checkRes.status === 404) {
+        // Create new entry with default DDM inputs
+        const createPayload = {
+          ...basePayload,
+          wacc: 8.5,
+          marginOfSafety: 20.0,
+          highGrowthYears: 5,
+          stableGrowthRate: 3.0,
+        };
+
+        const createRes = await fetch('/api/ddm-data', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(createPayload),
+        });
+
+        const createResult = await createRes.json();
+
+        if (!createRes.ok) {
+          setDdmMessage({
+            type: 'error',
+            text: createResult.error || 'Failed to create DDM entry.',
+          });
+          return;
+        }
+
+        setDdmMessage({
+          type: 'success',
+          text: `Created new DDM entry for ${symbol}.`,
+        });
+      } else {
+        let errorText = 'Failed to check existing DDM entry.';
+        try {
+          const errJson = await checkRes.json();
+          if (errJson?.error) errorText = errJson.error;
+        } catch {
+          // ignore parse errors
+        }
+        setDdmMessage({ type: 'error', text: errorText });
+      }
+    } catch (error: any) {
+      console.error('Error creating/updating DDM entry:', error);
+      setDdmMessage({
+        type: 'error',
+        text: `Error creating/updating DDM entry: ${error.message || 'Unknown error'}`,
+      });
+    } finally {
+      setDdmSaving(false);
     }
   };
 
@@ -1280,6 +1421,38 @@ export default function Home() {
                               *Projected based on average growth of last 4 years
                             </p>
                           )}
+
+                          <div className="mt-4 flex items-center justify-between gap-2">
+                            {ddmMessage && (
+                              <div
+                                className={`text-xs px-2 py-1 rounded ${
+                                  ddmMessage.type === 'success'
+                                    ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                                    : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+                                }`}
+                              >
+                                {ddmMessage.text}
+                              </div>
+                            )}
+                            <div className="ml-auto flex gap-2">
+                              <button
+                                type="button"
+                                onClick={handleLoadDividendHistory}
+                                disabled={loadingDividendHistory || !data || !data.symbol}
+                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                              >
+                                {loadingDividendHistory ? 'Loading...' : 'Load Dividend History'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCreateDdm}
+                                disabled={ddmSaving || !data.dividendHistory}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                              >
+                                {ddmSaving ? 'Creating DDM...' : 'Create DDM'}
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       );
                     })()}

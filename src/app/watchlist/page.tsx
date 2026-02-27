@@ -113,6 +113,9 @@ export default function CompanyWatchlistPage() {
     verdict: string | null;
   } | null>(null);
   const [ddmLoading, setDdmLoading] = useState<boolean>(false);
+  const [bearTheoryLoading, setBearTheoryLoading] = useState(false);
+  const [baseTheoryLoading, setBaseTheoryLoading] = useState(false);
+  const [bullTheoryLoading, setBullTheoryLoading] = useState(false);
   
   const [formData, setFormData] = useState<StockValuation>({
     stock: '',
@@ -1046,6 +1049,138 @@ export default function CompanyWatchlistPage() {
               </div>
             </div>
           </div>
+
+          {/* AI Theory Prompt Buttons Row */}
+          <div className="mt-4 flex flex-col md:flex-row gap-2 md:max-w-2xl">
+            <button
+              type="button"
+              disabled={!formData.stock || bearTheoryLoading}
+              onClick={async () => {
+                if (!formData.stock) {
+                  setMessage({ type: 'error', text: 'Please enter a stock symbol first.' });
+                  return;
+                }
+                try {
+                  setBearTheoryLoading(true);
+                  const symbol = formData.stock.toUpperCase();
+                  const lines: string[] = [];
+                  lines.push(
+                    'You are a fundamentals-focused equity analyst. Build a detailed BEAR CASE thesis for this stock.'
+                  );
+                  lines.push(`\nStock symbol: ${symbol}`);
+                  lines.push(
+                    '\nYour tasks:',
+                    '1. Summarise the most important bear-case arguments and structural risks for this business today (competitive threats, balance sheet, margins, growth, management, regulation, etc.).',
+                    '2. Explain why a cautious investor might decide this stock is NOT worth buying at the current price, focusing on downside scenarios.',
+                    '3. Highlight key red flags in valuation, fundamentals, or macro environment that make the risk/reward unattractive.',
+                    '4. Suggest what would need to change (price, fundamentals, catalysts) before the bear case weakens and the stock might become interesting again.'
+                  );
+                  const prompt = lines.join('\n');
+
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(prompt);
+                    setMessage({ type: 'success', text: 'Bear case theory prompt copied. Paste into ChatGPT.' });
+                  } else {
+                    setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+                  }
+                } catch (error: any) {
+                  console.error('Error creating bear case theory prompt:', error);
+                  setMessage({ type: 'error', text: error?.message || 'Failed to create bear case theory prompt.' });
+                } finally {
+                  setBearTheoryLoading(false);
+                }
+              }}
+              className="w-full md:flex-1 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed text-xs font-medium transition-colors text-center"
+            >
+              {bearTheoryLoading ? 'Bear Theory...' : 'Bear Case Theory Prompt'}
+            </button>
+
+            <button
+              type="button"
+              disabled={!formData.stock || baseTheoryLoading}
+              onClick={async () => {
+                if (!formData.stock) {
+                  setMessage({ type: 'error', text: 'Please enter a stock symbol first.' });
+                  return;
+                }
+                try {
+                  setBaseTheoryLoading(true);
+                  const symbol = formData.stock.toUpperCase();
+                  const lines: string[] = [];
+                  lines.push(
+                    'You are a fundamentals-focused equity analyst. Build a balanced BASE CASE thesis for this stock.'
+                  );
+                  lines.push(`\nStock symbol: ${symbol}`);
+                  lines.push(
+                    '\nYour tasks:',
+                    '1. Summarise the key drivers of the business (revenue, margins, growth, capital allocation) under a realistic, base-case scenario.',
+                    '2. Outline both the main opportunities and the main risks, and how they roughly balance out for a long-term investor.',
+                    '3. Comment on whether the current valuation looks roughly fair, modestly cheap, or modestly expensive in this base case, and why.',
+                    '4. Suggest what key metrics or catalysts you would monitor to see if the story is tracking this base case or drifting toward bear/bull outcomes.'
+                  );
+                  const prompt = lines.join('\n');
+
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(prompt);
+                    setMessage({ type: 'success', text: 'Base case theory prompt copied. Paste into ChatGPT.' });
+                  } else {
+                    setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+                  }
+                } catch (error: any) {
+                  console.error('Error creating base case theory prompt:', error);
+                  setMessage({ type: 'error', text: error?.message || 'Failed to create base case theory prompt.' });
+                } finally {
+                  setBaseTheoryLoading(false);
+                }
+              }}
+              className="w-full md:flex-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-xs font-medium transition-colors text-center"
+            >
+              {baseTheoryLoading ? 'Base Theory...' : 'Base Case Theory Prompt'}
+            </button>
+
+            <button
+              type="button"
+              disabled={!formData.stock || bullTheoryLoading}
+              onClick={async () => {
+                if (!formData.stock) {
+                  setMessage({ type: 'error', text: 'Please enter a stock symbol first.' });
+                  return;
+                }
+                try {
+                  setBullTheoryLoading(true);
+                  const symbol = formData.stock.toUpperCase();
+                  const lines: string[] = [];
+                  lines.push(
+                    'You are a fundamentals-focused equity analyst. Build an optimistic but realistic BULL CASE thesis for this stock.'
+                  );
+                  lines.push(`\nStock symbol: ${symbol}`);
+                  lines.push(
+                    '\nYour tasks:',
+                    '1. Describe the upside scenario: how revenue, margins, growth, and capital allocation could play out if things go well over the next 3–5+ years.',
+                    '2. Explain what catalysts (product wins, market share gains, industry tailwinds, cost improvements, etc.) would need to happen for this bull case to materialise.',
+                    '3. Assess whether the current valuation already prices in this bull case, partially prices it in, or still underestimates it.',
+                    '4. Highlight the main risks to the bull thesis — what could derail it — so an investor understands both upside and downside in this optimistic view.'
+                  );
+                  const prompt = lines.join('\n');
+
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(prompt);
+                    setMessage({ type: 'success', text: 'Bull case theory prompt copied. Paste into ChatGPT.' });
+                  } else {
+                    setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+                  }
+                } catch (error: any) {
+                  console.error('Error creating bull case theory prompt:', error);
+                  setMessage({ type: 'error', text: error?.message || 'Failed to create bull case theory prompt.' });
+                } finally {
+                  setBullTheoryLoading(false);
+                }
+              }}
+              className="w-full md:flex-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed text-xs font-medium transition-colors text-center"
+            >
+              {bullTheoryLoading ? 'Bull Theory...' : 'Bull Case Theory Prompt'}
+            </button>
+          </div>
         </div>
         )}
 
@@ -1398,7 +1533,7 @@ export default function CompanyWatchlistPage() {
                     </p>
                   </div>
                   <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Intrinsic Value</h3>
+                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">DDM Forecast</h3>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">
                       {ddmData.intrinsicValue !== null ? `£${ddmData.intrinsicValue.toFixed(2)}` : 'N/A'}
                     </p>

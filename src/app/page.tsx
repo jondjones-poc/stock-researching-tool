@@ -44,8 +44,13 @@ interface NewsItem {
   relevance_score: number;
 }
 
+interface FearGreedPoint {
+  date: string;
+  value: number;
+}
+
 export default function DashboardPage() {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('VIX'); // Default to first MARKETS symbol
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
   const [chartData, setChartData] = useState<ChartData[]>([]);
@@ -67,6 +72,9 @@ export default function DashboardPage() {
   const [stockValuationIds, setStockValuationIds] = useState<{ [symbol: string]: number }>({});
   const [deletingStock, setDeletingStock] = useState<string | null>(null);
   const [deletingFromWatchlist, setDeletingFromWatchlist] = useState<string | null>(null);
+  const [fearGreedData, setFearGreedData] = useState<FearGreedPoint[]>([]);
+  const [fearGreedLoading, setFearGreedLoading] = useState(false);
+  const [fearGreedError, setFearGreedError] = useState<string | null>(null);
 
   // Delete stock valuation from database
   const handleDeleteStockValuation = async (symbol: string, id: number) => {
@@ -123,8 +131,22 @@ export default function DashboardPage() {
       
       const result = await response.json();
       if (result.data) {
-        setWatchlistSymbols(result.data);
-        const symbols = result.symbols || Object.values(result.data).flat();
+        const data = result.data as { [key: string]: WatchlistSymbol[] };
+        const symbols: WatchlistSymbol[] = result.symbols || Object.values(data).flat();
+
+        // Ensure Fear & Greed (GREED) also appears under MARKETS for the sidebar
+        const greedSymbol = symbols.find((s: WatchlistSymbol) => s.symbol === 'GREED');
+        if (greedSymbol) {
+          if (!data.MARKETS) {
+            data.MARKETS = [];
+          }
+          const hasGreedInMarkets = data.MARKETS.some((s: WatchlistSymbol) => s.symbol === 'GREED');
+          if (!hasGreedInMarkets) {
+            data.MARKETS = [...data.MARKETS, greedSymbol];
+          }
+        }
+
+        setWatchlistSymbols(data);
         setAllWatchlistSymbols(symbols);
         
         // Fetch stock_valuations IDs for these symbols
@@ -283,10 +305,69 @@ export default function DashboardPage() {
     }
   };
 
-  // Fetch chart data for selected symbol
+  const getFearGreedLabel = (value: number): string => {
+    if (value < 25) return 'Extreme Fear';
+    if (value < 45) return 'Fear';
+    if (value < 55) return 'Neutral';
+    if (value < 75) return 'Greed';
+    return 'Extreme Greed';
+  };
+
+  const fetchFearGreedData = async (period: string) => {
+    try {
+      setFearGreedLoading(true);
+      setFearGreedError(null);
+
+      // Fetch directly from CNN Fear & Greed endpoint from the browser.
+      // This avoids any server-side networking restrictions.
+      const response = await fetch('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+      if (!response.ok) {
+        throw new Error('Failed to fetch Fear & Greed data');
+      }
+
+      const result = await response.json();
+      const fngHist = result.fear_and_greed_historical;
+      const rawData = Array.isArray(fngHist?.data) ? fngHist.data : [];
+
+      // Build points from all available data
+      const allPoints: FearGreedPoint[] = rawData.map((item: any) => ({
+        date: new Date(item.x).toISOString().split('T')[0],
+        value: typeof item.y === 'number' ? item.y : Number(item.y || 0),
+      }));
+
+      // Apply the same date-range filtering logic as the main chart
+      const { from, to } = getDateRange(period);
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+
+      const points = allPoints.filter((p) => {
+        const d = new Date(p.date);
+        return d >= fromDate && d <= toDate;
+      });
+
+      console.log(`Loaded ${points.length} Fear & Greed points for period ${period}`);
+      setFearGreedData(points);
+    } catch (error: any) {
+      console.error('Error fetching Fear & Greed data:', error);
+      setFearGreedError('Failed to load Fear & Greed data');
+      setFearGreedData([]);
+    } finally {
+      setFearGreedLoading(false);
+    }
+  };
+
+  // Fetch chart data for selected symbol (non-GREED)
   const fetchChartData = async (symbol: string, period: string) => {
+    if (symbol === 'GREED') {
+      // GREED uses dedicated Fear & Greed fetch; skip here
+      return;
+    }
+
     try {
       setLoading(true);
+      setError(null);
+      
+      let response: Response;
       
       // Get date range for the selected period
       const { from, to } = getDateRange(period);
@@ -302,7 +383,7 @@ export default function DashboardPage() {
       }
       
       // Fetch historical price data with date range
-      const response = await fetch(url);
+      response = await fetch(url);
       
       if (!response.ok) {
         throw new Error('Failed to fetch chart data');
@@ -315,7 +396,7 @@ export default function DashboardPage() {
       
       const chartData: ChartData[] = historicalData.map((item: any) => ({
         date: item.date,
-        price: item.close, // Use closing price
+        price: item.close, // Use closing price or index value
         volume: item.volume
       }));
       
@@ -354,7 +435,11 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!loadingWatchlist) {
       fetchWatchlistData();
-      fetchChartData(selectedSymbol, selectedPeriod);
+      if (selectedSymbol === 'GREED') {
+        fetchFearGreedData(selectedPeriod);
+      } else {
+        fetchChartData(selectedSymbol, selectedPeriod);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, watchlistSymbols, allWatchlistSymbols]);
@@ -475,7 +560,7 @@ export default function DashboardPage() {
   // Handle clicking on stock name to show earnings
   const handleStockClick = (symbol: string) => {
     // Skip for market indicators - they have their own info panels
-    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI'];
+    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI', 'GREED'];
     if (marketIndicators.includes(symbol)) {
       setSelectedSymbol(symbol);
       setShowEarnings(false);
@@ -573,7 +658,73 @@ export default function DashboardPage() {
 
           {/* Chart Area */}
           <div className="h-96 bg-white dark:bg-gray-900 p-4">
-            {loading ? (
+            {selectedSymbol === 'GREED' ? (
+              fearGreedLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-gray-500 dark:text-gray-400">Loading Fear &amp; Greed data...</div>
+                </div>
+              ) : fearGreedError ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-red-500 dark:text-red-400">{fearGreedError}</div>
+                </div>
+              ) : fearGreedData.length > 0 ? (
+                <div className="h-full bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
+                  <div className="h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={fearGreedData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis
+                          dataKey="date"
+                          stroke="#9CA3AF"
+                          fontSize={12}
+                          tickFormatter={(value) => {
+                            const date = new Date(value);
+                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                          }}
+                        />
+                        <YAxis
+                          stroke="#9CA3AF"
+                          fontSize={12}
+                          tickFormatter={(value) => getFearGreedLabel(value as number)}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#1F2937',
+                            border: '1px solid #374151',
+                            borderRadius: '6px',
+                            color: '#F9FAFB'
+                          }}
+                          formatter={(value: number) => [
+                            `${value.toFixed(2)} (${getFearGreedLabel(value)})`,
+                            'Fear & Greed Index'
+                          ]}
+                          labelFormatter={(label) => {
+                            const date = new Date(label);
+                            return date.toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            });
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#F97316"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 6, stroke: '#F97316', strokeWidth: 2 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-gray-500 dark:text-gray-400">No Fear &amp; Greed data available</div>
+                </div>
+              )
+            ) : loading ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-gray-500 dark:text-gray-400">Loading chart data...</div>
               </div>
@@ -1234,9 +1385,16 @@ export default function DashboardPage() {
               Object.entries(watchlistSymbols)
                 .filter(([category]) => categoryFilter === 'ALL' || category === categoryFilter)
                 .map(([category, symbols]) => {
+                  // Sort symbols alphabetically by name
+                  const sortedSymbols = [...symbols].sort((a, b) => {
+                    const nameA = (a.name || a.symbol || '').toUpperCase();
+                    const nameB = (b.name || b.symbol || '').toUpperCase();
+                    return nameA.localeCompare(nameB);
+                  });
+                  
                   return (
                     <div key={category} className="border-b border-gray-200 dark:border-gray-700">
-                      {symbols.map((symbol) => {
+                      {sortedSymbols.map((symbol) => {
                         const data = getWatchlistData(symbol.symbol);
                         const isSelected = selectedSymbol === symbol.symbol;
                         const stockValuationId = stockValuationIds[symbol.symbol.toUpperCase()];
@@ -1286,19 +1444,21 @@ export default function DashboardPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteStock(symbol.symbol);
-                                  }}
-                                  disabled={deletingFromWatchlist === symbol.symbol}
-                                  className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="Remove from watchlist"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                  </svg>
-                                </button>
+                                {symbol.symbol.toUpperCase() !== 'GREED' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteStock(symbol.symbol);
+                                    }}
+                                    disabled={deletingFromWatchlist === symbol.symbol}
+                                    className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Remove from watchlist"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                )}
                                 <div className="text-right">
                                   {data ? (
                                     <>

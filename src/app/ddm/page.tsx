@@ -55,6 +55,8 @@ export default function DDMPage() {
   const [ddmWithSafety, setDdmWithSafety] = useState<number>(0);
   const [terminalValue, setTerminalValue] = useState<number>(0);
   const [verdict, setVerdict] = useState<string>('');
+  const [aiPromptLoading, setAiPromptLoading] = useState<boolean>(false);
+  const [recalculating, setRecalculating] = useState<boolean>(false);
 
   // Initialize dividend projections with all years (2020 to current)
   useEffect(() => {
@@ -100,6 +102,36 @@ export default function DDMPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // If no query param, auto-load symbol from localStorage (same logic as Company Research page)
+  useEffect(() => {
+    const symbolParam = searchParams.get('symbol');
+    if (symbolParam) {
+      // Query parameter takes precedence over localStorage
+      return;
+    }
+
+    const loadFromStorage = async () => {
+      try {
+        if (typeof window === 'undefined' || !window.localStorage) return;
+
+        const dcfData = localStorage.getItem('dcfData');
+        if (dcfData) {
+          const parsedData = JSON.parse(dcfData);
+          if (parsedData.symbol && !selectedSymbol) {
+            const upper = parsedData.symbol.toUpperCase();
+            setSelectedSymbol(upper);
+            await loadStockData(upper);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading symbol from localStorage for DDM:', error);
+      }
+    };
+
+    loadFromStorage();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load DDM data when symbol is selected
   const loadStockData = async (symbol: string) => {
     if (!symbol) {
@@ -135,7 +167,42 @@ export default function DDMPage() {
         
         // Load dividend projections
         if (data.dividendProjections && Array.isArray(data.dividendProjections)) {
-          setDividendProjections(data.dividendProjections);
+          // If we already have projections but all dividends are zero, treat it as "empty"
+          // and rebuild from dividendsByYear so we can show real historical values
+          const hasNonZeroDividend = data.dividendProjections.some(
+            (p: any) => p && typeof p.dividend === 'number' && p.dividend !== 0
+          );
+
+          if (hasNonZeroDividend) {
+            setDividendProjections(data.dividendProjections);
+          } else if (data.dividendsByYear) {
+            // Rebuild from dividendsByYear
+            const currentYear = new Date().getFullYear();
+            const startYear = 2020;
+            const sortedYears = Object.keys(data.dividendsByYear)
+              .sort((a, b) => parseInt(a) - parseInt(b))
+              .filter(year => parseInt(year) >= startYear && parseInt(year) <= currentYear);
+
+            const projections: DividendProjection[] = sortedYears.map((year, index) => {
+              const dividend = data.dividendsByYear[year];
+              let growthRate = 0;
+
+              if (index > 0) {
+                const previousYear = sortedYears[index - 1];
+                const previousDividend = data.dividendsByYear[previousYear];
+                if (previousDividend > 0) {
+                  growthRate = ((dividend - previousDividend) / previousDividend) * 100;
+                }
+              }
+
+              return { year, dividend, growthRate };
+            });
+
+            setDividendProjections(projections);
+          } else {
+            // Keep whatever default projections are already initialised
+            // (the initial useEffect sets up 2020..current with zeroes)
+          }
         } else if (data.dividendsByYear) {
           // Fallback: create projections from dividendsByYear
           const currentYear = new Date().getFullYear();
@@ -255,11 +322,14 @@ export default function DDMPage() {
     const ddmSafety = intrinsicVal * (1 - inputs.marginOfSafety / 100);
     setDdmWithSafety(ddmSafety);
     
-    let verdictText = 'WAIT';
-    if (inputs.currentPrice <= ddmSafety) {
-      verdictText = 'BUY';
-    } else if (inputs.currentPrice <= intrinsicVal) {
-      verdictText = 'HOLD';
+    let verdictText = 'N/A';
+    if (inputs.currentPrice > 0) {
+      verdictText = 'WAIT';
+      if (inputs.currentPrice <= ddmSafety) {
+        verdictText = 'BUY';
+      } else if (inputs.currentPrice <= intrinsicVal) {
+        verdictText = 'HOLD';
+      }
     }
     setVerdict(verdictText);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -350,8 +420,12 @@ export default function DDMPage() {
   };
 
   const handleRecalculate = () => {
-    // Recalculate is handled automatically by useEffect
-    // This function can be used to trigger a manual recalculation if needed
+    // Force a recalculation by touching state and show brief visual feedback
+    setRecalculating(true);
+    // Trigger useEffect by cloning current inputs and projections
+    setInputs(prev => ({ ...prev }));
+    setDividendProjections(prev => prev.map(p => ({ ...p })));
+    setTimeout(() => setRecalculating(false), 300);
   };
 
   const handleReset = () => {
@@ -364,6 +438,11 @@ export default function DDMPage() {
       stableGrowthRate: 3.0
     });
     setDividendProjections([]);
+    setDdmCalculations([]);
+    setIntrinsicValue(0);
+    setDdmWithSafety(0);
+    setTerminalValue(0);
+    setVerdict('N/A');
     setShowCurrentPrice(false);
   };
 
@@ -376,12 +455,12 @@ export default function DDMPage() {
           </h1>
 
           {/* Stock Selection Dropdown */}
-          <div className="mb-4">
+          <div className="mb-4 flex items-center gap-2">
             <select
               id="stock-select"
               value={selectedSymbol}
               onChange={(e) => handleSymbolChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">-- Select a stock --</option>
               {stocks.map((stock) => (
@@ -390,15 +469,19 @@ export default function DDMPage() {
                 </option>
               ))}
             </select>
-            {loading && (
-              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading...</p>
-            )}
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 transition-colors text-sm font-medium"
+            >
+              Clear
+            </button>
           </div>
 
           {/* Summary/Verdict Section */}
           <div className="grid grid-cols-5 gap-4 mb-8">
-            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Symbol</h3>
+            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border text-center">
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 text-center">Symbol</h3>
               <input
                 type="text"
                 value={selectedSymbol}
@@ -415,28 +498,28 @@ export default function DDMPage() {
                 placeholder="Enter symbol"
               />
             </div>
-            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Current Price</h3>
-              <div className="flex items-center gap-2">
+            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border text-center">
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 text-center">Current Price</h3>
+              <div className="flex items-center justify-center gap-2 w-full">
                 <span className="text-2xl font-bold text-gray-900 dark:text-white">£</span>
                 <input
                   type="number"
                   step="0.01"
                   value={inputs.currentPrice}
                   onChange={(e) => handleInputChange('currentPrice', parseFloat(e.target.value) || 0)}
-                  className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-none outline-none flex-1 min-w-0"
+                  className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-none outline-none w-24 text-center"
                 />
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Intrinsic Value</h3>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">£{intrinsicValue.toFixed(2)}</p>
+            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border text-center">
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 text-center">Intrinsic Value</h3>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white text-center">£{intrinsicValue.toFixed(2)}</p>
             </div>
 
-            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border">
-              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">DDM with Safety</h3>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">£{ddmWithSafety.toFixed(2)}</p>
+            <div className="bg-white dark:bg-gray-700 p-4 rounded-lg border text-center">
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 text-center">DDM with Safety</h3>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white text-center">£{ddmWithSafety.toFixed(2)}</p>
             </div>
 
             <div className={`p-4 rounded-lg ${
@@ -445,8 +528,8 @@ export default function DDMPage() {
                 : verdict === 'HOLD' 
                 ? 'bg-yellow-100 dark:bg-yellow-900/20' 
                 : 'bg-red-100 dark:bg-red-900/20'
-            }`}>
-              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Verdict</h3>
+            } text-center`}>
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 text-center">Verdict</h3>
               <p className={`text-2xl font-bold ${
                 verdict === 'BUY' 
                   ? 'text-green-600 dark:text-green-400' 
@@ -459,7 +542,84 @@ export default function DDMPage() {
 
           {/* Annual Dividend Projections */}
           <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Annual Dividend Projections & Growth Rates</h2>
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Annual Dividend Projections & Growth Rates
+              </h2>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setAiPromptLoading(true);
+                    const promptLines: string[] = [];
+                    promptLines.push(
+                      'You are a professional equity analyst. Your job is to sanity-check and, if needed, improve this Dividend Discount Model (DDM) for a single stock.'
+                    );
+                    if (selectedSymbol) {
+                      promptLines.push(`\nStock symbol: ${selectedSymbol}`);
+                    }
+                    promptLines.push(
+                      `\nDDM Inputs:`,
+                      `- Current Price: £${inputs.currentPrice.toFixed(2)}`,
+                      `- WACC / Required Return: ${inputs.wacc.toFixed(2)}%`,
+                      `- Margin of Safety: ${inputs.marginOfSafety.toFixed(2)}%`,
+                      `- High Growth Years: ${inputs.highGrowthYears}`,
+                      `- Stable Growth Rate: ${inputs.stableGrowthRate.toFixed(2)}%`,
+                      `- Intrinsic Value (before safety): £${intrinsicValue.toFixed(2)}`,
+                      `- DDM with Safety: £${ddmWithSafety.toFixed(2)}`
+                    );
+
+                    promptLines.push('\nAnnual Dividend Projections (Year, Dividend £, Growth %):');
+
+                    const currentYear = new Date().getFullYear();
+                    const startYear = 2020;
+                    const years: string[] = [];
+                    for (let year = startYear; year <= currentYear; year++) {
+                      years.push(year.toString());
+                    }
+                    const displayProjections: DividendProjection[] = years.map((year) => {
+                      const existing = dividendProjections.find(p => p.year === year);
+                      return existing ? { ...existing } : { year, dividend: 0, growthRate: 0 };
+                    });
+
+                    displayProjections.forEach(p => {
+                      promptLines.push(
+                        `- ${p.year}: £${p.dividend.toFixed(2)}, ${p.growthRate.toFixed(2)}%`
+                      );
+                    });
+
+                    promptLines.push(
+                      '\nInstructions for your analysis:',
+                      '1. First, validate whether the dividend projections and growth rates look internally consistent with each other and with a typical payout policy for this kind of business. Flag any years or growth paths that look unrealistic.',
+                      '2. Check whether the chosen WACC, high-growth period, stable growth rate, and margin of safety look reasonable for this stock today. If any inputs look too aggressive or too conservative, suggest revised numbers and explain why.',
+                      '3. Using the inputs above, comment on whether the resulting intrinsic value and DDM-with-safety price look like a fair estimate versus the current price, or if they are clearly too high or too low. Explain your reasoning.',
+                      '4. Provide a short, concrete set of revised inputs (WACC, growth rates, margin of safety and key dividends) that you would use instead if you think the current model is off, and summarise what those revisions would imply for a more realistic intrinsic value range.'
+                    );
+
+                    const fullPrompt = promptLines.join('\n');
+
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(fullPrompt);
+                      setSaveMessage('✅ AI prompt copied. Paste this into ChatGPT to validate the data.');
+                      setTimeout(() => setSaveMessage(''), 4000);
+                    } else {
+                      setSaveMessage('❌ Could not access clipboard. Please copy the prompt manually.');
+                      setTimeout(() => setSaveMessage(''), 4000);
+                    }
+                  } catch (error) {
+                    console.error('Error creating AI prompt:', error);
+                    setSaveMessage('❌ Failed to create AI prompt.');
+                    setTimeout(() => setSaveMessage(''), 4000);
+                  } finally {
+                    setAiPromptLoading(false);
+                  }
+                }}
+                disabled={aiPromptLoading}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+              >
+                {aiPromptLoading ? 'Creating...' : 'Create AI Prompt'}
+              </button>
+            </div>
             {(() => {
               // Always show years from 2020 to current year
               const currentYear = new Date().getFullYear();
@@ -517,7 +677,13 @@ export default function DDMPage() {
                               <input
                                 type="number"
                                 step="0.01"
-                                value={projection.dividend === 0 ? '' : projection.dividend}
+                                value={
+                                  projection.dividend === 0
+                                    ? ''
+                                    : Number.isFinite(projection.dividend)
+                                      ? projection.dividend.toFixed(2)
+                                      : ''
+                                }
                                 onChange={(e) => {
                                   const newValue = parseFloat(e.target.value) || 0;
                                   
@@ -546,7 +712,7 @@ export default function DDMPage() {
                                   setDividendProjections(updated);
                                 }}
                                 placeholder="0.00"
-                                className="w-24 bg-white dark:bg-gray-900 border-2 border-gray-400 dark:border-gray-500 rounded px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white font-medium"
+                                className="w-28 bg-white dark:bg-gray-900 border-2 border-gray-400 dark:border-gray-500 rounded px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white font-medium"
                               />
                             </div>
                           </td>
@@ -653,10 +819,11 @@ export default function DDMPage() {
               </button>
               <button
                 onClick={handleRecalculate}
-                className="bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300 transition-colors duration-200 font-medium text-sm px-6 py-2 flex items-center justify-center"
+                disabled={recalculating}
+                className="bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300 disabled:bg-blue-100 disabled:text-blue-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm px-6 py-2 flex items-center justify-center"
               >
-                <span className="mr-2">🔄</span>
-                Recalculate
+                <span className="mr-2">{recalculating ? '⏳' : '🔄'}</span>
+                {recalculating ? 'Recalculating...' : 'Recalculate'}
               </button>
               <button
                 onClick={handleReset}
@@ -673,20 +840,22 @@ export default function DDMPage() {
             )}
           </div>
 
-          {/* Detailed DDM Calculation */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Detailed DDM Calculation</h2>
+          {/* Calculations */}
+          <div className="mb-8 text-center">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 text-center">
+              Calculations
+            </h2>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-800 text-white">
-                    <th className="border border-gray-600 px-4 py-2 text-left">Year</th>
-                    <th className="border border-gray-600 px-4 py-2 text-left">DDM Price (£)</th>
-                    <th className="border border-gray-600 px-4 py-2 text-left">Discount Factor</th>
-                    <th className="border border-gray-600 px-4 py-2 text-left">Present Value (£)</th>
+                    <th className="border border-gray-600 px-4 py-2 text-center">Year</th>
+                    <th className="border border-gray-600 px-4 py-2 text-center">DDM Price (£)</th>
+                    <th className="border border-gray-600 px-4 py-2 text-center">Discount Factor</th>
+                    <th className="border border-gray-600 px-4 py-2 text-center">Present Value (£)</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-gray-900 dark:text-white">
                   {ddmCalculations.map((calc, index) => (
                     <tr key={calc.year} className={index % 2 === 0 ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-gray-800'}>
                       <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 font-semibold">{calc.year}</td>
@@ -697,9 +866,17 @@ export default function DDMPage() {
                   ))}
                   <tr className="bg-gray-100 dark:bg-gray-700">
                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 font-semibold">Terminal Value</td>
-                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center">{terminalValue.toFixed(2)}</td>
-                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center">{calculateDiscountFactor(inputs.highGrowthYears).toFixed(10)}</td>
-                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold">{(terminalValue * calculateDiscountFactor(inputs.highGrowthYears)).toFixed(2)}</td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center">
+                      {terminalValue.toFixed(2)}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center">
+                      {ddmCalculations.length === 0 ? '0.0000000000' : calculateDiscountFactor(inputs.highGrowthYears).toFixed(10)}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold">
+                      {ddmCalculations.length === 0
+                        ? '0.00'
+                        : (terminalValue * calculateDiscountFactor(inputs.highGrowthYears)).toFixed(2)}
+                    </td>
                   </tr>
                 </tbody>
               </table>
