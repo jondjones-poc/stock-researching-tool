@@ -16,8 +16,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch quote, profile, and share float data from Financial Modeling Prep in parallel
-    const [quoteResponse, profileResponse, shareFloatResponse] = await Promise.allSettled([
+    // Calculate date range for 52-week historical data (approximately 252 trading days = 1 year)
+    const today = new Date();
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setFullYear(today.getFullYear() - 1);
+    const fromDate = oneYearAgo.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const toDate = today.toISOString().split('T')[0];
+
+    // Fetch quote, profile, share float, and historical price data from Financial Modeling Prep in parallel
+    const [quoteResponse, profileResponse, shareFloatResponse, historicalResponse] = await Promise.allSettled([
       axios.get(
         `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${FMP_API_KEY}`,
         { timeout: 10000 }
@@ -29,6 +36,10 @@ export async function GET(request: NextRequest) {
       axios.get(
         `https://financialmodelingprep.com/api/v4/shares_float?symbol=${symbol}&apikey=${FMP_API_KEY}`,
         { timeout: 10000 }
+      ),
+      axios.get(
+        `https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&from=${fromDate}&to=${toDate}&apikey=${FMP_API_KEY}`,
+        { timeout: 15000 }
       )
     ]);
 
@@ -52,9 +63,21 @@ export async function GET(request: NextRequest) {
         
         result.fmpPE = quote.pe;
         result.price = quote.price;
-        // Get year high/low - FMP might use yearHigh/yearLow or yearHigh52/yearLow52
-        result.yearHigh = quote.yearHigh || quote.yearHigh52 || null;
-        result.yearLow = quote.yearLow || quote.yearLow52 || null;
+        // Get 52-week high/low - prioritize yearHigh52/yearLow52 (true 52-week range)
+        // Fallback to yearHigh/yearLow if yearHigh52/yearLow52 are not available
+        // Get 52-week high/low from quote - but we'll validate/override with historical data if available
+        result.yearHigh = quote.yearHigh52 || quote.yearHigh || null;
+        result.yearLow = quote.yearLow52 || quote.yearLow || null;
+        
+        console.log('FMP Quote 52-week data:', {
+          yearHigh52: quote.yearHigh52,
+          yearLow52: quote.yearLow52,
+          yearHigh: quote.yearHigh,
+          yearLow: quote.yearLow,
+          currentPrice: quote.price,
+          finalYearHigh: result.yearHigh,
+          finalYearLow: result.yearLow
+        });
         // Get change percentage - FMP uses changesPercentage field
         result.changePercent = quote.changesPercentage || quote.changePercent || null;
         
@@ -136,6 +159,73 @@ export async function GET(request: NextRequest) {
         : shareFloatResponse.reason?.message || 'Request failed';
       console.log('FMP Share Float request failed:', error);
       if (!result.error) result.error = error;
+    }
+
+    // Process historical price data to calculate accurate 52-week high/low
+    if (historicalResponse.status === 'fulfilled' && historicalResponse.value.data) {
+      const historicalData = historicalResponse.value.data;
+      
+      if (historicalData.historical && Array.isArray(historicalData.historical) && historicalData.historical.length > 0) {
+        // Calculate 52-week high/low from actual historical price data
+        let calculatedYearHigh = null;
+        let calculatedYearLow = null;
+        
+        for (const day of historicalData.historical) {
+          if (day.high !== null && day.high !== undefined) {
+            if (calculatedYearHigh === null || day.high > calculatedYearHigh) {
+              calculatedYearHigh = day.high;
+            }
+          }
+          if (day.low !== null && day.low !== undefined) {
+            if (calculatedYearLow === null || day.low < calculatedYearLow) {
+              calculatedYearLow = day.low;
+            }
+          }
+        }
+        
+        console.log('Calculated 52-week high/low from historical data:', {
+          calculatedYearHigh,
+          calculatedYearLow,
+          dataPoints: historicalData.historical.length,
+          currentPrice: result.price,
+          quoteYearHigh: result.yearHigh,
+          quoteYearLow: result.yearLow
+        });
+        
+        // Always use calculated values from historical data if available
+        // Historical data is more accurate than quote API fields which may be stale or incorrect
+        if (calculatedYearHigh && calculatedYearLow) {
+          // Validate: Current price should be between year low and year high
+          const calculatedDataValid = result.price && 
+            result.price >= calculatedYearLow && result.price <= calculatedYearHigh;
+          
+          if (calculatedDataValid || !result.price) {
+            console.log('Using calculated 52-week high/low from historical data (most accurate)');
+            result.yearHigh = calculatedYearHigh;
+            result.yearLow = calculatedYearLow;
+          } else {
+            console.warn('Warning: Current price is outside calculated 52-week range. Using calculated values anyway (more reliable than quote API).');
+            result.yearHigh = calculatedYearHigh;
+            result.yearLow = calculatedYearLow;
+          }
+        } else {
+          // Validate quote data if calculated values not available
+          const quoteDataValid = result.price && result.yearHigh && result.yearLow &&
+            result.price >= result.yearLow && result.price <= result.yearHigh;
+          
+          if (!quoteDataValid && result.price) {
+            console.warn('Warning: Current price is outside 52-week range from quote API. Calculated values not available.');
+          }
+        }
+      } else {
+        console.log('Historical data not available or empty');
+      }
+    } else if (historicalResponse.status === 'rejected') {
+      const error = historicalResponse.reason?.response?.status === 429 
+        ? 'Rate limit exceeded. Please try again later.'
+        : historicalResponse.reason?.message || 'Request failed';
+      console.log('FMP Historical price request failed:', error);
+      // Don't set this as a critical error - we can still use quote data
     }
 
     console.log('Final FMP result:', result);

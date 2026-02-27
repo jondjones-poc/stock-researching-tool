@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
       forwardPE2Year: null,
       currentPrice: null,
       marketCap: null,
+      epsTTM: null,
       eps2025: null,
       eps2026: null,
       dividendPerShare: null,
@@ -77,7 +78,9 @@ export async function GET(request: NextRequest) {
       yearLow: null
     };
 
-    // Process quote data for current price, market cap, change percent, year high/low
+    // Process quote data for current price, market cap, change percent
+    // NOTE: Finnhub quote API returns h (daily high) and l (daily low), NOT 52-week high/low
+    // We should NOT use these for year high/low - use FMP's yearHigh52/yearLow52 instead
     if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
       const quote = quoteResponse.value.data;
       result.currentPrice = quote.c;
@@ -85,14 +88,13 @@ export async function GET(request: NextRequest) {
       result.marketCap = quote.mc !== null && quote.mc !== undefined ? quote.mc : null;
       // Finnhub quote API returns dp (change percent) as a percentage value (e.g., 1.5 = 1.5%)
       result.changePercent = quote.dp !== null && quote.dp !== undefined ? quote.dp : null;
-      result.yearHigh = quote.h !== null && quote.h !== undefined ? quote.h : null;
-      result.yearLow = quote.l !== null && quote.l !== undefined ? quote.l : null;
+      // DO NOT use quote.h and quote.l - these are daily high/low, not 52-week
+      // Year high/low should come from FMP's yearHigh52/yearLow52 fields
       
       console.log('Quote data:', JSON.stringify(quote, null, 2));
       console.log('Market Cap from Finnhub Quote (mc):', result.marketCap);
       console.log('Change % from Finnhub:', result.changePercent);
-      console.log('Year High from Finnhub:', result.yearHigh);
-      console.log('Year Low from Finnhub:', result.yearLow);
+      console.log('NOTE: Finnhub h/l are daily values, not 52-week - using FMP for year high/low');
     }
 
     // Process metrics data for PE ratios
@@ -102,10 +104,20 @@ export async function GET(request: NextRequest) {
       console.log('Metrics data:', JSON.stringify(metrics, null, 2));
       
       if (metrics.metric) {
-        // Get current PE ratio from metrics
-        if (metrics.metric.peTTM) {
+        // Get TTM EPS from metrics
+        if (metrics.metric.epsTTM !== null && metrics.metric.epsTTM !== undefined) {
+          result.epsTTM = metrics.metric.epsTTM;
+          console.log('TTM EPS from metrics:', result.epsTTM);
+        }
+        
+        // Calculate PE from latest price and TTM EPS (most accurate method)
+        if (result.currentPrice && result.epsTTM && result.epsTTM > 0) {
+          result.currentPE = result.currentPrice / result.epsTTM;
+          console.log('Current PE calculated from price/EPS:', result.currentPE, `(${result.currentPrice} / ${result.epsTTM})`);
+        } else if (metrics.metric.peTTM) {
+          // Fallback to PE from metrics if we can't calculate
           result.currentPE = metrics.metric.peTTM;
-          console.log('Current PE from metrics:', result.currentPE);
+          console.log('Current PE from metrics (fallback):', result.currentPE);
         }
         
         // Get 1-year forward PE from metrics if available

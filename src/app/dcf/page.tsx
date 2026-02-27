@@ -50,16 +50,39 @@ export default function DCFCalculator() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    loadDcfList();
-    loadData();
+    const loadInitialData = async () => {
+      // PRIORITY: Check query string FIRST before doing anything with localStorage
+      const idParam = searchParams.get('id');
+      const symbolParam = searchParams.get('symbol');
+      
+      // If we have URL parameters, clear localStorage to prevent conflicts
+      if (idParam || symbolParam) {
+        // Clear localStorage data to ensure URL parameters take priority
+        localStorage.removeItem('dcfData');
+        // Clear any existing DCF data state
+        setDcfData(null);
+        setSelectedDcfId('');
+      }
+      
+      // Load the DCF list first
+      await loadDcfList();
+      
+      if (idParam) {
+        // Scroll to top when loading from URL parameter
+        window.scrollTo(0, 0);
+        handleDcfSelect(idParam);
+      } else if (symbolParam) {
+        // If symbol is provided, load the most recent DCF entry for that symbol
+        // Don't load from localStorage if we have a symbol parameter
+        window.scrollTo(0, 0);
+        loadDcfBySymbol(symbolParam);
+      } else {
+        // Only load from localStorage if no URL parameters are present
+        loadData();
+      }
+    };
     
-    // Check for id parameter in URL
-    const idParam = searchParams.get('id');
-    if (idParam) {
-      // Scroll to top when loading from URL parameter
-      window.scrollTo(0, 0);
-      handleDcfSelect(idParam);
-    }
+    loadInitialData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -74,7 +97,15 @@ export default function DCFCalculator() {
 
   // If DCF data exists in local storage and there is a matching DB entry, auto-load that entry
   useEffect(() => {
-    // Don't override an explicit selection from URL or user
+    // PRIORITY: Don't override an explicit selection from URL or user
+    // Check if we have URL parameters - if so, don't auto-load from localStorage
+    const idParam = searchParams.get('id');
+    const symbolParam = searchParams.get('symbol');
+    if (idParam || symbolParam) {
+      console.log('[DCF] Skipping auto-load from localStorage - URL parameters present:', { idParam, symbolParam });
+      return; // Don't auto-load if URL parameters are present
+    }
+    
     if (!dcfData?.symbol || dcfList.length === 0 || selectedDcfId) return;
 
     const upperSymbol = dcfData.symbol.toUpperCase();
@@ -83,9 +114,10 @@ export default function DCFCalculator() {
     );
 
     if (matchingEntry) {
+      console.log('[DCF] Auto-loading matching entry from localStorage:', matchingEntry.symbol, matchingEntry.id);
       handleDcfSelect(matchingEntry.id);
     }
-  }, [dcfData?.symbol, dcfList, selectedDcfId]);
+  }, [dcfData?.symbol, dcfList, selectedDcfId, searchParams]);
 
   const loadMatchingDcfEntries = async (symbol: string) => {
     if (!symbol) return;
@@ -211,6 +243,58 @@ export default function DCFCalculator() {
     }
   };
 
+  const loadDcfBySymbol = async (symbol: string) => {
+    if (!symbol) return;
+    
+    console.log('[DCF] loadDcfBySymbol called with symbol:', symbol);
+    
+    // Clear any existing data first to prevent conflicts
+    setDcfData(null);
+    setSelectedDcfId('');
+    setProjections(null);
+    
+    setDbLoading(true);
+    setDbMessage(null);
+
+    try {
+      // Ensure the DCF list is loaded first
+      if (dcfList.length === 0) {
+        console.log('[DCF] DCF list is empty, loading list first...');
+        await loadDcfList();
+      }
+      
+      // First, get the list of DCF entries for this symbol
+      const listResponse = await fetch(`/api/dcf/list?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
+      const listResult = await listResponse.json();
+
+      if (!listResponse.ok || !listResult.data || listResult.data.length === 0) {
+        // No DCF entry exists for this symbol, set the symbol in the input field
+        setDbSymbol(symbol.toUpperCase());
+        setSelectedDcfId(''); // Clear selection since no entry exists
+        setDbMessage({ 
+          type: 'error', 
+          text: `No DCF entry found for ${symbol.toUpperCase()}. Please load or create one.` 
+        });
+        setDbLoading(false);
+        return;
+      }
+
+      // Get the most recent entry (first in the list, assuming it's sorted by created_at DESC)
+      const mostRecentEntry = listResult.data[0];
+      
+      console.log('[DCF] Loading entry by symbol:', symbol, 'Entry ID:', mostRecentEntry.id, 'Entry symbol:', mostRecentEntry.symbol);
+      
+      // Load the full DCF data using the entry ID - this will set selectedDcfId
+      await handleDcfSelect(mostRecentEntry.id);
+      
+      console.log('[DCF] After handleDcfSelect, selectedDcfId should be:', mostRecentEntry.id);
+    } catch (error: any) {
+      console.error('Error loading DCF by symbol:', error);
+      setDbMessage({ type: 'error', text: error.message || 'Failed to load DCF data for symbol' });
+      setDbLoading(false);
+    }
+  };
+
   // Debug projections state changes
   useEffect(() => {
     console.log('Projections state changed:', projections);
@@ -223,10 +307,18 @@ export default function DCFCalculator() {
 
   const loadData = () => {
     try {
+      // Don't load from localStorage if there are URL parameters (query string takes priority)
+      const idParam = searchParams.get('id');
+      const symbolParam = searchParams.get('symbol');
+      if (idParam || symbolParam) {
+        console.log('[DCF] Skipping localStorage load - URL parameters present:', { idParam, symbolParam });
+        return;
+      }
+      
       console.log('loadData called');
       if (hasDCFData()) {
         const data = getDCFData();
-        console.log('DCF data loaded:', data);
+        console.log('DCF data loaded from localStorage:', data);
         if (data && data.revenueGrowth && data.netIncomeGrowth && data.peLow && data.peHigh) {
           console.log('Data validation passed, setting dcfData and formData');
           setDcfData(data);

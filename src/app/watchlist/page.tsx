@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Decimal from 'decimal.js';
 
 interface StockValuation {
   id?: number;
@@ -116,6 +117,37 @@ export default function CompanyWatchlistPage() {
   const [bearTheoryLoading, setBearTheoryLoading] = useState(false);
   const [baseTheoryLoading, setBaseTheoryLoading] = useState(false);
   const [bullTheoryLoading, setBullTheoryLoading] = useState(false);
+  const [marginOfSafety, setMarginOfSafety] = useState<number>(20);
+  const [valueDriverClassification, setValueDriverClassification] = useState<{
+    driverBuckets: string[];
+    recommendedModel: string;
+    explain: string[];
+    hasMissingData?: boolean;
+    missingDataFields?: string[];
+    currentPrice?: number | null;
+    annualDividendPerShare?: number | null;
+    dividendYield?: number;
+    dividendYieldPercent?: number;
+    sharesOutstandingNow?: number | null;
+    sharesOutstanding5yAgo?: number | null;
+    shareChange5y?: number | null;
+    shareChange5yPercent?: number | null;
+    debug?: {
+      lowYieldThreshold: number;
+      buybackHeavyThreshold: number;
+      dividendYieldBelowThreshold: boolean;
+      shareChangeAvailable: boolean;
+      shareChangeBelowBuybackThreshold: boolean;
+      classificationPath: string;
+    };
+  } | null>(null);
+  const [valueDriverLoading, setValueDriverLoading] = useState<boolean>(false);
+  const [showDebugDetails, setShowDebugDetails] = useState<boolean>(false);
+  const [validateAiClicked, setValidateAiClicked] = useState<boolean>(false);
+  const [askAiClicked, setAskAiClicked] = useState<boolean>(false);
+  const [askDcfAiClicked, setAskDcfAiClicked] = useState<boolean>(false);
+  const [clearingDcfProjections, setClearingDcfProjections] = useState<boolean>(false);
+  const [savingStockDetails, setSavingStockDetails] = useState<boolean>(false);
   
   const [formData, setFormData] = useState<StockValuation>({
     stock: '',
@@ -147,21 +179,83 @@ export default function CompanyWatchlistPage() {
   });
 
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   useEffect(() => {
     loadStockList();
   }, []);
 
-  // Load matching DCF entries and earnings when stock symbol changes
+  // Load stock from query parameter on mount (check for symbol parameter)
+  useEffect(() => {
+    const symbol = searchParams.get('symbol');
+    const stockId = searchParams.get('stock_id');
+    
+    // Only load if we have a symbol in the URL and haven't already loaded a stock
+    if (symbol && stockList.length > 0 && !selectedStockId && !formData.stock && !stockId) {
+      // Find the stock by symbol in the list
+      const stockEntry = stockList.find(entry => entry.stock.toUpperCase() === symbol.toUpperCase());
+      if (stockEntry) {
+        handleStockSelect(stockEntry.id.toString());
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockList, searchParams]);
+
+  // Load matching DCF entries, earnings, DCF projections, and value driver classification when stock symbol changes
   useEffect(() => {
     if (formData.stock) {
       loadMatchingDcfEntries(formData.stock);
       loadEarningsData(formData.stock);
+      loadDcfProjections(formData.stock);
+      fetchValueDriverClassification(formData.stock);
     } else {
       setMatchingDcfEntries([]);
       setEarningsCalendar(null);
+      setValueDriverClassification(null);
     }
   }, [formData.stock]);
+
+  // Sync DDM Price with DDM with Safety value when DDM data is loaded
+  useEffect(() => {
+    if (ddmData && ddmData.ddmWithSafety !== null && ddmData.ddmWithSafety !== undefined) {
+      setFormData(prev => ({
+        ...prev,
+        ddm_price: ddmData.ddmWithSafety
+      }));
+    }
+  }, [ddmData]);
+
+  // Calculate Average Valuations from DDM Price, DCF Prediction Price (Bear Case Low), and REIT Valuation
+  // Only include non-zero values in the calculation
+  useEffect(() => {
+    const values: number[] = [];
+    
+    // Add DDM Price if not null/undefined and not 0
+    if (formData.ddm_price !== null && formData.ddm_price !== undefined && formData.ddm_price !== 0) {
+      values.push(formData.ddm_price);
+    }
+    
+    // Add DCF Prediction Price (Bear Case Low) if not null/undefined and not 0
+    if (formData.bear_case_low_price !== null && formData.bear_case_low_price !== undefined && formData.bear_case_low_price !== 0) {
+      values.push(formData.bear_case_low_price);
+    }
+    
+    // Add REIT Valuation if not null/undefined and not 0
+    if (formData.reit_valuation !== null && formData.reit_valuation !== undefined && formData.reit_valuation !== 0) {
+      values.push(formData.reit_valuation);
+    }
+    
+    // Calculate average if we have at least one value
+    const average = values.length > 0 
+      ? values.reduce((sum, val) => sum + val, 0) / values.length 
+      : null;
+    
+    // Update average_valuations
+    setFormData(prev => ({
+      ...prev,
+      average_valuations: average !== null ? Math.round(average * 100) / 100 : null
+    }));
+  }, [formData.ddm_price, formData.bear_case_low_price, formData.reit_valuation]);
 
   const loadEarningsData = async (symbol: string, forceRefresh: boolean = false) => {
     if (!symbol) return;
@@ -175,7 +269,18 @@ export default function CompanyWatchlistPage() {
       console.log(`[Client] Fetching earnings data for ${symbol}, forceRefresh: ${forceRefresh}, URL: ${url}`);
       
       const response = await fetch(url);
-      const data = await response.json();
+      
+      // Try to parse JSON, but handle cases where response might be empty or malformed
+      let data: any = {};
+      try {
+        const text = await response.text();
+        if (text) {
+          data = JSON.parse(text);
+        }
+      } catch (parseError) {
+        console.error(`[Client] Failed to parse earnings API response:`, parseError);
+        data = { error: 'Invalid response from server' };
+      }
       
       console.log(`[Client] Earnings API response for ${symbol}:`, JSON.stringify(data, null, 2));
       console.log(`[Client] Response status: ${response.status}, ok: ${response.ok}`);
@@ -195,11 +300,13 @@ export default function CompanyWatchlistPage() {
         
         setEarningsCalendar(data);
       } else {
-        console.error(`[Client] Earnings API error:`, data);
+        // Build a more descriptive error message
+        const errorMessage = data.error || data.details || `HTTP ${response.status}: ${response.statusText}` || 'Failed to fetch earnings data';
+        console.error(`[Client] Earnings API error (${response.status}):`, errorMessage, data);
         setEarningsCalendar({
           symbol: symbol.toUpperCase(),
           nextEarnings: null,
-          error: data.error || 'Failed to fetch earnings data'
+          error: errorMessage
         });
       }
     } catch (error: any) {
@@ -327,6 +434,50 @@ export default function CompanyWatchlistPage() {
     }
   };
 
+  // Fetch value driver classification
+  const fetchValueDriverClassification = async (symbol: string) => {
+    if (!symbol) {
+      setValueDriverClassification(null);
+      return;
+    }
+    
+    setValueDriverLoading(true);
+    // Clear old data immediately when fetching new data
+    setValueDriverClassification(null);
+    try {
+      const response = await fetch(`/api/value-driver-classification?symbol=${symbol}`);
+      
+      if (!response.ok) {
+        console.error('Value driver classification API error:', response.status);
+        setValueDriverClassification(null);
+        return;
+      }
+      
+      const result = await response.json();
+      setValueDriverClassification({
+        driverBuckets: result.driverBuckets || [],
+        recommendedModel: result.recommendedModel || '',
+        explain: result.explain || [],
+        hasMissingData: result.hasMissingData || false,
+        missingDataFields: result.missingDataFields || [],
+        currentPrice: result.currentPrice,
+        annualDividendPerShare: result.annualDividendPerShare,
+        dividendYield: result.dividendYield,
+        dividendYieldPercent: result.dividendYieldPercent,
+        sharesOutstandingNow: result.sharesOutstandingNow,
+        sharesOutstanding5yAgo: result.sharesOutstanding5yAgo,
+        shareChange5y: result.shareChange5y,
+        shareChange5yPercent: result.shareChange5yPercent,
+        debug: result.debug
+      });
+    } catch (error) {
+      console.error('Error fetching value driver classification:', error);
+      setValueDriverClassification(null);
+    } finally {
+      setValueDriverLoading(false);
+    }
+  };
+
   const loadMatchingDcfEntries = async (symbol: string) => {
     if (!symbol) return;
     
@@ -345,6 +496,106 @@ export default function CompanyWatchlistPage() {
       setMatchingDcfEntries([]);
     } finally {
       setLoadingMatchingEntries(false);
+    }
+  };
+
+  // Fetch DCF data and calculate projections to update bear/base/bull case prices
+  const loadDcfProjections = async (symbol: string) => {
+    if (!symbol) return;
+    
+    try {
+      const response = await fetch(`/api/dcf?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
+      const result = await response.json();
+      
+      if (!response.ok || !result.data) {
+        // No DCF data available, keep existing values
+        return;
+      }
+
+      const dcfData = result.data;
+      
+      // Calculate projections for each scenario
+      const scenarios: ('bear' | 'base' | 'bull')[] = ['bear', 'base', 'bull'];
+      const years = 5;
+      const projections: {
+        bear: { low: number[]; high: number[] };
+        base: { low: number[]; high: number[] };
+        bull: { low: number[]; high: number[] };
+      } = {
+        bear: { low: [], high: [] },
+        base: { low: [], high: [] },
+        bull: { low: [], high: [] }
+      };
+
+      scenarios.forEach(scenario => {
+        let currentRevenue = new Decimal(dcfData.revenue || 0);
+        let currentNetIncome = new Decimal(dcfData.netIncome || 0);
+        
+        const revenueGrowth = dcfData.revenueGrowth?.[scenario] || 0;
+        const netIncomeGrowth = dcfData.netIncomeGrowth?.[scenario] || 0;
+        const peLow = dcfData.peLow?.[scenario] || 0;
+        const peHigh = dcfData.peHigh?.[scenario] || 0;
+
+        const sharesOutstanding = dcfData.sharesOutstanding && dcfData.sharesOutstanding > 0 
+          ? dcfData.sharesOutstanding 
+          : 50000000;
+
+        let currentEps: Decimal | null = null;
+        if (dcfData.currentEps && dcfData.currentEps > 0) {
+          currentEps = new Decimal(dcfData.currentEps);
+        } else if (sharesOutstanding > 0) {
+          currentEps = currentNetIncome.div(sharesOutstanding);
+        }
+
+        for (let year = 0; year < years; year++) {
+          if (year > 0) {
+            currentRevenue = currentRevenue.mul(new Decimal(1).add(revenueGrowth));
+            currentNetIncome = currentNetIncome.mul(new Decimal(1).add(netIncomeGrowth));
+            if (currentEps) {
+              currentEps = currentEps.mul(new Decimal(1).add(netIncomeGrowth));
+            }
+          }
+          
+          const eps = currentEps ?? currentNetIncome.div(sharesOutstanding);
+          const sharePriceLow = eps.mul(peLow);
+          const sharePriceHigh = eps.mul(peHigh);
+
+          projections[scenario].low.push(sharePriceLow.toNumber());
+          projections[scenario].high.push(sharePriceHigh.toNumber());
+        }
+      });
+
+      // Extract final year prices and calculate averages
+      const finalYear = years - 1;
+      const updatedFields: Partial<StockValuation> = {};
+      
+      // Bear case
+      if (projections.bear.low[finalYear] && projections.bear.high[finalYear]) {
+        updatedFields.bear_case_low_price = projections.bear.low[finalYear];
+        updatedFields.bear_case_high_price = projections.bear.high[finalYear];
+        updatedFields.bear_case_avg_price = (projections.bear.low[finalYear] + projections.bear.high[finalYear]) / 2;
+      }
+      
+      // Base case
+      if (projections.base.low[finalYear] && projections.base.high[finalYear]) {
+        updatedFields.base_case_low_price = projections.base.low[finalYear];
+        updatedFields.base_case_high_price = projections.base.high[finalYear];
+        updatedFields.base_case_avg_price = (projections.base.low[finalYear] + projections.base.high[finalYear]) / 2;
+      }
+      
+      // Bull case
+      if (projections.bull.low[finalYear] && projections.bull.high[finalYear]) {
+        updatedFields.bull_case_low_price = projections.bull.low[finalYear];
+        updatedFields.bull_case_high_price = projections.bull.high[finalYear];
+        updatedFields.bull_case_avg_price = (projections.bull.low[finalYear] + projections.bull.high[finalYear]) / 2;
+      }
+
+      // Update formData with calculated prices
+      if (Object.keys(updatedFields).length > 0) {
+        setFormData(prev => ({ ...prev, ...updatedFields }));
+      }
+    } catch (error: any) {
+      console.error('Error loading DCF projections:', error);
     }
   };
 
@@ -432,12 +683,54 @@ export default function CompanyWatchlistPage() {
       setShowSections(false);
       setDdmData(null);
       setNewsData([]);
+      setValueDriverClassification(null);
+      // Remove symbol from URL
+      router.push('/watchlist');
       return;
     }
     
     setSelectedStockId(id);
     setLoading(true);
     setMessage(null);
+    // Clear old value driver classification data immediately when selecting a new stock
+    setValueDriverClassification(null);
+    
+    // IMPORTANT: Reset ALL fields to null/defaults FIRST to prevent old data from persisting
+    // This ensures no leftover data from the previous stock
+    setFormData({
+      stock: '',
+      buy_price: null,
+      active_price: null,
+      dcf_price: null,
+      ddm_price: null,
+      reit_valuation: null,
+      average_valuations: null,
+      dividend_per_share: null,
+      gross_profit_pct: null,
+      roic: null,
+      long_term_earning_growth: null,
+      simplywall_valuation: null,
+      change_pct: null,
+      year_high: null,
+      year_low: null,
+      pe: null,
+      eps: null,
+      bear_case_avg_price: null,
+      bear_case_low_price: null,
+      bear_case_high_price: null,
+      base_case_avg_price: null,
+      base_case_low_price: null,
+      base_case_high_price: null,
+      bull_case_avg_price: null,
+      bull_case_low_price: null,
+      bull_case_high_price: null,
+    });
+    
+    // Also clear other related state
+    setDdmData(null);
+    setNewsData([]);
+    setEarningsCalendar(null);
+    setMatchingDcfEntries([]);
 
     try {
       const response = await fetch(`/api/stock-valuations?id=${id}`);
@@ -452,6 +745,7 @@ export default function CompanyWatchlistPage() {
       const data = result.data;
       setStockValuationId(result.id);
 
+      // NOW load the new stock's data - all fields are already reset to null
       setFormData({
         stock: data.stock || '',
         buy_price: data.buy_price ?? null,
@@ -484,10 +778,18 @@ export default function CompanyWatchlistPage() {
       // Show sections when stock is selected
       setShowSections(true);
       
-      // Fetch news and DDM data for the selected stock
+      // Update URL with stock symbol (only if different from current URL)
       if (data.stock) {
+        const currentSymbol = searchParams.get('symbol');
+        if (currentSymbol?.toUpperCase() !== data.stock.toUpperCase()) {
+          router.push(`/watchlist?symbol=${data.stock.toUpperCase()}`);
+        }
+        
+        // Fetch news, DDM data, DCF projections, and value driver classification for the selected stock
         fetchNewsData(data.stock);
         fetchDdmData(data.stock);
+        loadDcfProjections(data.stock);
+        fetchValueDriverClassification(data.stock);
       }
 
       // Load links for this stock
@@ -602,6 +904,19 @@ export default function CompanyWatchlistPage() {
     return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  // Calculate Buy/Hold and margin of safety for a valuation
+  const calculateValuationSignal = (valuation: number | null | undefined) => {
+    if (!valuation || valuation === 0 || !formData.active_price) {
+      return { signal: null, marginOfSafety: null };
+    }
+
+    const buyPrice = valuation * (1 - marginOfSafety / 100);
+    const signal = formData.active_price <= buyPrice ? 'BUY' : 'HOLD';
+    const marginOfSafetyValue = ((valuation - formData.active_price) / valuation) * 100;
+
+    return { signal, marginOfSafety: marginOfSafetyValue };
+  };
+
   const handleInputChange = (field: keyof StockValuation, value: string) => {
     if (field === 'stock') {
       setFormData(prev => ({ ...prev, [field]: value.toUpperCase() }));
@@ -641,22 +956,38 @@ export default function CompanyWatchlistPage() {
         }
       }
 
-      // Process PE Ratios data for Dividend Per Share, PE, Change %, Year High, Year Low, Active Price
+      // Process PE Ratios data for Dividend Per Share, PE, EPS, Change %, Year High, Year Low, Active Price
       if (peRatiosRes.status === 'fulfilled' && peRatiosRes.value.ok) {
         const peRatios = await peRatiosRes.value.json();
         if (peRatios.dividendPerShare !== null && peRatios.dividendPerShare !== undefined) {
           // Round to 2 decimal places
           updatedFields.dividend_per_share = Math.round(peRatios.dividendPerShare * 100) / 100;
         }
-        // Get PE ratio
-        if (peRatios.currentPE !== null && peRatios.currentPE !== undefined) {
-          // Round to 2 decimal places
-          updatedFields.pe = Math.round(peRatios.currentPE * 100) / 100;
-        }
-        // Get Active Price (current price) from Finnhub
+        // Get Active Price (current price) from Finnhub - get this first as we need it for PE calculation
         if (peRatios.currentPrice !== null && peRatios.currentPrice !== undefined) {
           // Round to 2 decimal places
           updatedFields.active_price = Math.round(peRatios.currentPrice * 100) / 100;
+        }
+        // Get TTM EPS and calculate PE from latest price + TTM EPS (most accurate)
+        if (peRatios.epsTTM !== null && peRatios.epsTTM !== undefined && peRatios.epsTTM > 0) {
+          // Round to 2 decimal places
+          updatedFields.eps = Math.round(peRatios.epsTTM * 100) / 100;
+          
+          // Calculate PE from latest price and TTM EPS
+          if (peRatios.currentPrice !== null && peRatios.currentPrice !== undefined && peRatios.currentPrice > 0) {
+            const calculatedPE = peRatios.currentPrice / peRatios.epsTTM;
+            updatedFields.pe = Math.round(calculatedPE * 100) / 100;
+            console.log('[Refresh] PE calculated from Finnhub:', {
+              price: peRatios.currentPrice,
+              eps: peRatios.epsTTM,
+              calculatedPE: calculatedPE,
+              roundedPE: updatedFields.pe
+            });
+          }
+        } else if (peRatios.currentPE !== null && peRatios.currentPE !== undefined) {
+          // Fallback to PE from Finnhub API if we can't calculate
+          updatedFields.pe = Math.round(peRatios.currentPE * 100) / 100;
+          console.log('[Refresh] PE from Finnhub API (fallback):', peRatios.currentPE);
         }
         // Get Change % from Finnhub (prioritize over FMP)
         if (peRatios.changePercent !== null && peRatios.changePercent !== undefined) {
@@ -664,14 +995,8 @@ export default function CompanyWatchlistPage() {
           updatedFields.change_pct = Math.round(peRatios.changePercent * 100) / 100;
           console.log('Change % from Finnhub (pe-ratios):', peRatios.changePercent, '->', updatedFields.change_pct);
         }
-        // Get Year High from Finnhub (prioritize over FMP)
-        if (peRatios.yearHigh !== null && peRatios.yearHigh !== undefined) {
-          updatedFields.year_high = Math.round(peRatios.yearHigh * 100) / 100;
-        }
-        // Get Year Low from Finnhub (prioritize over FMP)
-        if (peRatios.yearLow !== null && peRatios.yearLow !== undefined) {
-          updatedFields.year_low = Math.round(peRatios.yearLow * 100) / 100;
-        }
+        // NOTE: Do NOT use Finnhub's yearHigh/yearLow - these are daily values, not 52-week
+        // We'll get 52-week data from FMP instead (yearHigh52/yearLow52)
       }
 
       // Process Earnings Growth data for Long Term Earning Growth (%)
@@ -685,31 +1010,74 @@ export default function CompanyWatchlistPage() {
         }
       }
 
-      // Process FMP data for Year High, Year Low, Change (%), PE, and Active Price - use as fallback if not from pe-ratios
+      // Process FMP data for Year High, Year Low, Change (%), PE, and Active Price
+      // Prioritize FMP's PE and 52-week high/low if available, as FMP has more accurate 52-week data
       if (fmpRes.status === 'fulfilled' && fmpRes.value.ok) {
         const fmp = await fmpRes.value.json();
+        console.log('[Refresh] FMP full response:', JSON.stringify(fmp, null, 2));
+        
+        // Prioritize FMP's PE if available (FMP tends to have more current data)
+        if (fmp.fmpPE !== null && fmp.fmpPE !== undefined && fmp.fmpPE > 0) {
+          // Use FMP's PE if it's reasonable (between 1 and 1000) and either:
+          // 1. We don't have a PE yet, OR
+          // 2. The existing PE seems unreasonable (too high > 100 or negative), OR
+          // 3. There's a significant difference (>30%) suggesting one might be outdated
+          const existingPE = updatedFields.pe;
+          const difference = existingPE ? Math.abs(existingPE - fmp.fmpPE) / Math.max(existingPE, fmp.fmpPE) : 1;
+          const shouldUseFmpPE = !existingPE || 
+                                 existingPE > 100 || 
+                                 existingPE < 0 ||
+                                 difference > 0.3; // More than 30% difference
+          
+          if (shouldUseFmpPE && fmp.fmpPE >= 1 && fmp.fmpPE <= 1000) {
+            updatedFields.pe = Math.round(fmp.fmpPE * 100) / 100;
+            console.log('[Refresh] PE from FMP (prioritized):', {
+              fmpPE: fmp.fmpPE,
+              previousPE: existingPE,
+              difference: `${(difference * 100).toFixed(1)}%`,
+              reason: !existingPE ? 'No existing PE' : existingPE > 100 ? 'Existing PE too high' : difference > 0.3 ? 'Significant difference' : 'Other'
+            });
+          } else {
+            console.log('[Refresh] Keeping existing PE:', {
+              existingPE: existingPE,
+              fmpPE: fmp.fmpPE,
+              difference: `${(difference * 100).toFixed(1)}%`,
+              reason: 'FMP PE not significantly better or out of range'
+            });
+          }
+        }
+        
         // Only use FMP values if not already set from pe-ratios
         if (!updatedFields.active_price && fmp.price !== null && fmp.price !== undefined) {
           // Round to 2 decimal places
           updatedFields.active_price = Math.round(fmp.price * 100) / 100;
         }
-        if (!updatedFields.year_high && fmp.yearHigh !== null && fmp.yearHigh !== undefined) {
-          // Round to 2 decimal places
+        
+        // ALWAYS prioritize FMP's 52-week high/low (yearHigh52/yearLow52) as it's the true 52-week range
+        // FMP provides yearHigh52/yearLow52 which are the actual 52-week values
+        // Always set these values from FMP if available, even if they're already set
+        if (fmp.yearHigh !== null && fmp.yearHigh !== undefined && fmp.yearHigh > 0) {
           updatedFields.year_high = Math.round(fmp.yearHigh * 100) / 100;
+          console.log('[Refresh] Year High from FMP (52-week):', fmp.yearHigh, '->', updatedFields.year_high);
+        } else {
+          console.warn('[Refresh] FMP yearHigh is missing or invalid:', fmp.yearHigh, 'Available FMP fields:', Object.keys(fmp));
         }
-        if (!updatedFields.year_low && fmp.yearLow !== null && fmp.yearLow !== undefined) {
-          // Round to 2 decimal places
+        if (fmp.yearLow !== null && fmp.yearLow !== undefined && fmp.yearLow > 0) {
           updatedFields.year_low = Math.round(fmp.yearLow * 100) / 100;
+          console.log('[Refresh] Year Low from FMP (52-week):', fmp.yearLow, '->', updatedFields.year_low);
+        } else {
+          console.warn('[Refresh] FMP yearLow is missing or invalid:', fmp.yearLow, 'Available FMP fields:', Object.keys(fmp));
         }
         if (!updatedFields.change_pct && fmp.changePercent !== null && fmp.changePercent !== undefined) {
           // Round to 2 decimal places - changePercent is already a percentage from FMP (e.g., 1.5 = 1.5%)
           updatedFields.change_pct = Math.round(fmp.changePercent * 100) / 100;
           console.log('Change % from FMP (fallback):', fmp.changePercent, '->', updatedFields.change_pct);
         }
-        // Also try to get PE from FMP if not already set from pe-ratios
-        if (!updatedFields.pe && fmp.fmpPE !== null && fmp.fmpPE !== undefined) {
-          // Round to 2 decimal places
-          updatedFields.pe = Math.round(fmp.fmpPE * 100) / 100;
+      } else {
+        if (fmpRes.status === 'rejected') {
+          console.error('[Refresh] FMP API request failed:', fmpRes.reason);
+        } else if (fmpRes.status === 'fulfilled' && !fmpRes.value.ok) {
+          console.error('[Refresh] FMP API response not OK. Status:', fmpRes.value.status);
         }
       }
 
@@ -779,6 +1147,382 @@ export default function CompanyWatchlistPage() {
     }
   };
 
+  const handleValidateWithAI = async () => {
+    if (!formData.stock) {
+      setMessage({ type: 'error', text: 'Stock symbol is required' });
+      return;
+    }
+
+    try {
+      setValidateAiClicked(true);
+      
+      // Calculate dividend yield if available
+      const dividendYield = formData.dividend_per_share && formData.active_price && formData.active_price > 0
+        ? ((formData.dividend_per_share / formData.active_price) * 100).toFixed(2)
+        : 'N/A';
+
+      // Build the prompt with all Stock Details data
+      const lines: string[] = [];
+      lines.push('You are a financial data validation expert. Please review the following stock data and validate that it is up to date and accurate.');
+      lines.push(`\nStock Symbol: ${formData.stock.toUpperCase()}`);
+      lines.push(`\nCurrent Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
+      lines.push('\n--- STOCK DETAILS DATA ---');
+      lines.push(`\nPrice-to-Earnings (PE) Ratio: ${formData.pe !== null && formData.pe !== undefined ? formData.pe.toFixed(2) : 'N/A'}`);
+      lines.push(`Earnings Per Share (EPS): ${formData.eps !== null && formData.eps !== undefined ? `$${formData.eps.toFixed(2)}` : 'N/A'}`);
+      lines.push(`Change (%): ${formData.change_pct !== null && formData.change_pct !== undefined ? `${formData.change_pct.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Year Low: ${formData.year_low !== null && formData.year_low !== undefined ? `$${formData.year_low.toFixed(2)}` : 'N/A'}`);
+      lines.push(`Year High: ${formData.year_high !== null && formData.year_high !== undefined ? `$${formData.year_high.toFixed(2)}` : 'N/A'}`);
+      lines.push(`Gross Profit Margin (%): ${formData.gross_profit_pct !== null && formData.gross_profit_pct !== undefined ? `${formData.gross_profit_pct.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Long Term Earning Growth (%): ${formData.long_term_earning_growth !== null && formData.long_term_earning_growth !== undefined ? `${formData.long_term_earning_growth.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Return on Invested Capital - ROIC (%): ${formData.roic !== null && formData.roic !== undefined ? `${formData.roic.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Simplywall.st Valuation (%): ${formData.simplywall_valuation !== null && formData.simplywall_valuation !== undefined ? `${formData.simplywall_valuation.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Dividend Per Share: ${formData.dividend_per_share !== null && formData.dividend_per_share !== undefined ? `$${formData.dividend_per_share.toFixed(2)}` : 'N/A'}`);
+      lines.push(`Dividend Yield (%): ${dividendYield}%`);
+      lines.push(`Shares Outstanding (Now): ${valueDriverClassification?.sharesOutstandingNow !== null && valueDriverClassification?.sharesOutstandingNow !== undefined ? valueDriverClassification.sharesOutstandingNow.toLocaleString() : 'N/A'}`);
+      lines.push(`Shares Outstanding (5y ago): ${valueDriverClassification?.sharesOutstanding5yAgo !== null && valueDriverClassification?.sharesOutstanding5yAgo !== undefined ? valueDriverClassification.sharesOutstanding5yAgo.toLocaleString() : 'N/A'}`);
+      lines.push(`Share Change (5y): ${valueDriverClassification?.shareChange5yPercent !== null && valueDriverClassification?.shareChange5yPercent !== undefined ? `${valueDriverClassification.shareChange5yPercent.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Active Price: ${formData.active_price !== null && formData.active_price !== undefined ? `$${formData.active_price.toFixed(2)}` : 'N/A'}`);
+      
+      lines.push('\n--- VALIDATION REQUEST ---');
+      lines.push('\nPlease:');
+      lines.push('1. Verify that each metric is current and accurate based on the most recent financial data available');
+      lines.push('2. Identify any values that appear outdated, incorrect, or inconsistent');
+      lines.push('3. Suggest corrections or updates where necessary');
+      lines.push('4. Note any missing critical data points that should be included');
+      lines.push('5. Provide a summary of the overall data quality and reliability');
+      
+      const prompt = lines.join('\n');
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setMessage({ type: 'success', text: 'Validation prompt copied to clipboard! Paste into ChatGPT to validate the data.' });
+        
+        // Reset the clicked state after 3 seconds
+        setTimeout(() => {
+          setValidateAiClicked(false);
+        }, 3000);
+      } else {
+        setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+        setValidateAiClicked(false);
+      }
+    } catch (error: any) {
+      console.error('Error creating validation prompt:', error);
+      setMessage({ type: 'error', text: error?.message || 'Failed to create validation prompt.' });
+      setValidateAiClicked(false);
+    }
+  };
+
+  const handleAskAI = async () => {
+    if (!formData.stock) {
+      setMessage({ type: 'error', text: 'Stock symbol is required' });
+      return;
+    }
+
+    try {
+      setAskAiClicked(true);
+      
+      // Calculate signals and margins for each valuation
+      const ddmSignal = calculateValuationSignal(formData.ddm_price);
+      const dcfSignal = calculateValuationSignal(formData.bear_case_low_price);
+      const reitSignal = calculateValuationSignal(formData.reit_valuation);
+      const avgSignal = calculateValuationSignal(formData.average_valuations);
+
+      // Build the prompt with all Valuation Model Price Predictions data
+      const lines: string[] = [];
+      lines.push('You are a financial valuation expert. Please review the following valuation model price predictions and recommendations, then explain and validate the logic used.');
+      lines.push(`\nStock Symbol: ${formData.stock.toUpperCase()}`);
+      lines.push(`Current Price: ${formData.active_price !== null && formData.active_price !== undefined ? `$${formData.active_price.toFixed(2)}` : 'N/A'}`);
+      lines.push(`\n--- VALUATION MODEL PRICE PREDICTIONS ---`);
+      
+      // DDM Prediction Price
+      if (formData.ddm_price && formData.ddm_price !== 0) {
+        lines.push(`\nDDM (Dividend Discount Model) Prediction Price: $${formData.ddm_price.toFixed(2)}`);
+        if (ddmSignal.signal) {
+          lines.push(`  - Investment Signal: ${ddmSignal.signal}`);
+          if (ddmSignal.marginOfSafety !== null) {
+            lines.push(`  - Margin of Safety: ${ddmSignal.marginOfSafety.toFixed(2)}%`);
+          }
+        }
+      }
+      
+      // DCF Prediction Price
+      if (formData.bear_case_low_price !== null && formData.bear_case_low_price !== undefined) {
+        lines.push(`\nDCF (Discounted Cash Flow) Prediction Price: $${formData.bear_case_low_price.toFixed(2)}`);
+        if (dcfSignal.signal) {
+          lines.push(`  - Investment Signal: ${dcfSignal.signal}`);
+          if (dcfSignal.marginOfSafety !== null) {
+            lines.push(`  - Margin of Safety: ${dcfSignal.marginOfSafety.toFixed(2)}%`);
+          }
+        }
+      }
+      
+      // REIT Valuation
+      if (formData.reit_valuation && formData.reit_valuation !== 0) {
+        lines.push(`\nREIT Valuation: $${formData.reit_valuation.toFixed(2)}`);
+        if (reitSignal.signal) {
+          lines.push(`  - Investment Signal: ${reitSignal.signal}`);
+          if (reitSignal.marginOfSafety !== null) {
+            lines.push(`  - Margin of Safety: ${reitSignal.marginOfSafety.toFixed(2)}%`);
+          }
+        }
+      }
+      
+      // Average Valuations
+      if (formData.average_valuations !== null && formData.average_valuations !== undefined) {
+        lines.push(`\nAverage Valuations: $${formData.average_valuations.toFixed(2)}`);
+        if (avgSignal.signal) {
+          lines.push(`  - Investment Signal: ${avgSignal.signal}`);
+          if (avgSignal.marginOfSafety !== null) {
+            lines.push(`  - Margin of Safety: ${avgSignal.marginOfSafety.toFixed(2)}%`);
+          }
+        }
+      }
+      
+      lines.push(`\nMargin of Safety Setting: ${marginOfSafety}%`);
+      
+      // Recommended Price Projection Model
+      if (valueDriverClassification) {
+        lines.push(`\n--- RECOMMENDED PRICE PROJECTION MODEL ---`);
+        
+        if (valueDriverClassification.hasMissingData) {
+          lines.push(`Status: Missing Data`);
+          lines.push(`Missing Fields: ${valueDriverClassification.missingDataFields?.join(', ') || 'Required data unavailable'}`);
+        } else {
+          lines.push(`Primary Value Driver(s): ${valueDriverClassification.driverBuckets.join(', ')}`);
+          lines.push(`Recommended Model: ${valueDriverClassification.recommendedModel || 'Unable to determine'}`);
+          
+          if (valueDriverClassification.explain.length > 0) {
+            lines.push(`\nAnalysis:`);
+            valueDriverClassification.explain.forEach((line) => {
+              lines.push(`  - ${line}`);
+            });
+          }
+          
+          // Include supporting data
+          if (valueDriverClassification.currentPrice !== null) {
+            lines.push(`\nSupporting Data:`);
+            lines.push(`  - Current Price: $${valueDriverClassification.currentPrice.toFixed(2)}`);
+            if (valueDriverClassification.annualDividendPerShare !== null) {
+              lines.push(`  - Annual Dividend Per Share: $${valueDriverClassification.annualDividendPerShare.toFixed(4)}`);
+            }
+            if (valueDriverClassification.dividendYieldPercent !== undefined && isFinite(valueDriverClassification.dividendYieldPercent)) {
+              lines.push(`  - Dividend Yield: ${valueDriverClassification.dividendYieldPercent.toFixed(4)}%`);
+            }
+            if (valueDriverClassification.sharesOutstandingNow !== null) {
+              lines.push(`  - Shares Outstanding (Now): ${valueDriverClassification.sharesOutstandingNow.toLocaleString()}`);
+            }
+            if (valueDriverClassification.sharesOutstanding5yAgo !== null) {
+              lines.push(`  - Shares Outstanding (5y ago): ${valueDriverClassification.sharesOutstanding5yAgo.toLocaleString()}`);
+            }
+            if (valueDriverClassification.shareChange5yPercent !== null) {
+              lines.push(`  - Share Change (5y): ${valueDriverClassification.shareChange5yPercent.toFixed(2)}%`);
+            }
+          }
+        }
+      }
+      
+      lines.push(`\n--- VALIDATION REQUEST ---`);
+      lines.push('\nPlease:');
+      lines.push('1. Explain the logic and methodology behind each valuation model (DDM, DCF, REIT)');
+      lines.push('2. Validate whether the recommended price projection model is appropriate given the stock\'s characteristics');
+      lines.push('3. Assess the reasonableness of each price prediction relative to the current price');
+      lines.push('4. Evaluate the margin of safety calculations and investment signals (BUY/HOLD)');
+      lines.push('5. Identify any inconsistencies, potential errors, or areas where the logic could be improved');
+      lines.push('6. Provide recommendations on which valuation model(s) should be given the most weight and why');
+      lines.push('7. Comment on the overall investment thesis based on these valuations');
+      
+      const prompt = lines.join('\n');
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setMessage({ type: 'success', text: 'Valuation analysis prompt copied to clipboard! Paste into ChatGPT to explain and validate the logic.' });
+        
+        // Reset the clicked state after 3 seconds
+        setTimeout(() => {
+          setAskAiClicked(false);
+        }, 3000);
+      } else {
+        setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+        setAskAiClicked(false);
+      }
+    } catch (error: any) {
+      console.error('Error creating valuation analysis prompt:', error);
+      setMessage({ type: 'error', text: error?.message || 'Failed to create valuation analysis prompt.' });
+      setAskAiClicked(false);
+    }
+  };
+
+  const handleAskDcfAI = async () => {
+    if (!formData.stock) {
+      setMessage({ type: 'error', text: 'Stock symbol is required' });
+      return;
+    }
+
+    try {
+      setAskDcfAiClicked(true);
+      
+      // Build the prompt with all DCF Projections data
+      const lines: string[] = [];
+      lines.push('You are a financial valuation expert specializing in Discounted Cash Flow (DCF) analysis. Please review the following DCF projections and validate whether the predictions seem correct.');
+      lines.push(`\nStock Symbol: ${formData.stock.toUpperCase()}`);
+      lines.push(`Current Price: ${formData.active_price !== null && formData.active_price !== undefined ? `$${formData.active_price.toFixed(2)}` : 'N/A'}`);
+      lines.push(`\n--- DCF PROJECTIONS ---`);
+      
+      // Low Price Targets
+      if (formData.bear_case_low_price || formData.base_case_low_price || formData.bull_case_low_price) {
+        lines.push(`\nLow Price Targets:`);
+        if (formData.bear_case_low_price !== null && formData.bear_case_low_price !== undefined) {
+          lines.push(`  - Bear Case Low: $${formData.bear_case_low_price.toFixed(2)}`);
+        }
+        if (formData.base_case_low_price !== null && formData.base_case_low_price !== undefined) {
+          lines.push(`  - Base Case Low: $${formData.base_case_low_price.toFixed(2)}`);
+        }
+        if (formData.bull_case_low_price !== null && formData.bull_case_low_price !== undefined) {
+          lines.push(`  - Bull Case Low: $${formData.bull_case_low_price.toFixed(2)}`);
+        }
+        // Investment Signal
+        if (formData.active_price && formData.bear_case_low_price) {
+          const signal = formData.active_price <= formData.bear_case_low_price ? 'BUY' : 'HOLD';
+          lines.push(`  - Investment Signal: ${signal}`);
+        }
+      }
+      
+      // Bear Case
+      if (formData.bear_case_avg_price || formData.bear_case_low_price || formData.bear_case_high_price) {
+        lines.push(`\nBear Case Scenario:`);
+        if (formData.bear_case_avg_price !== null && formData.bear_case_avg_price !== undefined) {
+          lines.push(`  - Average Price: $${formData.bear_case_avg_price.toFixed(2)}`);
+        }
+        if (formData.bear_case_low_price !== null && formData.bear_case_low_price !== undefined) {
+          lines.push(`  - Low Price: $${formData.bear_case_low_price.toFixed(2)}`);
+        }
+        if (formData.bear_case_high_price !== null && formData.bear_case_high_price !== undefined) {
+          lines.push(`  - High Price: $${formData.bear_case_high_price.toFixed(2)}`);
+        }
+      }
+      
+      // Base Case
+      if (formData.base_case_avg_price || formData.base_case_low_price || formData.base_case_high_price) {
+        lines.push(`\nBase Case Scenario:`);
+        if (formData.base_case_avg_price !== null && formData.base_case_avg_price !== undefined) {
+          lines.push(`  - Average Price: $${formData.base_case_avg_price.toFixed(2)}`);
+        }
+        if (formData.base_case_low_price !== null && formData.base_case_low_price !== undefined) {
+          lines.push(`  - Low Price: $${formData.base_case_low_price.toFixed(2)}`);
+        }
+        if (formData.base_case_high_price !== null && formData.base_case_high_price !== undefined) {
+          lines.push(`  - High Price: $${formData.base_case_high_price.toFixed(2)}`);
+        }
+      }
+      
+      // Bull Case
+      if (formData.bull_case_avg_price || formData.bull_case_low_price || formData.bull_case_high_price) {
+        lines.push(`\nBull Case Scenario:`);
+        if (formData.bull_case_avg_price !== null && formData.bull_case_avg_price !== undefined) {
+          lines.push(`  - Average Price: $${formData.bull_case_avg_price.toFixed(2)}`);
+        }
+        if (formData.bull_case_low_price !== null && formData.bull_case_low_price !== undefined) {
+          lines.push(`  - Low Price: $${formData.bull_case_low_price.toFixed(2)}`);
+        }
+        if (formData.bull_case_high_price !== null && formData.bull_case_high_price !== undefined) {
+          lines.push(`  - High Price: $${formData.bull_case_high_price.toFixed(2)}`);
+        }
+      }
+      
+      lines.push(`\n--- VALIDATION REQUEST ---`);
+      lines.push('\nPlease:');
+      lines.push('1. Review the DCF projections across all three scenarios (Bear, Base, Bull)');
+      lines.push('2. Validate whether the price ranges (low, average, high) are reasonable and internally consistent');
+      lines.push('3. Assess if the scenarios are properly differentiated (Bear < Base < Bull)');
+      lines.push('4. Evaluate whether the investment signal (BUY/HOLD) based on Bear Case Low is appropriate');
+      lines.push('5. Check if the projections align with typical DCF methodology and assumptions');
+      lines.push('6. Identify any potential errors, inconsistencies, or areas where the logic could be improved');
+      lines.push('7. Provide recommendations on the reasonableness of these DCF projections');
+      
+      const prompt = lines.join('\n');
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setMessage({ type: 'success', text: 'DCF validation prompt copied to clipboard! Paste into ChatGPT to check if the predictions seem correct.' });
+        
+        // Reset the clicked state after 3 seconds
+        setTimeout(() => {
+          setAskDcfAiClicked(false);
+        }, 3000);
+      } else {
+        setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+        setAskDcfAiClicked(false);
+      }
+    } catch (error: any) {
+      console.error('Error creating DCF validation prompt:', error);
+      setMessage({ type: 'error', text: error?.message || 'Failed to create DCF validation prompt.' });
+      setAskDcfAiClicked(false);
+    }
+  };
+
+  const handleClearDcfProjections = async () => {
+    if (!stockValuationId) {
+      setMessage({ type: 'error', text: 'No stock valuation selected. Please save the stock first.' });
+      return;
+    }
+
+    if (!confirm('Are you sure you want to clear all DCF projection data? This will only clear the DCF fields, not other stock data.')) {
+      return;
+    }
+
+    setClearingDcfProjections(true);
+    setMessage(null);
+
+    try {
+      // Prepare data with only DCF fields set to null
+      const dcfFieldsToClear = {
+        bear_case_avg_price: null,
+        bear_case_low_price: null,
+        bear_case_high_price: null,
+        base_case_avg_price: null,
+        base_case_low_price: null,
+        base_case_high_price: null,
+        bull_case_avg_price: null,
+        bull_case_low_price: null,
+        bull_case_high_price: null,
+      };
+
+      const response = await fetch(`/api/stock-valuations?id=${stockValuationId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...formData,
+          ...dcfFieldsToClear,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage({ type: 'error', text: result.error || 'Failed to clear DCF projections' });
+        return;
+      }
+
+      // Update formData to clear DCF fields
+      setFormData(prev => ({
+        ...prev,
+        ...dcfFieldsToClear,
+      }));
+
+      setMessage({ type: 'success', text: 'DCF projections cleared successfully!' });
+    } catch (error: any) {
+      console.error('Error clearing DCF projections:', error);
+      setMessage({ 
+        type: 'error', 
+        text: `Error clearing DCF projections: ${error.message || 'Unknown error'}` 
+      });
+    } finally {
+      setClearingDcfProjections(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.stock) {
       setMessage({ type: 'error', text: 'Stock symbol is required' });
@@ -835,6 +1579,77 @@ export default function CompanyWatchlistPage() {
     }
   };
 
+  const handleSaveStockDetails = async () => {
+    if (!formData.stock) {
+      setMessage({ type: 'error', text: 'Stock symbol is required' });
+      return;
+    }
+
+    if (!stockValuationId) {
+      setMessage({ type: 'error', text: 'Please save the stock first using the main Save button at the bottom of the page.' });
+      return;
+    }
+
+    setSavingStockDetails(true);
+    setMessage(null);
+
+    try {
+      // Prepare data with only Stock Details fields
+      // These are the fields in the Stock Details section:
+      // - pe, eps, change_pct, year_low, year_high, gross_profit_pct, 
+      //   long_term_earning_growth, roic, simplywall_valuation, dividend_per_share
+      // Also include active_price as it's part of the Stock Details conceptually
+      const stockDetailsData: Partial<StockValuation> = {
+        stock: formData.stock,
+        active_price: formData.active_price ?? null,
+        pe: formData.pe ?? null,
+        eps: formData.eps ?? null,
+        change_pct: formData.change_pct ?? null,
+        year_low: formData.year_low ?? null,
+        year_high: formData.year_high ?? null,
+        gross_profit_pct: formData.gross_profit_pct ?? null,
+        long_term_earning_growth: formData.long_term_earning_growth ?? null,
+        roic: formData.roic ?? null,
+        simplywall_valuation: formData.simplywall_valuation ?? null,
+        dividend_per_share: formData.dividend_per_share ?? null,
+      };
+
+      const response = await fetch(`/api/stock-valuations?id=${stockValuationId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...formData,
+          ...stockDetailsData,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage({ 
+          type: 'error', 
+          text: result.error || 'Failed to save stock details' 
+        });
+        return;
+      }
+
+      setMessage({ 
+        type: 'success', 
+        text: 'Stock details saved successfully!' 
+      });
+    } catch (error: any) {
+      console.error('Error saving stock details:', error);
+      setMessage({ 
+        type: 'error', 
+        text: `Error saving stock details: ${error.message || 'Unknown error'}` 
+      });
+    } finally {
+      setSavingStockDetails(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!stockValuationId) {
       setMessage({ type: 'error', text: 'No stock valuation selected to delete' });
@@ -886,6 +1701,7 @@ export default function CompanyWatchlistPage() {
       setSelectedStockId('');
       setLinks([]);
       setNewLink('');
+      setValueDriverClassification(null);
       
       // Reload the list
       await loadStockList();
@@ -956,6 +1772,7 @@ export default function CompanyWatchlistPage() {
                 setLinks([]);
                 setNewLink('');
                 setMessage(null);
+                setValueDriverClassification(null);
               }}
               className="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -1191,13 +2008,33 @@ export default function CompanyWatchlistPage() {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
               Stock Details
             </h2>
-            <button
-              onClick={handleUpdateFromLive}
-              disabled={saving || !formData.stock}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-            >
-              {saving ? 'Updating...' : '🔄 Refresh'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleUpdateFromLive}
+                disabled={saving || !formData.stock}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {saving ? 'Updating...' : '🔄 Refresh'}
+              </button>
+              <button
+                onClick={handleSaveStockDetails}
+                disabled={savingStockDetails || !formData.stock || !stockValuationId}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+              >
+                {savingStockDetails ? 'Saving...' : '💾 Save'}
+              </button>
+              <button
+                onClick={handleValidateWithAI}
+                disabled={!formData.stock || validateAiClicked}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                  validateAiClicked
+                    ? 'bg-green-600 text-white cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
+                }`}
+              >
+                {validateAiClicked ? '✓ Copied!' : '🤖 Validate With AI'}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -1379,36 +2216,461 @@ export default function CompanyWatchlistPage() {
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
+
+              {/* Dividend Yield */}
+              <div>
+                <label htmlFor="dividend_yield" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Dividend Yield (%)
+                </label>
+                <input
+                  type="text"
+                  id="dividend_yield"
+                  readOnly
+                  value={(() => {
+                    if (formData.dividend_per_share && formData.active_price && formData.active_price > 0) {
+                      const yieldValue = (formData.dividend_per_share / formData.active_price) * 100;
+                      return yieldValue.toFixed(2);
+                    }
+                    return '';
+                  })()}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
+                />
+              </div>
+            </div>
+
+            {/* Shares Outstanding Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Shares Outstanding (Now) */}
+              <div>
+                <label htmlFor="shares_outstanding_now" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Shares Outstanding (Now)
+                </label>
+                <input
+                  type="text"
+                  id="shares_outstanding_now"
+                  value={valueDriverClassification?.sharesOutstandingNow !== null && valueDriverClassification?.sharesOutstandingNow !== undefined ? valueDriverClassification.sharesOutstandingNow.toLocaleString() : ''}
+                  readOnly
+                  placeholder="0"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
+                />
+              </div>
+
+              {/* Shares Outstanding (5y ago) */}
+              <div>
+                <label htmlFor="shares_outstanding_5y" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Shares Outstanding (5y ago)
+                </label>
+                <input
+                  type="text"
+                  id="shares_outstanding_5y"
+                  value={valueDriverClassification?.sharesOutstanding5yAgo !== null && valueDriverClassification?.sharesOutstanding5yAgo !== undefined ? valueDriverClassification.sharesOutstanding5yAgo.toLocaleString() : ''}
+                  readOnly
+                  placeholder="0"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
+                />
+              </div>
+
+              {/* Share Change (5y) */}
+              <div>
+                <label htmlFor="share_change_5y" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Share Change (5y)
+                </label>
+                <input
+                  type="text"
+                  id="share_change_5y"
+                  readOnly
+                  value={valueDriverClassification?.shareChange5yPercent !== null && valueDriverClassification?.shareChange5yPercent !== undefined ? `${valueDriverClassification.shareChange5yPercent.toFixed(2)}%` : ''}
+                  placeholder="0.00%"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
+                />
+              </div>
             </div>
           </div>
 
         </div>
         )}
 
-        {/* Share Price Summary */}
-        {showSections && formData.stock && (
+        {/* Valuation Section */}
+        {showSections && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Valuation Model Price Predictions
+              </h2>
+              <button
+                onClick={handleAskAI}
+                disabled={!formData.stock || askAiClicked}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                  askAiClicked
+                    ? 'bg-green-600 text-white cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
+                }`}
+              >
+                {askAiClicked ? '✓ Copied!' : '🤖 Ask AI'}
+              </button>
+            </div>
+            <div className={`grid grid-cols-1 gap-6 ${
+              (formData.ddm_price && formData.ddm_price !== 0) && (formData.reit_valuation && formData.reit_valuation !== 0) 
+                ? 'md:grid-cols-4' 
+                : (formData.ddm_price && formData.ddm_price !== 0) || (formData.reit_valuation && formData.reit_valuation !== 0)
+                  ? 'md:grid-cols-3'
+                  : 'md:grid-cols-2'
+            }`}>
+              {/* DDM Price - Only show if set */}
+              {formData.ddm_price && formData.ddm_price !== 0 && (
+                <div>
+                  <label htmlFor="ddm_price" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    DDM Prediction Price
+                  </label>
+                  <input
+                    type="number"
+                    id="ddm_price"
+                    step="0.01"
+                    value={formData.ddm_price ?? ''}
+                    onChange={(e) => handleInputChange('ddm_price', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {(() => {
+                    const signal = calculateValuationSignal(formData.ddm_price);
+                    return signal.signal ? (
+                      <div className="mt-2">
+                        <div className={`text-xs font-semibold ${signal.signal === 'BUY' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {signal.signal}
+                        </div>
+                        {signal.marginOfSafety !== null && (
+                          <div className="text-xs text-gray-600 dark:text-gray-400">
+                            Margin: {signal.marginOfSafety.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+
+              {/* DCF Prediction Price - Read-only, displays Bear Case Low */}
+              <div>
+                <label htmlFor="dcf_prediction_price" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  DCF Prediction Price
+                </label>
+                <input
+                  type="number"
+                  id="dcf_prediction_price"
+                  step="0.01"
+                  value={formData.bear_case_low_price !== null && formData.bear_case_low_price !== undefined ? formData.bear_case_low_price.toFixed(2) : ''}
+                  readOnly
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
+                />
+                {(() => {
+                  const signal = calculateValuationSignal(formData.bear_case_low_price);
+                  return signal.signal ? (
+                    <div className="mt-2">
+                      <div className={`text-xs font-semibold ${signal.signal === 'BUY' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {signal.signal}
+                      </div>
+                      {signal.marginOfSafety !== null && (
+                        <div className="text-xs text-gray-600 dark:text-gray-400">
+                          Margin: {signal.marginOfSafety.toFixed(2)}%
+                        </div>
+                      )}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* REIT Valuation - Only show if not 0.00 */}
+              {formData.reit_valuation && formData.reit_valuation !== 0 && (
+                <div>
+                  <label htmlFor="reit_valuation" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    REIT Valuation
+                  </label>
+                  <input
+                    type="number"
+                    id="reit_valuation"
+                    step="0.01"
+                    value={formData.reit_valuation ?? ''}
+                    onChange={(e) => handleInputChange('reit_valuation', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {(() => {
+                    const signal = calculateValuationSignal(formData.reit_valuation);
+                    return signal.signal ? (
+                      <div className="mt-2">
+                        <div className={`text-xs font-semibold ${signal.signal === 'BUY' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {signal.signal}
+                        </div>
+                        {signal.marginOfSafety !== null && (
+                          <div className="text-xs text-gray-600 dark:text-gray-400">
+                            Margin: {signal.marginOfSafety.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+
+              {/* Average Valuations */}
+              <div>
+                <label htmlFor="average_valuations" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Average Valuations
+                </label>
+                <input
+                  type="number"
+                  id="average_valuations"
+                  step="0.01"
+                  value={formData.average_valuations !== null && formData.average_valuations !== undefined ? formData.average_valuations.toFixed(2) : ''}
+                  readOnly
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
+                />
+                {(() => {
+                  const signal = calculateValuationSignal(formData.average_valuations);
+                  return signal.signal ? (
+                    <div className="mt-2">
+                      <div className={`text-xs font-semibold ${signal.signal === 'BUY' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {signal.signal}
+                      </div>
+                      {signal.marginOfSafety !== null && (
+                        <div className="text-xs text-gray-600 dark:text-gray-400">
+                          Margin: {signal.marginOfSafety.toFixed(2)}%
+                        </div>
+                      )}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+
+            {/* Margin of Safety Row */}
+            <div className="mt-6">
+              <div className="max-w-xs">
+                <label htmlFor="margin_of_safety" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Margin of Safety (%)
+                </label>
+                <input
+                  type="number"
+                  id="margin_of_safety"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={marginOfSafety}
+                  onChange={(e) => setMarginOfSafety(parseFloat(e.target.value) || 20)}
+                  placeholder="20.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Price Projection Model Recommendation */}
+            {formData.stock && (
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Recommended Price Projection Model To Use
+                </h3>
+                {valueDriverLoading ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Loading recommendation...
+                  </div>
+                ) : valueDriverClassification ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left Column (50%): Primary value driver and recommendation */}
+                    <div className="space-y-4">
+                      {/* Primary value driver checkboxes - only show if we have enough data */}
+                      {!valueDriverClassification.hasMissingData && (
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Primary value driver appears to be:
+                          </p>
+                          <div className="flex flex-wrap gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={valueDriverClassification.driverBuckets.includes('Dividends')}
+                                readOnly
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-700 dark:text-gray-300">Dividends</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={valueDriverClassification.driverBuckets.includes('Buybacks')}
+                                readOnly
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-700 dark:text-gray-300">Buybacks</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={valueDriverClassification.driverBuckets.includes('Reinvestment growth')}
+                                readOnly
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-700 dark:text-gray-300">Reinvestment growth</span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Model recommendation */}
+                      <div>
+                        {valueDriverClassification.hasMissingData ? (
+                          <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-800">
+                            <p className="text-sm font-semibold text-red-600 dark:text-red-400">
+                              Missing data: {valueDriverClassification.missingDataFields?.join(', ') || 'Required data unavailable'}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <p className="text-sm font-semibold text-blue-900 dark:text-blue-300">
+                              {valueDriverClassification.recommendedModel ? (
+                                <>→ {valueDriverClassification.recommendedModel}</>
+                              ) : (
+                                <>→ Unable to determine</>
+                              )}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Column (50%): Analysis and Debug Details */}
+                    <div className="space-y-4">
+                      {/* Explanation - only show if we have enough data */}
+                      {!valueDriverClassification.hasMissingData && valueDriverClassification.explain.length > 0 && (
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Analysis:
+                          </p>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                            {valueDriverClassification.explain.map((line, index) => (
+                              <li key={index}>{line}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Debug Details */}
+                      <div>
+                        <button
+                          onClick={() => setShowDebugDetails(!showDebugDetails)}
+                          className="flex items-center gap-2 text-xs font-semibold text-white mb-2 hover:text-gray-300 transition-colors"
+                        >
+                          {showDebugDetails ? (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                              Debug Details:
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                              Debug Details:
+                            </>
+                          )}
+                        </button>
+                        {showDebugDetails && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded text-xs space-y-1 font-mono text-white">
+                            <div>Current Price: {valueDriverClassification.currentPrice !== null ? `$${valueDriverClassification.currentPrice.toFixed(2)}` : 'N/A'}</div>
+                            <div>Annual Dividend/Share: {valueDriverClassification.annualDividendPerShare !== null ? `$${valueDriverClassification.annualDividendPerShare.toFixed(4)}` : 'N/A'}</div>
+                            <div>Dividend Yield: {valueDriverClassification.dividendYieldPercent !== undefined && isFinite(valueDriverClassification.dividendYieldPercent) ? `${valueDriverClassification.dividendYieldPercent.toFixed(4)}%` : '0.00%'}</div>
+                            <div>Shares Outstanding (Now): {valueDriverClassification.sharesOutstandingNow !== null ? valueDriverClassification.sharesOutstandingNow.toLocaleString() : 'N/A'}</div>
+                            <div>Shares Outstanding (5y ago): {valueDriverClassification.sharesOutstanding5yAgo !== null ? valueDriverClassification.sharesOutstanding5yAgo.toLocaleString() : 'N/A'}</div>
+                            <div>Share Change (5y): {valueDriverClassification.shareChange5yPercent !== null ? `${valueDriverClassification.shareChange5yPercent.toFixed(2)}%` : 'N/A'}</div>
+                            {valueDriverClassification.debug && (
+                              <>
+                                <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-700">
+                                  <div>Low Yield Threshold: {valueDriverClassification.debug.lowYieldThreshold}%</div>
+                                  <div>Buyback Heavy Threshold: {valueDriverClassification.debug.buybackHeavyThreshold}%</div>
+                                  <div>Yield Below Threshold: {valueDriverClassification.debug.dividendYieldBelowThreshold ? 'Yes' : 'No'}</div>
+                                  <div>Share Change Available: {valueDriverClassification.debug.shareChangeAvailable ? 'Yes' : 'No'}</div>
+                                  <div>Share Change Below Buyback Threshold: {valueDriverClassification.debug.shareChangeBelowBuybackThreshold ? 'Yes' : 'No'}</div>
+                                  <div>Classification Path: {valueDriverClassification.debug.classificationPath}</div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Unable to load recommendation. Please ensure API keys are configured.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* DCF Summary */}
+        {showSections && formData.stock && (matchingDcfEntries.length > 0 || formData.bear_case_low_price || formData.base_case_low_price || formData.bull_case_low_price) && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-6 text-center">Share Price Summary</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">DCF Projections</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAskDcfAI}
+                  disabled={!formData.stock || askDcfAiClicked}
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                    askDcfAiClicked
+                      ? 'bg-green-600 text-white cursor-not-allowed'
+                      : 'bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {askDcfAiClicked ? '✓ Copied!' : '🤖 Ask AI'}
+                </button>
+                <button
+                  onClick={handleClearDcfProjections}
+                  disabled={!stockValuationId || clearingDcfProjections}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+                >
+                  {clearingDcfProjections ? 'Clearing...' : '🗑️ Clear Projections'}
+                </button>
+              </div>
+            </div>
             
-            {/* Current Price Row */}
-            {formData.active_price && (
+            {/* Low Prices Row */}
+            {(formData.bear_case_low_price || formData.base_case_low_price || formData.bull_case_low_price) && (
               <div className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/20 dark:to-slate-900/20 rounded-lg p-6 mb-4 border border-gray-200 dark:border-gray-700">
-                <h3 className="font-bold text-gray-600 mb-4 text-lg">Current Market Price</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <h3 className="font-bold text-gray-600 mb-4 text-lg text-center">Low Price Targets</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="text-center">
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Current Price</div>
-                    <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-                      {formatCurrency(formData.active_price)}
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Bear Case Low</div>
+                    <div className="text-xl font-bold text-red-600">
+                      {formatCurrency(formData.bear_case_low_price)}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Base Case Low</div>
+                    <div className="text-xl font-bold text-blue-600">
+                      {formatCurrency(formData.base_case_low_price)}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Bull Case Low</div>
+                    <div className="text-xl font-bold text-green-600">
+                      {formatCurrency(formData.bull_case_low_price)}
                     </div>
                   </div>
                   <div className="text-center">
                     <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Investment Signal</div>
                     <div className={`text-2xl font-bold ${
-                      formData.active_price && formData.base_case_avg_price && 
-                      formData.active_price < formData.base_case_avg_price ? 'text-green-600' : 'text-red-600'
+                      formData.active_price && formData.bear_case_low_price && 
+                      formData.active_price <= formData.bear_case_low_price ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {formData.active_price && formData.base_case_avg_price && 
-                       formData.active_price < formData.base_case_avg_price ? 'BUY' : 'HOLD'}
+                      {formData.active_price && formData.bear_case_low_price && 
+                       formData.active_price <= formData.bear_case_low_price ? 'BUY' : 'HOLD'}
                     </div>
                   </div>
                 </div>
@@ -1512,13 +2774,27 @@ export default function CompanyWatchlistPage() {
                 </div>
               </div>
             )}
+
+            {/* Open DCF Page Button */}
+            <div className="flex justify-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <Link
+                href={
+                  matchingDcfEntries.length > 0
+                    ? `/dcf?id=${matchingDcfEntries[0].id}`
+                    : `/dcf?symbol=${formData.stock}`
+                }
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                View DCF Projections
+              </Link>
+            </div>
           </div>
         )}
 
-        {/* Dividend Projections Section */}
+        {/* DDM Projections Section */}
         {showSections && formData.stock && ddmData && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">Dividend Projections</h2>
+            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white text-center">DDM Projections</h2>
             {ddmLoading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="text-gray-500 dark:text-gray-400">Loading DDM data...</div>
@@ -1850,64 +3126,6 @@ export default function CompanyWatchlistPage() {
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {/* Valuation Section */}
-        {showSections && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
-              Valuation
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* DDM Price */}
-              <div>
-                <label htmlFor="ddm_price" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  DDM Price
-                </label>
-                <input
-                  type="number"
-                  id="ddm_price"
-                  step="0.01"
-                  value={formData.ddm_price ?? ''}
-                  onChange={(e) => handleInputChange('ddm_price', e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              {/* REIT Valuation */}
-              <div>
-                <label htmlFor="reit_valuation" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  REIT Valuation
-                </label>
-                <input
-                  type="number"
-                  id="reit_valuation"
-                  step="0.01"
-                  value={formData.reit_valuation ?? ''}
-                  onChange={(e) => handleInputChange('reit_valuation', e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              {/* Average Valuations */}
-              <div>
-                <label htmlFor="average_valuations" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Average Valuations
-                </label>
-                <input
-                  type="number"
-                  id="average_valuations"
-                  step="0.01"
-                  value={formData.average_valuations ?? ''}
-                  onChange={(e) => handleInputChange('average_valuations', e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
           </div>
         )}
 
