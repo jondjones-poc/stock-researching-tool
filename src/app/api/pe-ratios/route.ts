@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+const FMP_API_KEY = process.env.FMP_API_KEY;
 
 // Industry average P/E ratios (based on recent market data)
 const INDUSTRY_AVERAGE_PE: { [key: string]: number } = {
@@ -52,11 +53,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch current quote, metrics, and company profile data
-    const [quoteResponse, metricsResponse, profileResponse] = await Promise.allSettled([
+    // Fetch current quote, metrics, company profile, key metrics (for Enterprise Value), and cash flow (for Free Cash Flow)
+    const [quoteResponse, metricsResponse, profileResponse, keyMetricsResponse, cashFlowResponse] = await Promise.allSettled([
       axios.get(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`, { timeout: 10000 }),
       axios.get(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${FINNHUB_API_KEY}`, { timeout: 10000 }),
-      axios.get(`https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${FINNHUB_API_KEY}`, { timeout: 10000 })
+      axios.get(`https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${FINNHUB_API_KEY}`, { timeout: 10000 }),
+      FMP_API_KEY ? axios.get(`https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=1&apikey=${FMP_API_KEY}`, { timeout: 10000 }) : Promise.resolve({ data: null }),
+      FMP_API_KEY ? axios.get(`https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&limit=1&apikey=${FMP_API_KEY}`, { timeout: 10000 }) : Promise.resolve({ data: null })
     ]);
 
     const result: any = {
@@ -65,6 +68,8 @@ export async function GET(request: NextRequest) {
       forwardPE2Year: null,
       currentPrice: null,
       marketCap: null,
+      enterpriseValue: null,
+      freeCashFlow: null,
       epsTTM: null,
       eps2025: null,
       eps2026: null,
@@ -80,7 +85,7 @@ export async function GET(request: NextRequest) {
 
     // Process quote data for current price, market cap, change percent
     // NOTE: Finnhub quote API returns h (daily high) and l (daily low), NOT 52-week high/low
-    // We should NOT use these for year high/low - use FMP's yearHigh52/yearLow52 instead
+    // We will use Finnhub's metrics API for true 52-week high/low instead of quote.h/quote.l
     if (quoteResponse.status === 'fulfilled' && quoteResponse.value.data) {
       const quote = quoteResponse.value.data;
       result.currentPrice = quote.c;
@@ -89,7 +94,7 @@ export async function GET(request: NextRequest) {
       // Finnhub quote API returns dp (change percent) as a percentage value (e.g., 1.5 = 1.5%)
       result.changePercent = quote.dp !== null && quote.dp !== undefined ? quote.dp : null;
       // DO NOT use quote.h and quote.l - these are daily high/low, not 52-week
-      // Year high/low should come from FMP's yearHigh52/yearLow52 fields
+      // Year high/low will come from Finnhub metrics (52WeekHigh/52WeekLow)
       
       console.log('Quote data:', JSON.stringify(quote, null, 2));
       console.log('Market Cap from Finnhub Quote (mc):', result.marketCap);
@@ -97,7 +102,7 @@ export async function GET(request: NextRequest) {
       console.log('NOTE: Finnhub h/l are daily values, not 52-week - using FMP for year high/low');
     }
 
-    // Process metrics data for PE ratios
+    // Process metrics data for PE ratios, dividends, and 52-week high/low
     if (metricsResponse.status === 'fulfilled' && metricsResponse.value.data) {
       const metrics = metricsResponse.value.data;
       
@@ -141,11 +146,71 @@ export async function GET(request: NextRequest) {
           result.dividendGrowthRate = metrics.metric.dividendGrowthRate5Y;
           console.log('Dividend growth rate:', result.dividendGrowthRate);
         }
+
+        // 52-week high/low from Finnhub metrics
+        // Finnhub metrics returns true 52-week values as 52WeekHigh / 52WeekLow
+        const week52High = (metrics.metric as any)['52WeekHigh'];
+        const week52Low = (metrics.metric as any)['52WeekLow'];
+
+        if (week52High !== null && week52High !== undefined && typeof week52High === 'number' && week52High > 0) {
+          result.yearHigh = week52High;
+          console.log('52-week high from Finnhub metrics (52WeekHigh):', result.yearHigh);
+        }
+
+        if (week52Low !== null && week52Low !== undefined && typeof week52Low === 'number' && week52Low > 0) {
+          result.yearLow = week52Low;
+          console.log('52-week low from Finnhub metrics (52WeekLow):', result.yearLow);
+        }
+
+        // Get Enterprise Value from Finnhub metrics if available
+        const enterpriseValue = (metrics.metric as any).enterpriseValue;
+        if (enterpriseValue !== null && enterpriseValue !== undefined && typeof enterpriseValue === 'number' && enterpriseValue > 0) {
+          result.enterpriseValue = enterpriseValue * 1000000; // Convert from millions to actual value
+          console.log('Enterprise Value from Finnhub metrics:', result.enterpriseValue);
+        }
       }
     } else {
       console.log('Metrics data not available or failed');
       if (metricsResponse.status === 'rejected') {
         console.log('Metrics data error:', metricsResponse.reason);
+      }
+    }
+
+    // Get Market Cap from FMP Key Metrics if not available from Finnhub
+    if (!result.marketCap && keyMetricsResponse.status === 'fulfilled' && keyMetricsResponse.value.data) {
+      if (Array.isArray(keyMetricsResponse.value.data) && keyMetricsResponse.value.data.length > 0) {
+        const latestMetrics = keyMetricsResponse.value.data[0];
+        if (latestMetrics.marketCap !== null && latestMetrics.marketCap !== undefined && latestMetrics.marketCap > 0) {
+          result.marketCap = latestMetrics.marketCap;
+          console.log('Market Cap from FMP Key Metrics:', result.marketCap);
+        }
+      }
+    }
+
+    // Get Enterprise Value from FMP Key Metrics if not available from Finnhub
+    if (!result.enterpriseValue && keyMetricsResponse.status === 'fulfilled' && keyMetricsResponse.value.data) {
+      if (Array.isArray(keyMetricsResponse.value.data) && keyMetricsResponse.value.data.length > 0) {
+        const latestMetrics = keyMetricsResponse.value.data[0];
+        if (latestMetrics.enterpriseValue !== null && latestMetrics.enterpriseValue !== undefined) {
+          result.enterpriseValue = latestMetrics.enterpriseValue;
+          console.log('Enterprise Value from FMP Key Metrics:', result.enterpriseValue);
+        }
+      }
+    }
+
+    // Get Free Cash Flow from FMP Cash Flow Statement
+    if (cashFlowResponse.status === 'fulfilled' && cashFlowResponse.value.data) {
+      if (Array.isArray(cashFlowResponse.value.data) && cashFlowResponse.value.data.length > 0) {
+        const latestCashFlow = cashFlowResponse.value.data[0];
+        // Free Cash Flow = Operating Cash Flow - Capital Expenditures
+        const operatingCashFlow = latestCashFlow.netCashProvidedByOperatingActivities || 0;
+        const capitalExpenditures = Math.abs(latestCashFlow.capitalExpenditure || 0);
+        const freeCashFlow = operatingCashFlow - capitalExpenditures;
+        
+        if (freeCashFlow !== 0) {
+          result.freeCashFlow = freeCashFlow;
+          console.log('Free Cash Flow from FMP:', result.freeCashFlow, `(Operating: ${operatingCashFlow}, CapEx: ${capitalExpenditures})`);
+        }
       }
     }
 

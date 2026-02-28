@@ -20,6 +20,9 @@ interface StockValuation {
   year_low?: number | null;
   pe?: number | null;
   eps?: number | null;
+  market_cap?: number | null;
+  enterprise_value?: number | null;
+  free_cash_flow?: number | null;
   bear_case_avg_price?: number | null;
   bear_case_low_price?: number | null;
   bear_case_high_price?: number | null;
@@ -92,6 +95,9 @@ export async function GET(request: NextRequest) {
       year_low: row.year_low ? parseFloat(row.year_low) : null,
       pe: row.pe ? parseFloat(row.pe) : null,
       eps: row.eps ? parseFloat(row.eps) : null,
+      market_cap: row.market_cap ? parseFloat(row.market_cap) : null,
+      enterprise_value: row.enterprise_value ? parseFloat(row.enterprise_value) : null,
+      free_cash_flow: row.free_cash_flow ? parseFloat(row.free_cash_flow) : null,
       bear_case_avg_price: row.bear_case_avg_price ? parseFloat(row.bear_case_avg_price) : null,
       bear_case_low_price: row.bear_case_low_price ? parseFloat(row.bear_case_low_price) : null,
       bear_case_high_price: row.bear_case_high_price ? parseFloat(row.bear_case_high_price) : null,
@@ -131,12 +137,12 @@ export async function POST(request: NextRequest) {
         stock, buy_price, active_price, dcf_price, ddm_price, reit_valuation,
         average_valuations, dividend_per_share, gross_profit_pct, roic,
         long_term_earning_growth, simplywall_valuation, change_pct,
-        year_high, year_low, pe, eps,
+        year_high, year_low, pe, eps, market_cap, enterprise_value, free_cash_flow,
         bear_case_avg_price, bear_case_low_price, bear_case_high_price,
         base_case_avg_price, base_case_low_price, base_case_high_price,
         bull_case_avg_price, bull_case_low_price, bull_case_high_price
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
       ) RETURNING id, created_at, updated_at`,
       [
         body.stock.toUpperCase(),
@@ -156,6 +162,9 @@ export async function POST(request: NextRequest) {
         body.year_low ?? null,
         body.pe ?? null,
         body.eps ?? null,
+        body.market_cap ?? null,
+        body.enterprise_value ?? null,
+        body.free_cash_flow ?? null,
         body.bear_case_avg_price ?? null,
         body.bear_case_low_price ?? null,
         body.bear_case_high_price ?? null,
@@ -196,6 +205,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Debug: Log what we're receiving
+    console.log('[API] Updating stock valuation:', {
+      id,
+      market_cap: body.market_cap,
+      enterprise_value: body.enterprise_value,
+      free_cash_flow: body.free_cash_flow,
+    });
+
     const result = await query(
       `UPDATE stock_valuations SET
         stock = $1, buy_price = $2, active_price = $3, dcf_price = $4,
@@ -203,12 +220,13 @@ export async function PUT(request: NextRequest) {
         dividend_per_share = $8, gross_profit_pct = $9, roic = $10,
         long_term_earning_growth = $11, simplywall_valuation = $12, change_pct = $13,
         year_high = $14, year_low = $15, pe = $16, eps = $17,
-        bear_case_avg_price = $18, bear_case_low_price = $19, bear_case_high_price = $20,
-        base_case_avg_price = $21, base_case_low_price = $22, base_case_high_price = $23,
-        bull_case_avg_price = $24, bull_case_low_price = $25, bull_case_high_price = $26,
+        market_cap = $18, enterprise_value = $19, free_cash_flow = $20,
+        bear_case_avg_price = $21, bear_case_low_price = $22, bear_case_high_price = $23,
+        base_case_avg_price = $24, base_case_low_price = $25, base_case_high_price = $26,
+        bull_case_avg_price = $27, bull_case_low_price = $28, bull_case_high_price = $29,
         updated_at = NOW()
-      WHERE id = $27
-      RETURNING id, updated_at`,
+      WHERE id = $30
+      RETURNING id, updated_at, market_cap, enterprise_value, free_cash_flow`,
       [
         body.stock?.toUpperCase() || null,
         body.buy_price ?? null,
@@ -227,6 +245,9 @@ export async function PUT(request: NextRequest) {
         body.year_low ?? null,
         body.pe ?? null,
         body.eps ?? null,
+        body.market_cap ?? null,
+        body.enterprise_value ?? null,
+        body.free_cash_flow ?? null,
         body.bear_case_avg_price ?? null,
         body.bear_case_low_price ?? null,
         body.bear_case_high_price ?? null,
@@ -246,6 +267,14 @@ export async function PUT(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    // Debug: Log what was saved
+    console.log('[API] Stock valuation updated:', {
+      id: result.rows[0].id,
+      market_cap: result.rows[0].market_cap,
+      enterprise_value: result.rows[0].enterprise_value,
+      free_cash_flow: result.rows[0].free_cash_flow,
+    });
 
     return NextResponse.json({
       success: true,

@@ -24,6 +24,9 @@ interface StockValuation {
   year_low?: number | null;
   pe?: number | null;
   eps?: number | null;
+  market_cap?: number | null;
+  enterprise_value?: number | null;
+  free_cash_flow?: number | null;
   bear_case_avg_price?: number | null;
   bear_case_low_price?: number | null;
   bear_case_high_price?: number | null;
@@ -715,6 +718,9 @@ export default function CompanyWatchlistPage() {
       year_low: null,
       pe: null,
       eps: null,
+      market_cap: null,
+      enterprise_value: null,
+      free_cash_flow: null,
       bear_case_avg_price: null,
       bear_case_low_price: null,
       bear_case_high_price: null,
@@ -764,6 +770,9 @@ export default function CompanyWatchlistPage() {
         year_low: data.year_low ?? null,
         pe: data.pe ?? null,
         eps: data.eps ?? null,
+        market_cap: data.market_cap ?? null,
+        enterprise_value: data.enterprise_value ?? null,
+        free_cash_flow: data.free_cash_flow ?? null,
         bear_case_avg_price: data.bear_case_avg_price ?? null,
         bear_case_low_price: data.bear_case_low_price ?? null,
         bear_case_high_price: data.bear_case_high_price ?? null,
@@ -995,8 +1004,36 @@ export default function CompanyWatchlistPage() {
           updatedFields.change_pct = Math.round(peRatios.changePercent * 100) / 100;
           console.log('Change % from Finnhub (pe-ratios):', peRatios.changePercent, '->', updatedFields.change_pct);
         }
-        // NOTE: Do NOT use Finnhub's yearHigh/yearLow - these are daily values, not 52-week
-        // We'll get 52-week data from FMP instead (yearHigh52/yearLow52)
+
+        // Market Cap from Finnhub/FMP (via pe-ratios API)
+        // Note: Market Cap can be 0 for some stocks, so we check for null/undefined only
+        if (peRatios.marketCap !== null && peRatios.marketCap !== undefined) {
+          updatedFields.market_cap = Math.round(peRatios.marketCap * 100) / 100;
+          console.log('[Refresh] Market Cap from API:', peRatios.marketCap, '->', updatedFields.market_cap);
+        }
+
+        // Enterprise Value from Finnhub/FMP (via pe-ratios API)
+        if (peRatios.enterpriseValue !== null && peRatios.enterpriseValue !== undefined && peRatios.enterpriseValue > 0) {
+          updatedFields.enterprise_value = Math.round(peRatios.enterpriseValue * 100) / 100;
+          console.log('[Refresh] Enterprise Value:', peRatios.enterpriseValue, '->', updatedFields.enterprise_value);
+        }
+
+        // Free Cash Flow from FMP (via pe-ratios API)
+        if (peRatios.freeCashFlow !== null && peRatios.freeCashFlow !== undefined && peRatios.freeCashFlow !== 0) {
+          updatedFields.free_cash_flow = Math.round(peRatios.freeCashFlow * 100) / 100;
+          console.log('[Refresh] Free Cash Flow:', peRatios.freeCashFlow, '->', updatedFields.free_cash_flow);
+        }
+
+        // 52-week high/low from Finnhub metrics (via pe-ratios API)
+        // peRatios.yearHigh / peRatios.yearLow are sourced from Finnhub's 52WeekHigh / 52WeekLow
+        if (peRatios.yearHigh !== null && peRatios.yearHigh !== undefined && peRatios.yearHigh > 0) {
+          updatedFields.year_high = Math.round(peRatios.yearHigh * 100) / 100;
+          console.log('[Refresh] Year High from Finnhub metrics (52-week):', peRatios.yearHigh, '->', updatedFields.year_high);
+        }
+        if (peRatios.yearLow !== null && peRatios.yearLow !== undefined && peRatios.yearLow > 0) {
+          updatedFields.year_low = Math.round(peRatios.yearLow * 100) / 100;
+          console.log('[Refresh] Year Low from Finnhub metrics (52-week):', peRatios.yearLow, '->', updatedFields.year_low);
+        }
       }
 
       // Process Earnings Growth data for Long Term Earning Growth (%)
@@ -1010,8 +1047,8 @@ export default function CompanyWatchlistPage() {
         }
       }
 
-      // Process FMP data for Year High, Year Low, Change (%), PE, and Active Price
-      // Prioritize FMP's PE and 52-week high/low if available, as FMP has more accurate 52-week data
+      // Process FMP data for Change (%), PE, and Active Price
+      // NOTE: Year High / Year Low now come exclusively from Finnhub metrics via the pe-ratios API
       if (fmpRes.status === 'fulfilled' && fmpRes.value.ok) {
         const fmp = await fmpRes.value.json();
         console.log('[Refresh] FMP full response:', JSON.stringify(fmp, null, 2));
@@ -1052,22 +1089,7 @@ export default function CompanyWatchlistPage() {
           // Round to 2 decimal places
           updatedFields.active_price = Math.round(fmp.price * 100) / 100;
         }
-        
-        // ALWAYS prioritize FMP's 52-week high/low (yearHigh52/yearLow52) as it's the true 52-week range
-        // FMP provides yearHigh52/yearLow52 which are the actual 52-week values
-        // Always set these values from FMP if available, even if they're already set
-        if (fmp.yearHigh !== null && fmp.yearHigh !== undefined && fmp.yearHigh > 0) {
-          updatedFields.year_high = Math.round(fmp.yearHigh * 100) / 100;
-          console.log('[Refresh] Year High from FMP (52-week):', fmp.yearHigh, '->', updatedFields.year_high);
-        } else {
-          console.warn('[Refresh] FMP yearHigh is missing or invalid:', fmp.yearHigh, 'Available FMP fields:', Object.keys(fmp));
-        }
-        if (fmp.yearLow !== null && fmp.yearLow !== undefined && fmp.yearLow > 0) {
-          updatedFields.year_low = Math.round(fmp.yearLow * 100) / 100;
-          console.log('[Refresh] Year Low from FMP (52-week):', fmp.yearLow, '->', updatedFields.year_low);
-        } else {
-          console.warn('[Refresh] FMP yearLow is missing or invalid:', fmp.yearLow, 'Available FMP fields:', Object.keys(fmp));
-        }
+
         if (!updatedFields.change_pct && fmp.changePercent !== null && fmp.changePercent !== undefined) {
           // Round to 2 decimal places - changePercent is already a percentage from FMP (e.g., 1.5 = 1.5%)
           updatedFields.change_pct = Math.round(fmp.changePercent * 100) / 100;
@@ -1299,22 +1321,22 @@ export default function CompanyWatchlistPage() {
           }
           
           // Include supporting data
-          if (valueDriverClassification.currentPrice !== null) {
+          if (valueDriverClassification.currentPrice !== null && valueDriverClassification.currentPrice !== undefined) {
             lines.push(`\nSupporting Data:`);
             lines.push(`  - Current Price: $${valueDriverClassification.currentPrice.toFixed(2)}`);
-            if (valueDriverClassification.annualDividendPerShare !== null) {
+            if (valueDriverClassification.annualDividendPerShare !== null && valueDriverClassification.annualDividendPerShare !== undefined) {
               lines.push(`  - Annual Dividend Per Share: $${valueDriverClassification.annualDividendPerShare.toFixed(4)}`);
             }
             if (valueDriverClassification.dividendYieldPercent !== undefined && isFinite(valueDriverClassification.dividendYieldPercent)) {
               lines.push(`  - Dividend Yield: ${valueDriverClassification.dividendYieldPercent.toFixed(4)}%`);
             }
-            if (valueDriverClassification.sharesOutstandingNow !== null) {
+            if (valueDriverClassification.sharesOutstandingNow !== null && valueDriverClassification.sharesOutstandingNow !== undefined) {
               lines.push(`  - Shares Outstanding (Now): ${valueDriverClassification.sharesOutstandingNow.toLocaleString()}`);
             }
-            if (valueDriverClassification.sharesOutstanding5yAgo !== null) {
+            if (valueDriverClassification.sharesOutstanding5yAgo !== null && valueDriverClassification.sharesOutstanding5yAgo !== undefined) {
               lines.push(`  - Shares Outstanding (5y ago): ${valueDriverClassification.sharesOutstanding5yAgo.toLocaleString()}`);
             }
-            if (valueDriverClassification.shareChange5yPercent !== null) {
+            if (valueDriverClassification.shareChange5yPercent !== null && valueDriverClassification.shareChange5yPercent !== undefined) {
               lines.push(`  - Share Change (5y): ${valueDriverClassification.shareChange5yPercent.toFixed(2)}%`);
             }
           }
@@ -1597,7 +1619,8 @@ export default function CompanyWatchlistPage() {
       // Prepare data with only Stock Details fields
       // These are the fields in the Stock Details section:
       // - pe, eps, change_pct, year_low, year_high, gross_profit_pct, 
-      //   long_term_earning_growth, roic, simplywall_valuation, dividend_per_share
+      //   long_term_earning_growth, roic, simplywall_valuation, dividend_per_share,
+      //   market_cap, enterprise_value, free_cash_flow
       // Also include active_price as it's part of the Stock Details conceptually
       const stockDetailsData: Partial<StockValuation> = {
         stock: formData.stock,
@@ -1612,7 +1635,18 @@ export default function CompanyWatchlistPage() {
         roic: formData.roic ?? null,
         simplywall_valuation: formData.simplywall_valuation ?? null,
         dividend_per_share: formData.dividend_per_share ?? null,
+        market_cap: formData.market_cap ?? null,
+        enterprise_value: formData.enterprise_value ?? null,
+        free_cash_flow: formData.free_cash_flow ?? null,
       };
+
+      // Debug: Log what we're sending
+      console.log('[Save Stock Details] Sending data:', {
+        market_cap: stockDetailsData.market_cap,
+        enterprise_value: stockDetailsData.enterprise_value,
+        free_cash_flow: stockDetailsData.free_cash_flow,
+        formData_market_cap: formData.market_cap,
+      });
 
       const response = await fetch(`/api/stock-valuations?id=${stockValuationId}`, {
         method: 'PUT',
@@ -1696,6 +1730,9 @@ export default function CompanyWatchlistPage() {
         year_low: null,
         pe: null,
         eps: null,
+        market_cap: null,
+        enterprise_value: null,
+        free_cash_flow: null,
       });
       setStockValuationId(null);
       setSelectedStockId('');
@@ -2239,6 +2276,57 @@ export default function CompanyWatchlistPage() {
               </div>
             </div>
 
+            {/* Market Cap, Enterprise Value, Free Cash Flow Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Market Cap */}
+              <div>
+                <label htmlFor="market_cap" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Market Cap ($)
+                </label>
+                <input
+                  type="number"
+                  id="market_cap"
+                  step="0.01"
+                  value={formData.market_cap ?? ''}
+                  onChange={(e) => handleInputChange('market_cap', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Enterprise Value */}
+              <div>
+                <label htmlFor="enterprise_value" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Enterprise Value ($)
+                </label>
+                <input
+                  type="number"
+                  id="enterprise_value"
+                  step="0.01"
+                  value={formData.enterprise_value ?? ''}
+                  onChange={(e) => handleInputChange('enterprise_value', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Free Cash Flow */}
+              <div>
+                <label htmlFor="free_cash_flow" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Free Cash Flow ($)
+                </label>
+                <input
+                  type="number"
+                  id="free_cash_flow"
+                  step="0.01"
+                  value={formData.free_cash_flow ?? ''}
+                  onChange={(e) => handleInputChange('free_cash_flow', e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
             {/* Shares Outstanding Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Shares Outstanding (Now) */}
@@ -2578,14 +2666,49 @@ export default function CompanyWatchlistPage() {
                             </>
                           )}
                         </button>
-                        {showDebugDetails && (
+                        {showDebugDetails && valueDriverClassification && (
                           <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded text-xs space-y-1 font-mono text-white">
-                            <div>Current Price: {valueDriverClassification.currentPrice !== null ? `$${valueDriverClassification.currentPrice.toFixed(2)}` : 'N/A'}</div>
-                            <div>Annual Dividend/Share: {valueDriverClassification.annualDividendPerShare !== null ? `$${valueDriverClassification.annualDividendPerShare.toFixed(4)}` : 'N/A'}</div>
-                            <div>Dividend Yield: {valueDriverClassification.dividendYieldPercent !== undefined && isFinite(valueDriverClassification.dividendYieldPercent) ? `${valueDriverClassification.dividendYieldPercent.toFixed(4)}%` : '0.00%'}</div>
-                            <div>Shares Outstanding (Now): {valueDriverClassification.sharesOutstandingNow !== null ? valueDriverClassification.sharesOutstandingNow.toLocaleString() : 'N/A'}</div>
-                            <div>Shares Outstanding (5y ago): {valueDriverClassification.sharesOutstanding5yAgo !== null ? valueDriverClassification.sharesOutstanding5yAgo.toLocaleString() : 'N/A'}</div>
-                            <div>Share Change (5y): {valueDriverClassification.shareChange5yPercent !== null ? `${valueDriverClassification.shareChange5yPercent.toFixed(2)}%` : 'N/A'}</div>
+                            <div>
+                              Current Price:{' '}
+                              {valueDriverClassification.currentPrice !== null && valueDriverClassification.currentPrice !== undefined
+                                ? `$${valueDriverClassification.currentPrice.toFixed(2)}`
+                                : 'N/A'}
+                            </div>
+                            <div>
+                              Annual Dividend/Share:{' '}
+                              {valueDriverClassification.annualDividendPerShare !== null &&
+                              valueDriverClassification.annualDividendPerShare !== undefined
+                                ? `$${valueDriverClassification.annualDividendPerShare.toFixed(4)}`
+                                : 'N/A'}
+                            </div>
+                            <div>
+                              Dividend Yield:{' '}
+                              {valueDriverClassification.dividendYieldPercent !== undefined &&
+                              isFinite(valueDriverClassification.dividendYieldPercent)
+                                ? `${valueDriverClassification.dividendYieldPercent.toFixed(4)}%`
+                                : '0.00%'}
+                            </div>
+                            <div>
+                              Shares Outstanding (Now):{' '}
+                              {valueDriverClassification.sharesOutstandingNow !== null &&
+                              valueDriverClassification.sharesOutstandingNow !== undefined
+                                ? valueDriverClassification.sharesOutstandingNow.toLocaleString()
+                                : 'N/A'}
+                            </div>
+                            <div>
+                              Shares Outstanding (5y ago):{' '}
+                              {valueDriverClassification.sharesOutstanding5yAgo !== null &&
+                              valueDriverClassification.sharesOutstanding5yAgo !== undefined
+                                ? valueDriverClassification.sharesOutstanding5yAgo.toLocaleString()
+                                : 'N/A'}
+                            </div>
+                            <div>
+                              Share Change (5y):{' '}
+                              {valueDriverClassification.shareChange5yPercent !== null &&
+                              valueDriverClassification.shareChange5yPercent !== undefined
+                                ? `${valueDriverClassification.shareChange5yPercent.toFixed(2)}%`
+                                : 'N/A'}
+                            </div>
                             {valueDriverClassification.debug && (
                               <>
                                 <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-700">
@@ -2922,8 +3045,83 @@ export default function CompanyWatchlistPage() {
                 const nextEarnings = earningsCalendar.nextEarnings;
                 const allEarnings = earningsCalendar.allEarnings || [];
                 
+                // Find last earnings (most recent past date)
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const pastEarnings = allEarnings.filter((e: any) => {
+                  const earningsDate = new Date(e.date);
+                  earningsDate.setHours(0, 0, 0, 0);
+                  return earningsDate < today;
+                });
+                const lastEarnings = pastEarnings.length > 0 
+                  ? pastEarnings.reduce((latest: any, current: any) => {
+                      const latestDate = new Date(latest.date);
+                      const currentDate = new Date(current.date);
+                      return currentDate > latestDate ? current : latest;
+                    })
+                  : null;
+                
                 return (
                   <div className="space-y-4">
+                    {/* Last Earnings */}
+                    {lastEarnings && (
+                      <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Last Earnings</h3>
+                        <div className="space-y-2">
+                          <div className="flex items-center">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Date: </span>
+                            <span className="text-sm font-semibold text-green-600 dark:text-green-400 ml-1">
+                              {new Date(lastEarnings.date).toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })}
+                            </span>
+                          </div>
+                          {lastEarnings.quarter && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Quarter: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                {lastEarnings.quarter} {lastEarnings.year}
+                              </span>
+                            </div>
+                          )}
+                          {lastEarnings.actualEps !== null && lastEarnings.actualEps !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Actual EPS: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${lastEarnings.actualEps.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                          {lastEarnings.estimatedEps !== null && lastEarnings.estimatedEps !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Estimated EPS: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${lastEarnings.estimatedEps.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                          {lastEarnings.actualRevenue !== null && lastEarnings.actualRevenue !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Actual Revenue: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${(lastEarnings.actualRevenue / 1000000).toFixed(2)}M
+                              </span>
+                            </div>
+                          )}
+                          {lastEarnings.estimatedRevenue !== null && lastEarnings.estimatedRevenue !== undefined && (
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Estimated Revenue: </span>
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">
+                                ${(lastEarnings.estimatedRevenue / 1000000).toFixed(2)}M
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
                     {/* Next Earnings */}
                     {nextEarnings && (
                       <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
@@ -3005,7 +3203,7 @@ export default function CompanyWatchlistPage() {
                                 )}
                               </div>
                               <div className="grid grid-cols-2 gap-2 text-xs">
-                                {earnings.actualEps !== null && (
+                                {earnings.actualEps !== null && earnings.actualEps !== undefined && (
                                   <div>
                                     <span className="text-gray-600 dark:text-gray-400">Actual EPS: </span>
                                     <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -3013,7 +3211,7 @@ export default function CompanyWatchlistPage() {
                                     </span>
                                   </div>
                                 )}
-                                {earnings.estimatedEps !== null && (
+                                {earnings.estimatedEps !== null && earnings.estimatedEps !== undefined && (
                                   <div>
                                     <span className="text-gray-600 dark:text-gray-400">Estimated EPS: </span>
                                     <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -3021,7 +3219,7 @@ export default function CompanyWatchlistPage() {
                                     </span>
                                   </div>
                                 )}
-                                {earnings.actualRevenue !== null && (
+                                {earnings.actualRevenue !== null && earnings.actualRevenue !== undefined && (
                                   <div>
                                     <span className="text-gray-600 dark:text-gray-400">Actual Revenue: </span>
                                     <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -3029,7 +3227,7 @@ export default function CompanyWatchlistPage() {
                                     </span>
                                   </div>
                                 )}
-                                {earnings.estimatedRevenue !== null && (
+                                {earnings.estimatedRevenue !== null && earnings.estimatedRevenue !== undefined && (
                                   <div>
                                     <span className="text-gray-600 dark:text-gray-400">Estimated Revenue: </span>
                                     <span className="font-medium text-gray-700 dark:text-gray-300">
