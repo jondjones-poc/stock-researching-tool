@@ -103,18 +103,27 @@ export default function NetworthReportPage() {
 
   // Handle horizontal scrolling detection
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolling(true);
+    let lastScrollLeft = 0;
+    
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const currentScrollLeft = target.scrollLeft;
       
-      // Clear existing timeout
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
+      // Only trigger if horizontal scroll has changed
+      if (currentScrollLeft !== lastScrollLeft) {
+        setIsScrolling(true);
+        lastScrollLeft = currentScrollLeft;
+        
+        // Clear existing timeout
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
+        
+        // Set scrolling to false after scrolling stops
+        scrollTimeoutRef.current = setTimeout(() => {
+          setIsScrolling(false);
+        }, 150);
       }
-      
-      // Set scrolling to false after scrolling stops
-      scrollTimeoutRef.current = setTimeout(() => {
-        setIsScrolling(false);
-      }, 150);
     };
 
     // Find the scrollable container
@@ -131,8 +140,8 @@ export default function NetworthReportPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-2 sm:px-4 lg:px-6">
+      <div className="w-full">
         {/* Year Tabs */}
         <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex space-x-4">
@@ -176,7 +185,7 @@ export default function NetworthReportPage() {
                     Month
                   </th>
                   {/* Networth - Fixed */}
-                  <th className="pl-4 pr-0 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider sticky z-30 bg-gray-50 dark:bg-gray-700 relative group" style={{ verticalAlign: 'middle', lineHeight: '3', left: '112px', width: '160px', minWidth: '160px', maxWidth: '160px' }}>
+                  <th className={`pl-4 pr-0 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider sticky z-30 bg-gray-50 dark:bg-gray-700 relative group transition-opacity duration-300 ${isScrolling ? 'opacity-0' : 'opacity-100'}`} style={{ verticalAlign: 'middle', lineHeight: '3', left: '112px', width: '160px', minWidth: '160px', maxWidth: '160px' }}>
                     <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-gray-300 dark:bg-gray-600"></div>
                     <div className="flex items-center justify-center gap-1">
                       <span>Networth</span>
@@ -208,12 +217,12 @@ export default function NetworthReportPage() {
                     </div>
                   </th>
                   {/* Networth Increase - Fixed */}
-                  <th className="pl-4 pr-0 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider sticky z-30 bg-gray-50 dark:bg-gray-700 relative" style={{ verticalAlign: 'middle', lineHeight: '3', left: '272px', width: '180px', minWidth: '180px', maxWidth: '180px' }}>
+                  <th className={`pl-4 pr-0 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider sticky z-30 bg-gray-50 dark:bg-gray-700 relative transition-opacity duration-300 ${isScrolling ? 'opacity-0' : 'opacity-100'}`} style={{ verticalAlign: 'middle', lineHeight: '3', left: '272px', width: '180px', minWidth: '180px', maxWidth: '180px' }}>
                     <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-gray-300 dark:bg-gray-600"></div>
                     Networth Increase
                   </th>
                   {/* Percent Difference - Fixed */}
-                  <th className="pl-4 pr-4 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider sticky z-30 bg-gray-50 dark:bg-gray-700 relative" style={{ verticalAlign: 'middle', lineHeight: '3', left: '452px', width: '160px', minWidth: '160px', maxWidth: '160px' }}>
+                  <th className={`pl-4 pr-4 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider sticky z-30 bg-gray-50 dark:bg-gray-700 relative transition-opacity duration-300 ${isScrolling ? 'opacity-0' : 'opacity-100'}`} style={{ verticalAlign: 'middle', lineHeight: '3', left: '452px', width: '160px', minWidth: '160px', maxWidth: '160px' }}>
                     <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-gray-300 dark:bg-gray-600"></div>
                     Percent Difference
                   </th>
@@ -314,7 +323,7 @@ export default function NetworthReportPage() {
                         {monthName}
                       </td>
                       {/* Networth - Fixed */}
-                      <td className={`pl-4 pr-0 py-3 whitespace-nowrap text-sm text-center font-semibold sticky z-30 bg-white dark:bg-gray-800 relative ${
+                      <td className={`pl-4 pr-0 py-3 whitespace-nowrap text-sm text-center font-semibold sticky z-30 bg-white dark:bg-gray-800 relative transition-opacity duration-300 ${isScrolling ? 'opacity-0' : 'opacity-100'} ${
                         !hasData
                           ? 'text-gray-400 dark:text-gray-600'
                           : networthIsNegative
@@ -331,7 +340,7 @@ export default function NetworthReportPage() {
                         })()}
                       </td>
                       {/* Networth Increase - Fixed */}
-                      <td className={`pl-4 pr-0 py-3 whitespace-nowrap text-sm text-center sticky z-30 bg-white dark:bg-gray-800 relative ${
+                      <td className={`pl-4 pr-0 py-3 whitespace-nowrap text-sm text-center sticky z-30 bg-white dark:bg-gray-800 relative transition-opacity duration-300 ${isScrolling ? 'opacity-0' : 'opacity-100'} ${
                         !hasData
                           ? 'text-gray-400 dark:text-gray-600'
                           : changeIsNegative
@@ -348,7 +357,7 @@ export default function NetworthReportPage() {
                         })()}
                       </td>
                       {/* Percent Difference - Fixed */}
-                      <td className={`pl-4 pr-4 py-3 whitespace-nowrap text-sm text-center sticky z-30 bg-white dark:bg-gray-800 relative ${
+                      <td className={`pl-4 pr-4 py-3 whitespace-nowrap text-sm text-center sticky z-30 bg-white dark:bg-gray-800 relative transition-opacity duration-300 ${isScrolling ? 'opacity-0' : 'opacity-100'} ${
                         !hasData
                           ? 'text-gray-400 dark:text-gray-600'
                           : changePercent < 0
