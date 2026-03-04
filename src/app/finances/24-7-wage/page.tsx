@@ -448,18 +448,6 @@ export default function Wage247Page() {
         </div>
       )}
       <div className="w-full">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">24/7 Wage</h1>
-
-        {/* Add Button */}
-        <div className="mb-6">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-          >
-            Add Entry
-          </button>
-        </div>
-
         {/* Add Modal */}
         {showAddModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -526,20 +514,28 @@ export default function Wage247Page() {
 
         {/* Year Tabs */}
         <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex space-x-4">
-            {availableYears.map((year) => (
-              <button
-                key={year}
-                onClick={() => setSelectedYear(year)}
-                className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
-                  selectedYear === year
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
-                }`}
-              >
-                {year}
-              </button>
-            ))}
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-4">
+              {availableYears.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => setSelectedYear(year)}
+                  className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
+                    selectedYear === year
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  {year}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Add Entry
+            </button>
           </div>
         </div>
 

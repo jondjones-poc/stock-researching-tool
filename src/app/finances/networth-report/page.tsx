@@ -20,6 +20,8 @@ export default function NetworthReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [loadingTooltip, setLoadingTooltip] = useState(false);
 
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
                      'July', 'August', 'September', 'October', 'November', 'December'];
@@ -100,6 +102,36 @@ export default function NetworthReportPage() {
       fetchReportData();
     }
   }, [selectedYear]);
+
+  // Fetch category details for tooltip
+  const fetchCategoryDetails = async (category: string, month: number) => {
+    setLoadingTooltip(true);
+    try {
+      const response = await fetch(
+        `/api/networth-report/category-details?year=${selectedYear}&month=${month}&category=${encodeURIComponent(category)}`
+      );
+      if (!response.ok) throw new Error('Failed to fetch category details');
+      const data = await response.json();
+      
+      if (data.data && data.data.length > 0) {
+        const accounts = data.data;
+        const total = accounts.reduce((sum: number, acc: any) => sum + (acc.balance || 0), 0);
+        
+        const accountLines = accounts.map((acc: any) => 
+          `${acc.account_name} (${acc.investment_type_name}): £${(acc.balance || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ).join('\n');
+        
+        const tooltipText = `${category} Calculation (${monthNames[month - 1]}):\n${accountLines}\n\nTotal: £${total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return tooltipText;
+      }
+      return null;
+    } catch (err: any) {
+      console.error('Error fetching category details:', err);
+      return null;
+    } finally {
+      setLoadingTooltip(false);
+    }
+  };
 
   // Handle horizontal scrolling detection
   useEffect(() => {
@@ -403,7 +435,28 @@ export default function NetworthReportPage() {
                           return (
                             <td
                               key={category}
-                              className={`px-4 py-3 whitespace-nowrap text-sm text-center ${textColorClass}`}
+                              className={`px-4 py-3 whitespace-nowrap text-sm text-center ${textColorClass} cursor-help`}
+                              onMouseEnter={async (e) => {
+                                if (hasData && value !== 0) {
+                                  // Capture element reference and position before async operation
+                                  const element = e.currentTarget as HTMLElement;
+                                  if (!element) return;
+                                  
+                                  const tooltipText = await fetchCategoryDetails(category, monthNumber);
+                                  if (tooltipText) {
+                                    // Check if element still exists and is in DOM
+                                    if (element && element.getBoundingClientRect) {
+                                      const rect = element.getBoundingClientRect();
+                                      setTooltip({
+                                        x: rect.left + rect.width / 2,
+                                        y: rect.top - 10,
+                                        text: tooltipText
+                                      });
+                                    }
+                                  }
+                                }
+                              }}
+                              onMouseLeave={() => setTooltip(null)}
                             >
                               {(() => {
                                 const absValue = Math.abs(value);
@@ -433,6 +486,21 @@ export default function NetworthReportPage() {
           </div>
         )}
       </div>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="fixed z-50 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded shadow-lg pointer-events-none whitespace-pre-line max-w-md"
+          style={{
+            left: `${tooltip.x}px`,
+            top: `${tooltip.y}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          {tooltip.text}
+          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"></div>
+        </div>
+      )}
     </div>
   );
 }

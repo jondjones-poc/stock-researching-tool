@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Account {
   id: number;
@@ -25,6 +25,7 @@ interface MonthlyAccountBalance {
 }
 
 export default function FinancesPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [availableYears, setAvailableYears] = useState<number[]>([]);
@@ -657,21 +658,6 @@ export default function FinancesPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="w-full px-2 sm:px-4 lg:px-6">
-        <div className="flex justify-end items-center mb-6">
-          <button
-            onClick={() => {
-              if (showAddMonth) {
-                // Reset to current month and year when canceling
-                setNewMonth(new Date().toLocaleString('default', { month: 'long' }));
-                setNewMonthYear(new Date().getFullYear());
-              }
-              setShowAddMonth(!showAddMonth);
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
-          >
-            {showAddMonth ? 'Cancel' : '+ Add New Statement'}
-          </button>
-        </div>
 
         {/* Message */}
         {message && (
@@ -733,20 +719,35 @@ export default function FinancesPage() {
 
         {/* Year Tabs */}
         <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex space-x-4">
-            {availableYears.map((year) => (
-              <button
-                key={year}
-                onClick={() => setSelectedYear(year)}
-                className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
-                  selectedYear === year
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
-                }`}
-              >
-                {year}
-              </button>
-            ))}
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-4">
+              {availableYears.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => setSelectedYear(year)}
+                  className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
+                    selectedYear === year
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  {year}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                if (showAddMonth) {
+                  // Reset to current month and year when canceling
+                  setNewMonth(new Date().toLocaleString('default', { month: 'long' }));
+                  setNewMonthYear(new Date().getFullYear());
+                }
+                setShowAddMonth(!showAddMonth);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+            >
+              {showAddMonth ? 'Cancel' : '+ Add New Statement'}
+            </button>
           </div>
         </div>
 

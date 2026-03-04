@@ -4,27 +4,30 @@ import { query } from '../../utils/db';
 // GET - List all income types
 export async function GET(_request: NextRequest) {
   try {
-    // Check if hexcolour and Is247wage columns exist (check both cases)
+    // Check if hexcolour, Is247wage, and isbusinessincome columns exist (check both cases)
     const columnCheck = await query(
       `SELECT column_name 
        FROM information_schema.columns 
        WHERE table_name = 'income_type' 
-       AND (LOWER(column_name) = 'hexcolour' OR LOWER(column_name) = 'is247wage')`,
+       AND (LOWER(column_name) = 'hexcolour' OR LOWER(column_name) = 'is247wage' OR LOWER(column_name) = 'isbusinessincome')`,
       []
     );
 
     const hasHexcolour = columnCheck.rows.some(row => row.column_name.toLowerCase() === 'hexcolour');
     const hasIs247wage = columnCheck.rows.some(row => row.column_name.toLowerCase() === 'is247wage');
+    const hasIsbusinessincome = columnCheck.rows.some(row => row.column_name.toLowerCase() === 'isbusinessincome');
     
     // Get the actual column names from the database (PostgreSQL may store them in different cases)
     const hexcolourColName = columnCheck.rows.find(row => row.column_name.toLowerCase() === 'hexcolour')?.column_name;
     const is247wageColName = columnCheck.rows.find(row => row.column_name.toLowerCase() === 'is247wage')?.column_name;
+    const isbusinessincomeColName = columnCheck.rows.find(row => row.column_name.toLowerCase() === 'isbusinessincome')?.column_name;
     
     const selectColumns = [
       'id',
       'name',
       ...(hasHexcolour && hexcolourColName ? [`"${hexcolourColName}"`] : []),
-      ...(hasIs247wage && is247wageColName ? [`"${is247wageColName}"`] : [])
+      ...(hasIs247wage && is247wageColName ? [`"${is247wageColName}"`] : []),
+      ...(hasIsbusinessincome && isbusinessincomeColName ? [`"${isbusinessincomeColName}"`] : [])
     ].join(', ');
 
     const result = await query(
@@ -52,6 +55,13 @@ export async function GET(_request: NextRequest) {
         normalizedRow.Is247wage = row[is247wageColName] !== undefined ? row[is247wageColName] : null;
       } else {
         normalizedRow.Is247wage = null;
+      }
+      
+      // Handle isbusinessincome - use the actual column name from database
+      if (hasIsbusinessincome && isbusinessincomeColName) {
+        normalizedRow.isbusinessincome = row[isbusinessincomeColName] !== undefined ? row[isbusinessincomeColName] : null;
+      } else {
+        normalizedRow.isbusinessincome = null;
       }
       
       return normalizedRow;
