@@ -109,14 +109,24 @@ export default function Navigation() {
                   💵 24/7 Wage
                 </Link>
                 <Link 
-                  href="/finances/living-income" 
+                  href="/finances/retirement-by-target-pot" 
                   className={`text-lg font-semibold transition-colors ${
-                    pathname === '/finances/living-income' 
+                    pathname === '/finances/retirement-by-target-pot' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  💼 Living Income
+                  🎯 Retirement Target
+                </Link>
+                <Link 
+                  href="/finances/cashflow" 
+                  className={`text-lg font-semibold transition-colors ${
+                    pathname === '/finances/cashflow' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  💼 Cashflow
                 </Link>
               </>
             )}

@@ -44,7 +44,7 @@ export default function Wage247Page() {
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEntry, setNewEntry] = useState({
-    year: selectedYear,
+    year: new Date().getFullYear(),
     month: ''
   });
   const [saving, setSaving] = useState(false);
@@ -295,17 +295,22 @@ export default function Wage247Page() {
     return total;
   };
 
-  // Handle add entries for all sources for a month
-  const handleAddEntries = async () => {
-    if (!newEntry.year || !newEntry.month) {
+  // Handle add entries for all sources for a month (with year and month parameters)
+  const handleAddEntries = async (year?: number, month?: string) => {
+    const entryYear = year || newEntry.year;
+    const entryMonth = month || newEntry.month;
+    
+    if (!entryYear || !entryMonth) {
       alert('Please select both year and month');
       return;
     }
 
     setSaving(true);
     try {
-      const monthNumber = monthNames.indexOf(newEntry.month) + 1;
-      const addDate = `${newEntry.year}-${String(monthNumber).padStart(2, '0')}-01`;
+      const monthNumber = typeof entryMonth === 'string' 
+        ? monthNames.indexOf(entryMonth) + 1 
+        : entryMonth;
+      const addDate = `${entryYear}-${String(monthNumber).padStart(2, '0')}-01`;
       
       // Create entries for ALL sources (API will handle duplicates)
       const promises = incomeSources.map(source => {
@@ -339,17 +344,17 @@ export default function Wage247Page() {
       }
 
       // Always refresh entries for the year that was added to
-      const entriesResponse = await fetch(`/api/income-entries?year=${newEntry.year}`);
+      const entriesResponse = await fetch(`/api/income-entries?year=${entryYear}`);
       if (entriesResponse.ok) {
         const data = await entriesResponse.json();
         setIncomeEntries(data.data || []);
         
         // If we added entries for a different year, switch to that year
-        if (newEntry.year !== selectedYear) {
-          setSelectedYear(newEntry.year);
+        if (entryYear !== selectedYear) {
+          setSelectedYear(entryYear);
           // Also update available years if needed
-          if (!availableYears.includes(newEntry.year)) {
-            setAvailableYears([...availableYears, newEntry.year].sort((a, b) => b - a));
+          if (!availableYears.includes(entryYear)) {
+            setAvailableYears([...availableYears, entryYear].sort((a, b) => b - a));
           }
         }
       } else {
@@ -365,6 +370,39 @@ export default function Wage247Page() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Handle quick create for current month
+  const handleCreateCurrentMonth = async () => {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = monthNames[currentDate.getMonth()];
+    await handleAddEntries(currentYear, currentMonth);
+  };
+
+  // Handle quick create for previous month
+  const handleCreateLastMonth = async () => {
+    const currentDate = new Date();
+    let prevMonthIndex = currentDate.getMonth() - 1;
+    let prevYear = currentDate.getFullYear();
+    
+    if (prevMonthIndex < 0) {
+      prevMonthIndex = 11;
+      prevYear = prevYear - 1;
+    }
+    
+    const prevMonth = monthNames[prevMonthIndex];
+    await handleAddEntries(prevYear, prevMonth);
+  };
+
+  // Generate last 10 years for dropdown
+  const getLast10Years = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = 0; i < 10; i++) {
+      years.push(currentYear - i);
+    }
+    return years;
   };
 
   // Handle double-click to edit
@@ -453,9 +491,24 @@ export default function Wage247Page() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Add Entries for Month</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                This will create entries for all income sources with a default value of £0.00
-              </p>
+              
+              {/* Quick Create Buttons */}
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={handleCreateCurrentMonth}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-xs whitespace-nowrap"
+                >
+                  {saving ? 'Creating...' : 'Create Current Month'}
+                </button>
+                <button
+                  onClick={handleCreateLastMonth}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-xs whitespace-nowrap"
+                >
+                  {saving ? 'Creating...' : 'Create Last Month'}
+                </button>
+              </div>
               
               <div className="space-y-4">
                 <div>
@@ -467,7 +520,7 @@ export default function Wage247Page() {
                     onChange={(e) => setNewEntry({ ...newEntry, year: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
-                    {availableYears.map(year => (
+                    {getLast10Years().map(year => (
                       <option key={year} value={year}>{year}</option>
                     ))}
                   </select>
@@ -490,20 +543,20 @@ export default function Wage247Page() {
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-3 mt-6">
+              <div className="flex justify-center space-x-3 mt-6">
                 <button
                   onClick={() => {
                     setShowAddModal(false);
                     setNewEntry({ year: selectedYear, month: '' });
                   }}
-                  className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors whitespace-nowrap"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleAddEntries}
+                  onClick={() => handleAddEntries(newEntry.year, newEntry.month)}
                   disabled={saving || !newEntry.month}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                 >
                   {saving ? 'Adding...' : 'Add Entries'}
                 </button>

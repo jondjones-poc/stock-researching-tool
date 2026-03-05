@@ -44,6 +44,12 @@ export default function SummaryPage() {
   const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
   const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>([]);
   const [monthlyRetirementValue, setMonthlyRetirementValue] = useState<number | null>(null);
+  const [retirementCountdown, setRetirementCountdown] = useState<{ years: number; months: number; days: number } | null>(null);
+  const [retirementTargetPot, setRetirementTargetPot] = useState<number | null>(null);
+  const [retirementReturnRate, setRetirementReturnRate] = useState<number | null>(null);
+  const [retirementAge, setRetirementAge] = useState<number | null>(null);
+  const [currentAge, setCurrentAge] = useState<number | null>(null);
+  const [businessIncomeTooltip, setBusinessIncomeTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,6 +146,124 @@ export default function SummaryPage() {
     fetchIncomeEntries();
   }, [currentYear]);
 
+  // Get previous month networth
+  const getPreviousMonthNetworth = () => {
+    if (!networthData) return null;
+    
+    const networthCategory = networthData.categories.find(cat => {
+      const catLower = cat.toLowerCase().trim();
+      return catLower.includes('networth') || catLower.includes('net worth');
+    });
+    
+    const monthTotals = networthData.monthData[previousMonth] || {};
+    
+    if (networthCategory) {
+      return monthTotals[networthCategory] || 0;
+    }
+    
+    // Fallback: sum all categories
+    return networthData.categories.reduce((sum, category) => {
+      return sum + (monthTotals[category] || 0);
+    }, 0);
+  };
+
+  // Calculate retirement countdown (same logic as Retirement by Target Pot page)
+  useEffect(() => {
+    const calculateRetirementCountdown = () => {
+      if (!networthData || !retirementTargetPot || !retirementReturnRate || !currentAge || !retirementAge) {
+        setRetirementCountdown(null);
+        return;
+      }
+
+      const networth = getPreviousMonthNetworth();
+      if (networth === null || networth <= 0) {
+        setRetirementCountdown(null);
+        return;
+      }
+
+      const currentNetworth = Math.abs(networth);
+      const targetPot = retirementTargetPot;
+      const returnRate = retirementReturnRate;
+      const annualGrowthRate = returnRate / 100;
+
+      if (currentNetworth >= targetPot) {
+        setRetirementCountdown({ years: 0, months: 0, days: 0 });
+        return;
+      }
+
+      // Calculate exact time to reach target pot using compound interest formula
+      const exactYears = Math.log(targetPot / currentNetworth) / Math.log(1 + annualGrowthRate);
+      
+      // Calculate when retirement age will be reached (when pension income starts)
+      const yearsToRetirementAge = retirementAge - currentAge;
+      
+      // Use the target pot calculation (primary goal)
+      // Note: Pension income starts at retirement age (in ${yearsToRetirementAge} years)
+      const targetYears = exactYears;
+      
+      const today = new Date();
+      const targetDate = new Date(today);
+      targetDate.setFullYear(today.getFullYear() + targetYears);
+      
+      // Calculate difference in days
+      const diffTime = targetDate.getTime() - today.getTime();
+      const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Convert to years, months, days
+      let years = Math.floor(totalDays / 365.25);
+      let remainingDays = totalDays - (years * 365.25);
+      let months = Math.floor(remainingDays / 30.44);
+      let days = Math.ceil(remainingDays - (months * 30.44));
+      
+      // Adjust if days >= 30
+      if (days >= 30) {
+        months += Math.floor(days / 30);
+        days = days % 30;
+      }
+      
+      // Adjust if months >= 12
+      if (months >= 12) {
+        years += Math.floor(months / 12);
+        months = months % 12;
+      }
+      
+      setRetirementCountdown({ years: Math.max(0, years), months: Math.max(0, months), days: Math.max(0, days) });
+    };
+
+    calculateRetirementCountdown();
+  }, [networthData, retirementTargetPot, retirementReturnRate, currentAge, retirementAge, previousMonth, previousYear]);
+
+  // Fetch retirement settings from database
+  useEffect(() => {
+    const fetchRetirementSettings = async () => {
+      try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) throw new Error('Failed to fetch settings');
+        const data = await response.json();
+        const settings = data.data || [];
+        
+        // Map settings to state values
+        const getSetting = (key: string, defaultValue: number) => {
+          const setting = settings.find((s: any) => s.key === key);
+          return setting && setting.value ? parseFloat(setting.value) : defaultValue;
+        };
+        
+        setRetirementTargetPot(getSetting('retirement_target_pot', 2000000));
+        setRetirementReturnRate(getSetting('retirement_return_rate', 7));
+        setRetirementAge(getSetting('retirement_age', 68));
+        setCurrentAge(getSetting('retirement_current_age', 44));
+      } catch (err: any) {
+        console.error('Error fetching retirement settings:', err);
+        // Use defaults if settings fetch fails
+        setRetirementTargetPot(2000000);
+        setRetirementReturnRate(7);
+        setRetirementAge(68);
+        setCurrentAge(44);
+      }
+    };
+    fetchRetirementSettings();
+  }, []);
+
   // Get entry for a specific income source and month
   const getEntry = (sourceId: number, month: number) => {
     return incomeEntries.find(
@@ -185,26 +309,6 @@ export default function SummaryPage() {
     return total;
   };
 
-  // Get previous month networth
-  const getPreviousMonthNetworth = () => {
-    if (!networthData) return null;
-    
-    const networthCategory = networthData.categories.find(cat => {
-      const catLower = cat.toLowerCase().trim();
-      return catLower.includes('networth') || catLower.includes('net worth');
-    });
-    
-    const monthTotals = networthData.monthData[previousMonth] || {};
-    
-    if (networthCategory) {
-      return monthTotals[networthCategory] || 0;
-    }
-    
-    // Fallback: sum all categories
-    return networthData.categories.reduce((sum, category) => {
-      return sum + (monthTotals[category] || 0);
-    }, 0);
-  };
 
   // Get business income total for previous month
   const businessIncomeTotal = getMonthlyTotal(previousMonth);
@@ -227,9 +331,9 @@ export default function SummaryPage() {
             <div className="text-red-600 dark:text-red-400">Error: {error}</div>
           </div>
         ) : (
-          <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Networth Section */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                 Current Networth
               </h2>
@@ -247,16 +351,57 @@ export default function SummaryPage() {
               </div>
             </div>
 
-            {/* Living Income Section */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            {/* Retirement Countdown Section */}
+            {retirementCountdown !== null && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                  Time to Retire
+                </h2>
+                <div className="space-y-4">
+                  <div className="text-3xl font-bold text-gray-900 dark:text-white">
+                    {retirementCountdown.years > 0 && `${retirementCountdown.years} ${retirementCountdown.years === 1 ? 'year' : 'years'}`}
+                    {retirementCountdown.years > 0 && (retirementCountdown.months > 0 || retirementCountdown.days > 0) && ', '}
+                    {retirementCountdown.months > 0 && `${retirementCountdown.months} ${retirementCountdown.months === 1 ? 'month' : 'months'}`}
+                    {retirementCountdown.months > 0 && retirementCountdown.days > 0 && ', '}
+                    {retirementCountdown.days > 0 && `${retirementCountdown.days} ${retirementCountdown.days === 1 ? 'day' : 'days'}`}
+                    {retirementCountdown.years === 0 && retirementCountdown.months === 0 && retirementCountdown.days === 0 && 'Target Reached!'}
+                  </div>
+                  {retirementTargetPot !== null && (
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      Target: £{retirementTargetPot.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {retirementReturnRate !== null && ` at ${retirementReturnRate}% return rate`}
+                      {currentAge !== null && retirementAge !== null && (
+                        <div className="mt-1">
+                          Current Age: {currentAge} | Retirement Age: {retirementAge} | Pension starts at age {retirementAge}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Cashflow Section */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                Living Income
+                Cashflow
               </h2>
               <div className="space-y-4">
                 {/* Business Income Total */}
                 <div className="flex justify-between items-center py-3 border-b border-gray-200 dark:border-gray-700">
                   <span className="text-gray-700 dark:text-gray-300 font-medium">Business Income Total</span>
-                  <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                  <span 
+                    className="text-lg font-semibold text-gray-900 dark:text-white cursor-help"
+                    onMouseEnter={(e) => {
+                      const tooltipText = `Business Income Total Calculation:\n\nMonth: ${monthNames[previousMonth - 1]} ${previousYear}\n\nThis figure is the sum of all business income types for ${monthNames[previousMonth - 1]} ${previousYear}.\n\nBusiness income types are income sources marked as "isbusinessincome" in the system.`;
+                      setBusinessIncomeTooltip({
+                        x: e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
+                        y: e.currentTarget.getBoundingClientRect().top - 10,
+                        text: tooltipText
+                      });
+                    }}
+                    onMouseLeave={() => setBusinessIncomeTooltip(null)}
+                  >
                     £{businessIncomeTotal.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
@@ -283,21 +428,34 @@ export default function SummaryPage() {
                   }`}>
                     {monthlyRetirementValue === null
                       ? 'N/A'
-                      : hitTarget
-                      ? '✓ Hit'
-                      : '✗ Miss'}
+                      : (() => {
+                          const difference = businessIncomeTotal - (monthlyRetirementValue || 0);
+                          const sign = difference >= 0 ? '+' : '';
+                          return `${sign}£${Math.abs(difference).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        })()}
                   </span>
                 </div>
 
-                {/* Month/Year */}
-                <div className="text-sm text-gray-500 dark:text-gray-400 pt-2">
-                  {monthNames[previousMonth - 1]} {previousYear}
-                </div>
               </div>
             </div>
-          </>
+          </div>
         )}
       </div>
+
+      {/* Business Income Tooltip */}
+      {businessIncomeTooltip && (
+        <div
+          className="fixed z-50 px-3 py-2 text-sm text-white bg-gray-900 dark:bg-gray-700 rounded-lg shadow-lg pointer-events-none whitespace-pre-line"
+          style={{
+            left: `${businessIncomeTooltip.x}px`,
+            top: `${businessIncomeTooltip.y}px`,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          {businessIncomeTooltip.text}
+          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"></div>
+        </div>
+      )}
     </div>
   );
 }
