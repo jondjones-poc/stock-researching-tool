@@ -599,7 +599,7 @@ export default function SummaryPage() {
   // Check hit target
   const hitTarget = monthlyRetirementValue !== null && businessIncomeTotal >= monthlyRetirementValue;
 
-  // Calculate retirement projection (similar to retirement-by-target-pot summary)
+  // Calculate retirement projection (same logic as retirement-by-target-pot summary tab)
   useEffect(() => {
     const calculateRetirementProjection = () => {
       if (!networthData || !retirementTargetPot || !retirementReturnRate || !currentAge || !retirementAge || !averageMonthlyCashflow) {
@@ -609,7 +609,8 @@ export default function SummaryPage() {
         return;
       }
 
-      const currentNetworth = getPreviousMonthNetworth();
+      // Use HNWI value (same as retirement-by-target-pot summary tab)
+      const currentNetworth = currentHNWI;
       if (currentNetworth === null || currentNetworth <= 0) {
         setRetirementYear(null);
         setRetirementAgeAtTarget(null);
@@ -618,14 +619,24 @@ export default function SummaryPage() {
       }
 
       const targetPot = retirementTargetPot;
-      const returnRate = retirementReturnRate / 100;
+      const annualGrowthRate = retirementReturnRate / 100;
       const cashflowIncreaseRate = cashflowIncrease / 100;
       const currentYear = new Date().getFullYear();
       
-      let portfolioValueWithoutCashflow = Math.abs(currentNetworth);
-      let totalPortfolioValue = Math.abs(currentNetworth);
+      let portfolioValueWithoutCashflow = currentNetworth;
+      let totalPortfolioValue = currentNetworth;
+      let previousTotalPortfolioValue = currentNetworth;
       let currentMonthlyCashflow = averageMonthlyCashflow;
-      const retirementAgeYear = currentYear + (retirementAge - currentAge);
+      
+      // Build preRetirementData array (same as retirement-by-target-pot summary tab)
+      const preRetirement: Array<{
+        year: number;
+        yearlyCashflow: number;
+        portfolioValueWithoutCashflow: number;
+        totalPortfolioValue: number;
+        previousTotalPortfolioValue: number;
+        growthAmount: number;
+      }> = [];
       
       // Calculate years from current to retirement age
       const yearsToRetirement = retirementAge - currentAge;
@@ -636,43 +647,72 @@ export default function SummaryPage() {
         if (i === 0) {
           // Current year - use average monthly cashflow
           const yearlyCashflow = currentMonthlyCashflow * 12;
+          preRetirement.push({
+            year,
+            yearlyCashflow,
+            portfolioValueWithoutCashflow: portfolioValueWithoutCashflow,
+            totalPortfolioValue: totalPortfolioValue,
+            previousTotalPortfolioValue: previousTotalPortfolioValue,
+            growthAmount: 0, // No growth in current year
+          });
+          
           // Check if target is already reached in current year
           if (totalPortfolioValue >= targetPot) {
-            setRetirementYear(year);
-            setRetirementAgeAtTarget(currentAge);
-            setTotalPortfolioValueAtRetirement(totalPortfolioValue);
-            return;
+            break;
           }
         } else {
           // Future years - cashflow increases
           currentMonthlyCashflow = currentMonthlyCashflow * (1 + cashflowIncreaseRate);
           const yearlyCashflow = currentMonthlyCashflow * 12;
           
+          // Store previous value before calculations
+          previousTotalPortfolioValue = totalPortfolioValue;
+          
           // Portfolio value without cashflow (just growth)
-          portfolioValueWithoutCashflow = portfolioValueWithoutCashflow * (1 + returnRate);
+          portfolioValueWithoutCashflow = portfolioValueWithoutCashflow * (1 + annualGrowthRate);
+          
+          // Calculate growth amount
+          const growthAmount = totalPortfolioValue * annualGrowthRate;
           
           // Total portfolio value (cumulative: previous total + growth + new cashflow)
-          totalPortfolioValue = totalPortfolioValue * (1 + returnRate) + yearlyCashflow;
+          totalPortfolioValue = totalPortfolioValue * (1 + annualGrowthRate) + yearlyCashflow;
+          
+          preRetirement.push({
+            year,
+            yearlyCashflow,
+            portfolioValueWithoutCashflow,
+            totalPortfolioValue,
+            previousTotalPortfolioValue,
+            growthAmount,
+          });
           
           // Stop calculating once target is reached
           if (totalPortfolioValue >= targetPot) {
-            const ageAtYear = currentAge + i;
-            setRetirementYear(year);
-            setRetirementAgeAtTarget(ageAtYear);
-            setTotalPortfolioValueAtRetirement(totalPortfolioValue);
-            return;
+            break;
           }
         }
       }
       
-      // If we didn't reach the target by retirement age, set to null
-      setRetirementYear(null);
-      setRetirementAgeAtTarget(null);
-      setTotalPortfolioValueAtRetirement(null);
+      // Find target reached data (same as retirement-by-target-pot summary tab)
+      const targetReachedData = preRetirement.find(p => p.totalPortfolioValue >= targetPot);
+      const retirementYear = targetReachedData ? targetReachedData.year : (preRetirement.length > 0 ? preRetirement[preRetirement.length - 1].year : null);
+      
+      if (retirementYear) {
+        const actualRetirementAge = currentAge + (retirementYear - currentYear);
+        const startingPortfolioValue = targetReachedData ? targetReachedData.totalPortfolioValue : (preRetirement.length > 0 ? preRetirement[preRetirement.length - 1].totalPortfolioValue : 0);
+        
+        setRetirementYear(retirementYear);
+        setRetirementAgeAtTarget(actualRetirementAge);
+        setTotalPortfolioValueAtRetirement(startingPortfolioValue);
+      } else {
+        setRetirementYear(null);
+        setRetirementAgeAtTarget(null);
+        setTotalPortfolioValueAtRetirement(null);
+      }
     };
 
     calculateRetirementProjection();
-  }, [networthData, retirementTargetPot, retirementReturnRate, currentAge, retirementAge, averageMonthlyCashflow, cashflowIncrease, previousMonth, previousYear]);
+  }, [networthData, retirementTargetPot, retirementReturnRate, currentAge, retirementAge, averageMonthlyCashflow, cashflowIncrease, currentHNWI]);
 
   // Fetch investment tracker data for current year
   useEffect(() => {
@@ -756,10 +796,9 @@ export default function SummaryPage() {
               </div>
             </div>
 
-            {/* Retirement Plan Section */}
+            {/* Time Until Retirement Section */}
             {(() => {
               const currentNetworth = getPreviousMonthNetworth();
-              const yearlyCashflow = averageMonthlyCashflow ? averageMonthlyCashflow * 12 : 0;
               
               if (currentNetworth === null || retirementReturnRate === null) {
                 return null;
@@ -767,11 +806,11 @@ export default function SummaryPage() {
               
               return (
                 <>
-                  {/* Retirement Plan */}
+                  {/* Time Until Retirement */}
                   {retirementYear !== null && retirementAgeAtTarget !== null && totalPortfolioValueAtRetirement !== null && (
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex flex-col">
                       <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
-                        Retirement Plan
+                        Time Until Retirement
                       </h2>
                       <div className="space-y-6 flex-grow flex flex-col justify-center">
                         <div>
@@ -802,9 +841,6 @@ export default function SummaryPage() {
             {/* Current Business Cashflow Section */}
             {currentHNWI !== null && (
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                  Current Business Cashflow
-                </h2>
                 <div className="space-y-4">
                   {/* First row: Current HNWI Number and Expected Return */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -838,6 +874,16 @@ export default function SummaryPage() {
                           £{(averageMonthlyCashflow * 12).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Annual Total</div>
+                        {/* Total row: Expected Return + Yearly Business Cashflow */}
+                        {retirementReturnRate !== null && (
+                          <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+                            <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Total</div>
+                            <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                              £{(((currentHNWI * retirementReturnRate) / 100) + (averageMonthlyCashflow * 12)).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Expected Return + Yearly Business Cashflow</div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
