@@ -46,6 +46,7 @@ export default function DCFCalculator() {
   const [bearCopyCopied, setBearCopyCopied] = useState(false);
   const [baseCopyCopied, setBaseCopyCopied] = useState(false);
   const [bullCopyCopied, setBullCopyCopied] = useState(false);
+  const [symbolCopyCopied, setSymbolCopyCopied] = useState(false);
 
   const searchParams = useSearchParams();
 
@@ -1362,14 +1363,14 @@ export default function DCFCalculator() {
                 <label className="w-12 text-sm font-semibold text-gray-600 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">SYM:</label>
                 <input
                   type="text"
-                  value={dcfData?.symbol || ''}
+                  value={dcfData?.symbol || dbSymbol || ''}
                   placeholder="Symbol"
                   readOnly
                   className="flex-1 px-3 py-2 border border-indigo-200 dark:border-indigo-800 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-semibold text-center"
                 />
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {dcfData?.symbol ? `✓ Loaded from database` : 'No symbol loaded'}
+                {dcfData?.symbol ? `✓ Loaded from database` : dbSymbol ? `Symbol: ${dbSymbol} (no entry found)` : 'No symbol loaded'}
               </div>
             </div>
 
@@ -1619,8 +1620,43 @@ export default function DCFCalculator() {
           </div>
         </div>
 
-        {/* Reset Button - Outside and under 2nd section */}
-        <div className="flex justify-center mb-8">
+        {/* Reset and Copy Buttons - Outside and under 2nd section */}
+        <div className="flex justify-center gap-3 mb-8">
+          <button
+            onClick={async () => {
+              const symbolToCopy = dcfData?.symbol || dbSymbol || '';
+              if (symbolToCopy) {
+                try {
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(symbolToCopy);
+                    setSymbolCopyCopied(true);
+                    setTimeout(() => setSymbolCopyCopied(false), 2000);
+                  } else {
+                    setDbMessage({
+                      type: 'error',
+                      text: 'Could not access clipboard. Please copy the symbol manually.'
+                    });
+                  }
+                } catch (error: any) {
+                  console.error('Error copying symbol:', error);
+                  setDbMessage({
+                    type: 'error',
+                    text: error?.message || 'Failed to copy symbol.'
+                  });
+                }
+              } else {
+                setDbMessage({
+                  type: 'error',
+                  text: 'No symbol to copy.'
+                });
+              }
+            }}
+            disabled={!dcfData?.symbol && !dbSymbol}
+            className="px-6 py-2 bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm flex items-center justify-center"
+          >
+            <span className="mr-1">{symbolCopyCopied ? '✓' : '📋'}</span>
+            {symbolCopyCopied ? 'Copied!' : 'Copy Symbol'}
+          </button>
           <button
             onClick={() => {
               localStorage.removeItem('dcfData');

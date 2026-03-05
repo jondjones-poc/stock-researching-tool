@@ -45,6 +45,9 @@ export default function FinancesPage() {
   const [newMonth, setNewMonth] = useState<string>(new Date().toLocaleString('default', { month: 'long' }));
   const [newMonthYear, setNewMonthYear] = useState<number>(new Date().getFullYear());
   const [selectedInvestmentTypes, setSelectedInvestmentTypes] = useState<Set<string>>(new Set()); // Track selected investment types
+  const [moveMonth, setMoveMonth] = useState<string | null>(null); // Track which month is being moved
+  const [moveTargetMonth, setMoveTargetMonth] = useState<string>('');
+  const [moveTargetYear, setMoveTargetYear] = useState<number>(new Date().getFullYear());
 
   // Handle query parameters for navigation from networth report
   useEffect(() => {
@@ -158,7 +161,10 @@ export default function FinancesPage() {
               balance: 0,
               id: 0, // No database entry yet
               account_id: account.id,
-              balance_date: new Date(selectedYear, monthOrder.indexOf(monthName), 1).toISOString().split('T')[0],
+              balance_date: (() => {
+                const monthNum = monthOrder.indexOf(monthName) + 1;
+                return `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
+              })(),
             });
           }
         });
@@ -312,7 +318,9 @@ export default function FinancesPage() {
         throw new Error('Invalid month');
       }
 
-      const balanceDate = new Date(selectedYear, monthIndex, 1).toISOString().split('T')[0];
+      // Format date as YYYY-MM-DD without timezone conversion issues
+      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
+      const balanceDate = `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
 
       // Prepare all balances for this row
       const balances: Array<{ account_id: number; balance_date: string; balance: number }> = [];
@@ -435,7 +443,9 @@ export default function FinancesPage() {
         throw new Error('Invalid month');
       }
 
-      const balanceDate = new Date(selectedYear, monthIndex, 1).toISOString().split('T')[0];
+      // Format date as YYYY-MM-DD without timezone conversion issues
+      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
+      const balanceDate = `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
       const accountMap = monthMap.get(month);
 
       const balances: Array<{ account_id: number; balance_date: string; balance: number }> = [];
@@ -537,7 +547,9 @@ export default function FinancesPage() {
         throw new Error('Invalid month');
       }
 
-      const balanceDate = new Date(selectedYear, monthIndex, 1).toISOString().split('T')[0];
+      // Format date as YYYY-MM-DD without timezone conversion issues
+      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
+      const balanceDate = `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
 
       // Check if entry exists using the monthMap
       const accountMap = monthMap.get(month);
@@ -590,6 +602,16 @@ export default function FinancesPage() {
   };
 
   // Handle add new month
+  // Generate last 10 years for dropdown
+  const getLast10Years = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = 0; i < 10; i++) {
+      years.push(currentYear - i);
+    }
+    return years;
+  };
+
   const handleAddMonth = async () => {
     if (!newMonth || !newMonthYear) {
       setMessage({ type: 'error', text: 'Please select a month and year' });
@@ -607,7 +629,9 @@ export default function FinancesPage() {
         throw new Error('Invalid month');
       }
 
-      const balanceDate = new Date(newMonthYear, monthIndex, 1).toISOString().split('T')[0];
+      // Format date as YYYY-MM-DD without timezone conversion issues
+      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
+      const balanceDate = `${newMonthYear}-${String(monthNum).padStart(2, '0')}-01`;
 
       // Create empty balances for all filtered accounts (default to 0)
       const balances = filteredAccounts.map(account => ({
@@ -655,6 +679,111 @@ export default function FinancesPage() {
     }
   };
 
+  // Handle delete month
+  const handleDeleteMonth = async (month: string) => {
+    if (!confirm(`Are you sure you want to delete all entries for ${month} ${selectedYear}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/monthly-account-balances?month=${encodeURIComponent(month)}&year=${selectedYear}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete entries');
+      }
+
+      setMessage({ type: 'success', text: data.message || 'Entries deleted successfully' });
+      setExpandedEditRow(null);
+      setExpandedEditValues(new Map());
+
+      // Refresh data
+      const dataResponse = await fetch(`/api/monthly-account-balances?year=${selectedYear}`);
+      if (dataResponse.ok) {
+        const responseData = await dataResponse.json();
+        setMonthlyData(responseData.data || []);
+      }
+
+      // Refresh years
+      const yearsResponse = await fetch('/api/monthly-account-balances/years');
+      if (yearsResponse.ok) {
+        const yearsData = await yearsResponse.json();
+        if (yearsData.years && yearsData.years.length > 0) {
+          setAvailableYears(yearsData.years);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error deleting entries:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to delete entries' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle move date
+  const handleMoveDate = async (sourceMonth: string) => {
+    if (!moveTargetMonth || !moveTargetYear) {
+      setMessage({ type: 'error', text: 'Please select a target month and year' });
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/monthly-account-balances/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceMonth: sourceMonth,
+          sourceYear: selectedYear,
+          targetMonth: moveTargetMonth,
+          targetYear: moveTargetYear,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to move entries');
+      }
+
+      setMessage({ type: 'success', text: data.message || 'Entries moved successfully' });
+      setMoveMonth(null);
+      setMoveTargetMonth('');
+      setMoveTargetYear(new Date().getFullYear());
+
+      // Refresh data
+      const dataResponse = await fetch(`/api/monthly-account-balances?year=${selectedYear}`);
+      if (dataResponse.ok) {
+        const responseData = await dataResponse.json();
+        setMonthlyData(responseData.data || []);
+      }
+
+      // Also refresh if we moved to a different year
+      if (moveTargetYear !== selectedYear) {
+        const yearsResponse = await fetch('/api/monthly-account-balances/years');
+        if (yearsResponse.ok) {
+          const yearsData = await yearsResponse.json();
+          if (yearsData.years && yearsData.years.length > 0) {
+            setAvailableYears(yearsData.years);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Error moving entries:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to move entries' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="w-full px-2 sm:px-4 lg:px-6">
@@ -697,14 +826,15 @@ export default function FinancesPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Year
                 </label>
-                <input
-                  type="number"
+                <select
                   value={newMonthYear}
-                  onChange={(e) => setNewMonthYear(parseInt(e.target.value) || new Date().getFullYear())}
+                  onChange={(e) => setNewMonthYear(parseInt(e.target.value))}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  min="2020"
-                  max="2100"
-                />
+                >
+                  {getLast10Years().map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
               </div>
               <button
                 onClick={handleAddMonth}
@@ -892,6 +1022,26 @@ export default function FinancesPage() {
                       {saving ? 'Saving...' : 'Save'}
                     </button>
                     <button
+                      onClick={() => {
+                        if (expandedEditRow) {
+                          setMoveMonth(expandedEditRow);
+                          setMoveTargetMonth('');
+                          setMoveTargetYear(new Date().getFullYear());
+                        }
+                      }}
+                      disabled={saving || !expandedEditRow}
+                      className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                    >
+                      Move
+                    </button>
+                    <button
+                      onClick={() => expandedEditRow && handleDeleteMonth(expandedEditRow)}
+                      disabled={saving || !expandedEditRow}
+                      className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                    >
+                      Delete
+                    </button>
+                    <button
                       onClick={handleExpandedEditCancel}
                       disabled={saving}
                       className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
@@ -899,6 +1049,64 @@ export default function FinancesPage() {
                       Cancel
                     </button>
                   </div>
+                  {moveMonth === expandedEditRow && (
+                    <div className="mt-4 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                        Move {expandedEditRow} to:
+                      </div>
+                      <div className="flex gap-3 items-end">
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Month
+                          </label>
+                          <select
+                            value={moveTargetMonth}
+                            onChange={(e) => setMoveTargetMonth(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                          >
+                            <option value="">Select Month</option>
+                            {['January', 'February', 'March', 'April', 'May', 'June', 
+                              'July', 'August', 'September', 'October', 'November', 'December'].map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Year
+                          </label>
+                          <input
+                            type="number"
+                            value={moveTargetYear}
+                            onChange={(e) => setMoveTargetYear(parseInt(e.target.value) || new Date().getFullYear())}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                            min="2020"
+                            max="2100"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => expandedEditRow && handleMoveDate(expandedEditRow)}
+                            disabled={saving || !moveTargetMonth || !moveTargetYear}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+                          >
+                            Update
+                          </button>
+                          <button
+                            onClick={() => {
+                              setMoveMonth(null);
+                              setMoveTargetMonth('');
+                              setMoveTargetYear(new Date().getFullYear());
+                            }}
+                            disabled={saving}
+                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

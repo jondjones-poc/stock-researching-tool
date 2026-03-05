@@ -150,6 +150,7 @@ export default function CompanyWatchlistPage() {
   const [askAiClicked, setAskAiClicked] = useState<boolean>(false);
   const [askDcfAiClicked, setAskDcfAiClicked] = useState<boolean>(false);
   const [clearingDcfProjections, setClearingDcfProjections] = useState<boolean>(false);
+  const [symbolCopyCopied, setSymbolCopyCopied] = useState<boolean>(false);
   const [savingStockDetails, setSavingStockDetails] = useState<boolean>(false);
   
   const [formData, setFormData] = useState<StockValuation>({
@@ -1774,6 +1775,39 @@ export default function CompanyWatchlistPage() {
               ))}
             </select>
             <button
+              onClick={async () => {
+                if (formData.stock) {
+                  try {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(formData.stock.toUpperCase());
+                      setSymbolCopyCopied(true);
+                      setTimeout(() => setSymbolCopyCopied(false), 2000);
+                    } else {
+                      setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the symbol manually.' });
+                    }
+                  } catch (error: any) {
+                    console.error('Error copying symbol:', error);
+                    setMessage({ type: 'error', text: error?.message || 'Failed to copy symbol.' });
+                  }
+                } else {
+                  setMessage({ type: 'error', text: 'No symbol to copy.' });
+                }
+              }}
+              disabled={!formData.stock}
+              className="w-8 h-8 rounded-full bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+              title="Copy symbol to clipboard"
+            >
+              {symbolCopyCopied ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+            </button>
+            <button
               onClick={() => {
                 setShowSections(true);
                 setSelectedStockId('');
@@ -2386,17 +2420,30 @@ export default function CompanyWatchlistPage() {
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
                 Valuation Model Price Predictions
               </h2>
-              <button
-                onClick={handleAskAI}
-                disabled={!formData.stock || askAiClicked}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                  askAiClicked
-                    ? 'bg-green-600 text-white cursor-not-allowed'
-                    : 'bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
-                }`}
-              >
-                {askAiClicked ? '✓ Copied!' : '🤖 Ask AI'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (formData.stock) {
+                      window.location.href = `/dcf?symbol=${encodeURIComponent(formData.stock.toUpperCase())}`;
+                    }
+                  }}
+                  disabled={!formData.stock}
+                  className="px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  Open DCF Projection
+                </button>
+                <button
+                  onClick={handleAskAI}
+                  disabled={!formData.stock || askAiClicked}
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                    askAiClicked
+                      ? 'bg-green-600 text-white cursor-not-allowed'
+                      : 'bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {askAiClicked ? '✓ Copied!' : '🤖 Ask AI'}
+                </button>
+              </div>
             </div>
             <div className={`grid grid-cols-1 gap-6 ${
               (formData.ddm_price && formData.ddm_price !== 0) && (formData.reit_valuation && formData.reit_valuation !== 0) 

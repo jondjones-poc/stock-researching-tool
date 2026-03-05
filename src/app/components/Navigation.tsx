@@ -128,6 +128,16 @@ export default function Navigation() {
                 >
                   💼 Cashflow
                 </Link>
+                <Link 
+                  href="/finances/investment-tracker" 
+                  className={`text-lg font-semibold transition-colors ${
+                    pathname === '/finances/investment-tracker' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  📈 Investment Tracker
+                </Link>
               </>
             )}
             {isStocksTab && (

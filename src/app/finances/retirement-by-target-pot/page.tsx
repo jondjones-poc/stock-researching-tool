@@ -415,62 +415,6 @@ Thank you!`;
             </button>
           </div>
 
-          {/* Save Settings Button */}
-          <div className="pt-4 border-t border-gray-300 dark:border-gray-600">
-            <button
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  // Save all settings
-                  const settingsToSave = [
-                    { key: 'retirement_required_cashflow', value: requiredCashflow.toString() },
-                    { key: 'retirement_cashflow_increase', value: cashflowIncrease.toString() },
-                  ];
-
-                  // Update each setting
-                  for (const setting of settingsToSave) {
-                    const response = await fetch('/api/settings/update-by-key', {
-                      method: 'PUT',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify(setting),
-                    });
-
-                    if (!response.ok) {
-                      throw new Error(`Failed to save ${setting.key}`);
-                    }
-                  }
-
-                  alert('Settings saved successfully!');
-                } catch (err: any) {
-                  console.error('Error saving settings:', err);
-                  alert('Failed to save settings. Please try again.');
-                } finally {
-                  setSaving(false);
-                }
-              }}
-              disabled={saving}
-              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving ? (
-                <>
-                  <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Save Settings
-                </>
-              )}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -1227,69 +1171,6 @@ Thank you for your comprehensive analysis!`;
                 </button>
               </div>
 
-              {/* Save Settings Button */}
-              <div className="pt-4 border-t border-gray-300 dark:border-gray-600">
-                <button
-                  onClick={async () => {
-                    setSaving(true);
-                    try {
-                      // Save all settings
-                      const settingsToSave = [
-                        { key: 'retirement_target_pot', value: targetPot.toString() },
-                        { key: 'retirement_return_rate', value: returnRate.toString() },
-                        { key: 'retirement_withdrawal_rate', value: safeWithdrawalRate.toString() },
-                        { key: 'retirement_inflation', value: inflation.toString() },
-                        { key: 'retirement_tax', value: tax.toString() },
-                        { key: 'retirement_current_age', value: currentAge.toString() },
-                        { key: 'retirement_age', value: retirementAge.toString() },
-                        { key: 'retirement_state_pension_weekly', value: statePensionWeekly.toString() },
-                        { key: 'retirement_death_age', value: deathAge.toString() },
-                      ];
-
-                      // Update each setting
-                      for (const setting of settingsToSave) {
-                        const response = await fetch('/api/settings/update-by-key', {
-                          method: 'PUT',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify(setting),
-                        });
-
-                        if (!response.ok) {
-                          throw new Error(`Failed to save ${setting.key}`);
-                        }
-                      }
-
-                      alert('Settings saved successfully!');
-                    } catch (err: any) {
-                      console.error('Error saving settings:', err);
-                      alert('Failed to save settings. Please try again.');
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
-                  disabled={saving}
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? (
-                    <>
-                      <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Save Settings
-                    </>
-                  )}
-                </button>
-              </div>
             </div>
           </div>
 
@@ -1651,6 +1532,13 @@ function RetirementSummary() {
   const [portfolioValueTooltip, setPortfolioValueTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  
+  // Editable values for Summary tab
+  const [currentHNWIInput, setCurrentHNWIInput] = useState<string>('');
+  const [targetPotInput, setTargetPotInput] = useState<string>('');
+  const [monthlyCashflowInput, setMonthlyCashflowInput] = useState<string>('');
+  const [yearlyCashflowCalculated, setYearlyCashflowCalculated] = useState<number>(0);
 
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
@@ -1688,6 +1576,9 @@ function RetirementSummary() {
         setStatePensionWeekly(getSetting('retirement_state_pension_weekly', 221.20));
         setDeathAge(getSetting('retirement_death_age', 85));
         setCashflowIncrease(getSetting('retirement_cashflow_increase', 5));
+        
+        // Initialize target pot input
+        setTargetPotInput(getSetting('retirement_target_pot', 2000000).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         
         setSettingsLoaded(true);
       } catch (err: any) {
@@ -1744,6 +1635,10 @@ function RetirementSummary() {
         }
         
         setCurrentNetworth(hnwiValue);
+        // Initialize HNWI input
+        if (hnwiValue > 0) {
+          setCurrentHNWIInput(hnwiValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        }
       } catch (err: any) {
         console.error('Error fetching networth:', err);
         setError('Failed to load networth data');
@@ -1836,6 +1731,8 @@ function RetirementSummary() {
         if (validTotals.length > 0) {
           const average = validTotals.reduce((sum, val) => sum + val, 0) / validTotals.length;
           setAverageMonthlyCashflow(average);
+          setMonthlyCashflowInput(average.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+          setYearlyCashflowCalculated(average * 12);
         } else {
           setAverageMonthlyCashflow(null);
         }
@@ -1858,7 +1755,7 @@ function RetirementSummary() {
     }
 
     const annualGrowthRate = returnRate / 100;
-    const yearlyCashflow = averageMonthlyCashflow ? averageMonthlyCashflow * 12 : 0;
+    const yearlyCashflow = yearlyCashflowCalculated > 0 ? yearlyCashflowCalculated : (averageMonthlyCashflow ? averageMonthlyCashflow * 12 : 0);
     
     let yearsToTarget = 0;
     let projectedValue = currentNetworth;
@@ -1954,7 +1851,7 @@ function RetirementSummary() {
     const taxRate = tax / 100;
     
     const statePensionYearly = statePensionWeekly * 52;
-    const yearlyCashflow = averageMonthlyCashflow ? averageMonthlyCashflow * 12 : 0;
+    const yearlyCashflow = yearlyCashflowCalculated > 0 ? yearlyCashflowCalculated : (averageMonthlyCashflow ? averageMonthlyCashflow * 12 : 0);
     
     // Get the Total Portfolio Value at retirement year from pre-retirement data
     const retirementData = preRetirementData.find(p => p.year === retirementYear);
@@ -1975,9 +1872,9 @@ function RetirementSummary() {
     for (let i = 0; i <= yearsInRetirement; i++) {
       const year = retirementYear + i;
       
-      // Portfolio Value starts from previous year's Portfolio with Business (more realistic)
-      // For first year, use the starting portfolio value
-      const startingValue = i === 0 ? portfolioValue : portfolioWithBusiness;
+      // Portfolio Value starts from the calculated portfolioValue (without business cashflow)
+      // This ensures the base portfolio calculation is correct
+      const startingValue = portfolioValue; // Always use the calculated portfolioValue
       const startingValueWithBusiness = portfolioWithBusiness; // Portfolio with business at the start of the year
       
       const withdrawalAmount = baseWithdrawal * Math.pow(1 + inflationRate, i);
@@ -2013,6 +1910,7 @@ function RetirementSummary() {
       
       const growthAmount = startingValue * annualReturnRate;
       // Calculate portfolio value after growth and withdrawal for next year
+      // This is the base portfolio value (without business cashflow)
       portfolioValue = startingValue * (1 + annualReturnRate) - withdrawalAmount;
       
       if (portfolioValue < 0) {
@@ -2032,7 +1930,7 @@ function RetirementSummary() {
       
       drawdownList.push({
         year,
-        portfolioValue: startingValue, // Show starting value for this year (now from previous Portfolio with Business)
+        portfolioValue: portfolioValue, // Show ENDING value for this year (after growth and withdrawal) - this makes it clearer if portfolio is growing or shrinking
         portfolioWithBusiness: portfolioWithBusiness, // Show FINAL value (after growth, business cashflow, and withdrawal)
         withdrawalAmount,
         taxAmount,
@@ -2051,7 +1949,7 @@ function RetirementSummary() {
     }
     
     setDrawdownProjections(drawdownList);
-  }, [combinedProjections, targetPot, returnRate, safeWithdrawalRate, inflation, tax, currentAge, retirementAge, statePensionWeekly, deathAge, currentYear, averageMonthlyCashflow, cashflowIncrease, preRetirementData]);
+  }, [combinedProjections, targetPot, returnRate, safeWithdrawalRate, inflation, tax, currentAge, retirementAge, statePensionWeekly, deathAge, currentYear, averageMonthlyCashflow, yearlyCashflowCalculated, cashflowIncrease, preRetirementData]);
 
   // Calculate pre-retirement data with cashflow
   useEffect(() => {
@@ -2272,40 +2170,118 @@ function RetirementSummary() {
         </h2>
         <div className="space-y-4">
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400">Current HNWI Number</div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
-              {currentNetworth !== null
-                ? `£${currentNetworth.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : 'N/A'}
-            </div>
+            <label className="text-sm text-gray-500 dark:text-gray-400">Current HNWI Number</label>
+            <input
+              type="text"
+              value={currentHNWIInput ? `£${currentHNWIInput}` : ''}
+              onChange={(e) => {
+                const cleaned = e.target.value.replace(/[£,\s]/g, '');
+                const numValue = parseFloat(cleaned) || 0;
+                setCurrentHNWIInput(numValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                setCurrentNetworth(numValue);
+              }}
+              onBlur={(e) => {
+                const cleaned = e.target.value.replace(/[£,\s]/g, '');
+                const numValue = parseFloat(cleaned) || 0;
+                setCurrentHNWIInput(numValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                setCurrentNetworth(numValue);
+              }}
+              className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none w-full mt-1 px-2 py-1"
+            />
           </div>
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400">Target Pot</div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
-              £{targetPot.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
+            <label className="text-sm text-gray-500 dark:text-gray-400">Target Pot</label>
+            <input
+              type="text"
+              value={targetPotInput ? `£${targetPotInput}` : ''}
+              onChange={(e) => {
+                const cleaned = e.target.value.replace(/[£,\s]/g, '');
+                const numValue = parseFloat(cleaned) || 0;
+                setTargetPotInput(numValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                setTargetPot(numValue);
+              }}
+              onBlur={(e) => {
+                const cleaned = e.target.value.replace(/[£,\s]/g, '');
+                const numValue = parseFloat(cleaned) || 0;
+                setTargetPotInput(numValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                setTargetPot(numValue);
+              }}
+              className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none w-full mt-1 px-2 py-1"
+            />
           </div>
+        </div>
+        {/* Reload Button */}
+        <div className="flex justify-end pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => {
+              // Set reloading state for visual feedback
+              setReloading(true);
+              
+              // Parse values from inputs
+              const hnwiValue = parseFloat(currentHNWIInput.replace(/[£,\s]/g, '')) || currentNetworth || 0;
+              const targetPotValue = parseFloat(targetPotInput.replace(/[£,\s]/g, '')) || targetPot;
+              const monthlyCashflowValue = parseFloat(monthlyCashflowInput.replace(/[£,\s]/g, '')) || (averageMonthlyCashflow || 0);
+              
+              // Update state values directly - React will trigger useEffect hooks based on dependencies
+              setCurrentNetworth(hnwiValue);
+              setTargetPot(targetPotValue);
+              setAverageMonthlyCashflow(monthlyCashflowValue);
+              setYearlyCashflowCalculated(monthlyCashflowValue * 12);
+              
+              // Reset reloading state after a brief delay
+              setTimeout(() => {
+                setReloading(false);
+              }, 300);
+            }}
+            className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-150 font-medium text-sm flex items-center justify-center gap-2 ${
+              reloading ? 'scale-95 shadow-inner' : 'scale-100 shadow-md'
+            }`}
+          >
+            <svg 
+              className={`w-5 h-5 transition-transform duration-150 ${reloading ? 'rotate-180' : ''}`}
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {reloading ? 'Reloading...' : 'Reload'}
+          </button>
         </div>
       </div>
 
-      {/* Column 2: Yearly Cashflow */}
+      {/* Column 2: Cashflow Income */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-          Yearly Cashflow
+          Cashflow Income
         </h2>
         <div className="space-y-4">
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400">Monthly Cashflow</div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
-              {averageMonthlyCashflow !== null
-                ? `£${averageMonthlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : 'N/A'}
-            </div>
+            <label className="text-sm text-gray-500 dark:text-gray-400">Monthly Cashflow</label>
+            <input
+              type="text"
+              value={monthlyCashflowInput ? `£${monthlyCashflowInput}` : ''}
+              onChange={(e) => {
+                const cleaned = e.target.value.replace(/[£,\s]/g, '');
+                const numValue = parseFloat(cleaned) || 0;
+                setMonthlyCashflowInput(numValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                setAverageMonthlyCashflow(numValue);
+                setYearlyCashflowCalculated(numValue * 12);
+              }}
+              onBlur={(e) => {
+                const cleaned = e.target.value.replace(/[£,\s]/g, '');
+                const numValue = parseFloat(cleaned) || 0;
+                setMonthlyCashflowInput(numValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                setAverageMonthlyCashflow(numValue);
+                setYearlyCashflowCalculated(numValue * 12);
+              }}
+              className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-b-2 border-gray-300 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none w-full mt-1 px-2 py-1"
+            />
           </div>
           <div>
-            <div className="text-sm text-gray-500 dark:text-gray-400">Yearly Cashflow</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Cashflow Income</div>
             <div className="text-2xl font-bold text-gray-900 dark:text-white">
-              £{yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              £{yearlyCashflowCalculated.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
         </div>
@@ -2383,7 +2359,7 @@ function RetirementSummary() {
                 
                 // Format pre-retirement data
                 const preRetirementText = preRetirementData.map(p => 
-                  `  ${p.year}: Yearly Cashflow £${p.yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Portfolio Value (without cashflow) £${p.portfolioValueWithoutCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Total Portfolio Value £${p.totalPortfolioValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  `  ${p.year}: Cashflow Income £${p.yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Portfolio Value (without cashflow) £${p.portfolioValueWithoutCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Total Portfolio Value £${p.totalPortfolioValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                 ).join('\n');
 
                 // Find target reached year
@@ -2402,9 +2378,9 @@ function RetirementSummary() {
 - Current Age: ${currentAge} years
 - Retirement Age: ${retirementAge} years
 
-**Column 2 - Yearly Cashflow:**
+**Column 2 - Cashflow Income:**
 - Average Monthly Cashflow: £${monthlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-- Yearly Cashflow: £${yearlyCashflowValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+- Cashflow Income: £${yearlyCashflowValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 - Cashflow Increase: ${cashflowIncreasePercent}% per year
 
 **Column 3 - Combined Retirement:**
@@ -2413,7 +2389,7 @@ function RetirementSummary() {
 - Time to Target (with cashflow): ${timeToTarget}
 
 **Pre-Retirement Projection Data:**
-Each year shows: Year, Yearly Cashflow, Portfolio Value (without cashflow contributions), Total Portfolio Value (cumulative with cashflow)
+Each year shows: Year, Cashflow Income, Portfolio Value (without cashflow contributions), Total Portfolio Value (cumulative with cashflow)
 ${preRetirementText}
 
 **Target Achievement:**
@@ -2423,8 +2399,8 @@ ${targetReached ? `- Total Portfolio Value at Target: £${targetReached.totalPor
 
 **Calculation Logic:**
 - Portfolio Value (without cashflow) = Previous Portfolio Value × (1 + ${returnRate}%)
-- Total Portfolio Value = Previous Total Portfolio Value × (1 + ${returnRate}%) + Yearly Cashflow
-- Yearly Cashflow increases by ${cashflowIncreasePercent}% each year
+- Total Portfolio Value = Previous Total Portfolio Value × (1 + ${returnRate}%) + Cashflow Income
+- Cashflow Income increases by ${cashflowIncreasePercent}% each year
 - Projection stops when Total Portfolio Value reaches or exceeds the Target Pot
 
 **Please:**
@@ -2489,7 +2465,7 @@ Thank you for your comprehensive analysis!`;
                     Age
                   </th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Yearly Cashflow
+                    Cashflow Income
                   </th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Portfolio Value
@@ -2527,9 +2503,9 @@ Thank you for your comprehensive analysis!`;
                         
                         let tooltipText;
                         if (isFirstYear) {
-                          tooltipText = `Total Portfolio Value (${data.year}):\n\nStarting Portfolio Value: £${previousValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nYearly Cashflow: £${yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\nNote: This is the starting value. Growth and cashflow contributions will be applied in subsequent years.`;
+                          tooltipText = `Total Portfolio Value (${data.year}):\n\nStarting Portfolio Value: £${previousValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nCashflow Income: £${yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\nNote: This is the starting value. Growth and cashflow contributions will be applied in subsequent years.`;
                         } else {
-                          tooltipText = `Total Portfolio Value Calculation (${data.year}):\n\nPrevious Total Portfolio Value: £${previousValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nGrowth (${returnRate}%): +£${growthAmount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nYearly Cashflow: +£${yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\nTotal Portfolio Value: £${finalValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\nCalculation:\n£${previousValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × (1 + ${returnRate}%) + £${yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n= £${finalValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                          tooltipText = `Total Portfolio Value Calculation (${data.year}):\n\nPrevious Total Portfolio Value: £${previousValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nGrowth (${returnRate}%): +£${growthAmount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nCashflow Income: +£${yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\nTotal Portfolio Value: £${finalValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\nCalculation:\n£${previousValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × (1 + ${returnRate}%) + £${yearlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n= £${finalValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                         }
                         
                         setPreRetirementTooltip({
@@ -2915,70 +2891,6 @@ Then confirm if the rest of the projection is correct.`;
         </div>
       )}
 
-      {/* Save Button */}
-      <div className="flex justify-end mt-6">
-        <button
-          onClick={async () => {
-            setSaving(true);
-            try {
-              // Save all settings
-              const settingsToSave = [
-                { key: 'retirement_target_pot', value: targetPot.toString() },
-                { key: 'retirement_return_rate', value: returnRate.toString() },
-                { key: 'retirement_withdrawal_rate', value: safeWithdrawalRate.toString() },
-                { key: 'retirement_inflation', value: inflation.toString() },
-                { key: 'retirement_tax', value: tax.toString() },
-                { key: 'retirement_current_age', value: currentAge.toString() },
-                { key: 'retirement_age', value: retirementAge.toString() },
-                { key: 'retirement_state_pension_weekly', value: statePensionWeekly.toString() },
-                { key: 'retirement_death_age', value: deathAge.toString() },
-                { key: 'retirement_cashflow_increase', value: cashflowIncrease.toString() },
-              ];
-
-              // Update each setting
-              for (const setting of settingsToSave) {
-                const response = await fetch('/api/settings/update-by-key', {
-                  method: 'PUT',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify(setting),
-                });
-
-                if (!response.ok) {
-                  throw new Error(`Failed to save ${setting.key}`);
-                }
-              }
-
-              alert('Settings saved successfully!');
-            } catch (err: any) {
-              console.error('Error saving settings:', err);
-              alert('Failed to save settings. Please try again.');
-            } finally {
-              setSaving(false);
-            }
-          }}
-          disabled={saving}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? (
-            <>
-              <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Saving...
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Save Settings
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
 }

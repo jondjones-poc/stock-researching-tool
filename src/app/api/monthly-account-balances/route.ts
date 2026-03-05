@@ -204,3 +204,55 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
+
+// DELETE - Delete all account balances for a specific month and year
+export async function DELETE(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const month = searchParams.get('month');
+    const year = searchParams.get('year');
+
+    if (!month || !year) {
+      return NextResponse.json(
+        { error: 'month and year are required' },
+        { status: 400 }
+      );
+    }
+
+    // Convert month name to number
+    const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthNum = monthOrder.indexOf(month) + 1;
+
+    if (monthNum === 0) {
+      return NextResponse.json(
+        { error: 'Invalid month name' },
+        { status: 400 }
+      );
+    }
+
+    // Delete all entries for the specified month and year
+    const deleteResult = await query(
+      `DELETE FROM account_balances ab
+       USING accounts a
+       WHERE ab.account_id = a.id
+       AND a.is_active = TRUE
+       AND EXTRACT(YEAR FROM ab.balance_date) = $1
+       AND EXTRACT(MONTH FROM ab.balance_date) = $2
+       RETURNING ab.id`,
+      [parseInt(year), monthNum]
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: `Successfully deleted ${deleteResult.rows.length} entries for ${month} ${year}`,
+      count: deleteResult.rows.length,
+    });
+  } catch (error: any) {
+    console.error('Error deleting account balances:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete account balances', details: error.message },
+      { status: 500 }
+    );
+  }
+}

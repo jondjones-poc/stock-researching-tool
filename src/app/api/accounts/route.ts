@@ -4,8 +4,10 @@ import { query } from '../../utils/db';
 // GET - Fetch all active accounts with investment_type data
 export async function GET(request: NextRequest) {
   try {
-    const result = await query(
-      `SELECT 
+    const searchParams = request.nextUrl.searchParams;
+    const investmentTypeId = searchParams.get('investment_type_id');
+    
+    let sql = `SELECT 
         a.id,
         a.name,
         a.url,
@@ -18,11 +20,19 @@ export async function GET(request: NextRequest) {
         it."order" as investment_type_order
        FROM accounts a
        LEFT JOIN investment_type it ON a.investment_type_id = it.id
-       WHERE a.is_active = TRUE
-       ORDER BY 
+       WHERE a.is_active = TRUE`;
+    
+    const params: any[] = [];
+    if (investmentTypeId) {
+      sql += ` AND a.investment_type_id = $1`;
+      params.push(parseInt(investmentTypeId));
+    }
+    
+    sql += ` ORDER BY 
          COALESCE(it."order", 999) ASC,
-         a.name ASC`
-    );
+         a.name ASC`;
+    
+    const result = await query(sql, params);
 
     return NextResponse.json({
       data: result.rows.map(row => ({
