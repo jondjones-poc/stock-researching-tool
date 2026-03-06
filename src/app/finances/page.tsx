@@ -906,14 +906,12 @@ export default function FinancesPage() {
                   </button>
                 );
               })}
-              {selectedInvestmentTypes.size > 0 && (
-                <button
-                  onClick={() => setSelectedInvestmentTypes(new Set())}
-                  className="px-2.5 py-1.5 rounded-lg font-medium text-xs whitespace-nowrap bg-gray-600 text-white hover:bg-gray-700 transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg flex-shrink-0"
-                >
-                  Clear Filters
-                </button>
-              )}
+              <button
+                onClick={() => setSelectedInvestmentTypes(new Set())}
+                className="px-2.5 py-1.5 rounded-lg font-medium text-xs whitespace-nowrap bg-red-400 dark:bg-red-500 text-white hover:bg-red-500 dark:hover:bg-red-600 transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg flex-shrink-0"
+              >
+                Reset
+              </button>
             </div>
           </div>
         )}

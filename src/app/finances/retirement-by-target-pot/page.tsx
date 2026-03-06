@@ -2901,7 +2901,7 @@ export default function RetirementByTargetPotPage() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState<'cashflow' | 'target' | 'summary'>(
-    (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary') ? tabParam : 'target'
+    (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary') ? tabParam : 'summary'
   );
 
   // Update URL when tab changes
@@ -2925,6 +2925,16 @@ export default function RetirementByTargetPotPage() {
         <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex space-x-4">
             <button
+              onClick={() => handleTabChange('summary')}
+              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
+                activeTab === 'summary'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              Summary
+            </button>
+            <button
               onClick={() => handleTabChange('cashflow')}
               className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
                 activeTab === 'cashflow'
@@ -2943,16 +2953,6 @@ export default function RetirementByTargetPotPage() {
               }`}
             >
               Retirement by Target Pot
-            </button>
-            <button
-              onClick={() => handleTabChange('summary')}
-              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
-                activeTab === 'summary'
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
-              }`}
-            >
-              Summary
             </button>
           </div>
         </div>

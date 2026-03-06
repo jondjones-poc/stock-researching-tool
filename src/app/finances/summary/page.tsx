@@ -841,15 +841,33 @@ export default function SummaryPage() {
             {/* Current Business Cashflow Section */}
             {currentHNWI !== null && (
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
-                <div className="space-y-4">
-                  {/* First row: Current HNWI Number and Expected Return */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left Column */}
+                  <div className="space-y-4">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                      Profit This Month
+                    </h2>
+                    {/* Current HNWI Number */}
                     <div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Current HNWI Number</div>
                       <div className="text-2xl font-semibold text-gray-900 dark:text-white">
                         £{currentHNWI.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                     </div>
+                    {/* Business Income Total */}
+                    {averageMonthlyCashflow !== null && (
+                      <div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Business Income Total</div>
+                        <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                          £{averageMonthlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Right Column */}
+                  <div className="space-y-4">
+                    {/* Expected Return */}
                     {retirementReturnRate !== null && (
                       <div>
                         <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Expected Return ({retirementReturnRate}% of HNWI)</div>
@@ -858,16 +876,8 @@ export default function SummaryPage() {
                         </div>
                       </div>
                     )}
-                  </div>
-                  {/* Second row: Business Income Total and Yearly Business Cashflow */}
-                  {averageMonthlyCashflow !== null && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Business Income Total</div>
-                        <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                          £{averageMonthlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                      </div>
+                    {/* Yearly Business Cashflow */}
+                    {averageMonthlyCashflow !== null && (
                       <div>
                         <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Yearly Business Cashflow</div>
                         <div className="text-2xl font-semibold text-gray-900 dark:text-white">
@@ -885,8 +895,8 @@ export default function SummaryPage() {
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -932,7 +942,7 @@ export default function SummaryPage() {
             {/* Invested Amount Section */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                Invested Amount
+                Invested Amount ({currentYear})
               </h2>
               <div className="flex-grow flex flex-col justify-center space-y-4">
                 <div>
