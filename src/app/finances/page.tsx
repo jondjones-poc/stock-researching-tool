@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Account {
@@ -48,6 +48,7 @@ export default function FinancesPage() {
   const [moveMonth, setMoveMonth] = useState<string | null>(null); // Track which month is being moved
   const [moveTargetMonth, setMoveTargetMonth] = useState<string>('');
   const [moveTargetYear, setMoveTargetYear] = useState<number>(new Date().getFullYear());
+  const hasPopulatedFromQueryParams = useRef<boolean>(false); // Track if we've populated values from query params
 
   // Handle query parameters for navigation from networth report
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function FinancesPage() {
     if (monthParam && editParam === 'true') {
       // Set the expanded edit row to the month name
       setExpandedEditRow(monthParam);
+      hasPopulatedFromQueryParams.current = false; // Reset flag when new query params arrive
     }
   }, [searchParams]);
 
@@ -136,6 +138,48 @@ export default function FinancesPage() {
       fetchMonthlyData();
     }
   }, [selectedYear]);
+
+  // Populate expanded edit values when edit row is set from query params and data is loaded
+  useEffect(() => {
+    const editParam = searchParams.get('edit');
+    const monthParam = searchParams.get('month');
+    
+    // Only populate if coming from query params, expandedEditRow is set, data is loaded, and we haven't populated yet
+    if (editParam === 'true' && monthParam === expandedEditRow && expandedEditRow && monthlyData.length > 0 && accounts.length > 0 && !loading && !hasPopulatedFromQueryParams.current) {
+      // Create monthMap to get the data for the expanded edit row
+      const monthMap = new Map<string, Map<string, { balance: number; id: number; account_id: number; balance_date: string }>>();
+      
+      monthlyData.forEach(item => {
+        const date = new Date(item.balance_date);
+        const monthKey = date.toLocaleString('default', { month: 'long' });
+        
+        if (!monthMap.has(monthKey)) {
+          monthMap.set(monthKey, new Map());
+        }
+        
+        const accountMap = monthMap.get(monthKey)!;
+        accountMap.set(item.account_name, {
+          balance: item.balance,
+          id: item.id,
+          account_id: item.account_id,
+          balance_date: item.balance_date,
+        });
+      });
+
+      const accountMap = monthMap.get(expandedEditRow);
+      const values = new Map<string, string>();
+      
+      // Populate values for all accounts
+      accounts.forEach(account => {
+        const balanceData = accountMap?.get(account.name);
+        const balance = balanceData?.balance;
+        values.set(account.name, balance !== undefined ? balance.toString() : '0');
+      });
+      
+      setExpandedEditValues(values);
+      hasPopulatedFromQueryParams.current = true;
+    }
+  }, [expandedEditRow, monthlyData, accounts, loading, searchParams]);
 
   // Group data by month and pivot by account
   const pivotData = (accountsToUse: Account[]) => {
@@ -405,8 +449,10 @@ export default function FinancesPage() {
     if (expandedEditRow === month) {
       setExpandedEditRow(null);
       setExpandedEditValues(new Map());
+      hasPopulatedFromQueryParams.current = false; // Reset flag when closing
     } else {
       setExpandedEditRow(month);
+      hasPopulatedFromQueryParams.current = false; // Reset flag when opening manually
       const accountMap = monthMap.get(month);
       const values = new Map<string, string>();
       
@@ -518,6 +564,7 @@ export default function FinancesPage() {
   const handleExpandedEditCancel = () => {
     setExpandedEditRow(null);
     setExpandedEditValues(new Map());
+    hasPopulatedFromQueryParams.current = false; // Reset flag when canceling
   };
 
   // Handle cell save
@@ -1011,41 +1058,49 @@ export default function FinancesPage() {
                       ));
                     })()}
                   </div>
-                  <div className="flex justify-center gap-3 pt-4 border-t border-gray-300 dark:border-gray-600">
-                    <button
-                      onClick={() => expandedEditRow && handleExpandedEditSave(expandedEditRow)}
-                      disabled={saving}
-                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
-                    >
-                      {saving ? 'Saving...' : 'Save'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (expandedEditRow) {
-                          setMoveMonth(expandedEditRow);
-                          setMoveTargetMonth('');
-                          setMoveTargetYear(new Date().getFullYear());
-                        }
-                      }}
-                      disabled={saving || !expandedEditRow}
-                      className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
-                    >
-                      Move
-                    </button>
-                    <button
-                      onClick={() => expandedEditRow && handleDeleteMonth(expandedEditRow)}
-                      disabled={saving || !expandedEditRow}
-                      className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={handleExpandedEditCancel}
-                      disabled={saving}
-                      className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
-                    >
-                      Cancel
-                    </button>
+                  {/* Move and Delete buttons - outside with padding */}
+                  <div className="flex justify-between items-center pt-4 border-t border-gray-300 dark:border-gray-600">
+                    <div className="flex gap-6 px-6">
+                      <button
+                        onClick={() => {
+                          if (expandedEditRow) {
+                            setMoveMonth(expandedEditRow);
+                            setMoveTargetMonth('');
+                            setMoveTargetYear(new Date().getFullYear());
+                          }
+                        }}
+                        disabled={saving || !expandedEditRow}
+                        className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                      >
+                        Move
+                      </button>
+                      <button
+                        onClick={() => expandedEditRow && handleDeleteMonth(expandedEditRow)}
+                        disabled={saving || !expandedEditRow}
+                        className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    {/* Save and Cancel buttons - centered at bottom */}
+                    <div className="flex justify-center gap-3 flex-1">
+                      <button
+                        onClick={() => expandedEditRow && handleExpandedEditSave(expandedEditRow)}
+                        disabled={saving}
+                        className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                      >
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={handleExpandedEditCancel}
+                        disabled={saving}
+                        className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {/* Spacer for balance */}
+                    <div className="w-32"></div>
                   </div>
                   {moveMonth === expandedEditRow && (
                     <div className="mt-4 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">

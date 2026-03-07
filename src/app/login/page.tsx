@@ -12,10 +12,20 @@ export default function LoginPage() {
   useEffect(() => {
     // Check if already logged in
     const checkAuth = async () => {
-      const response = await fetch('/api/auth/check');
-      const data = await response.json();
-      if (data.authenticated) {
-        router.push('/');
+      try {
+        const response = await fetch('/api/auth/check');
+        if (!response.ok) {
+          // If the API returns an error, just stay on login page
+          console.error('Auth check failed:', response.status);
+          return;
+        }
+        const data = await response.json();
+        if (data.authenticated) {
+          router.push('/');
+        }
+      } catch (error) {
+        // Silently fail - user can still login
+        console.error('Error checking auth:', error);
       }
     };
     checkAuth();

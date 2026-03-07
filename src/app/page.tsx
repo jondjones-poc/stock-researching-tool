@@ -383,29 +383,77 @@ export default function DashboardPage() {
       }
       
       // Fetch historical price data with date range
+      console.log(`Fetching chart data for ${symbol} from ${url}`);
       response = await fetch(url);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch chart data');
+        // Try to get error message from response
+        let errorMessage = 'Failed to fetch chart data';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+          console.error(`API Error (${response.status}) for ${symbol}:`, errorData);
+        } catch (parseError) {
+          console.error(`API Error (${response.status}) for ${symbol}: Could not parse error response`);
+        }
+        
+        // Handle 404 specifically - might mean no data available for this symbol
+        if (response.status === 404) {
+          console.warn(`No historical data available for ${symbol}`);
+          setError(`No historical data available for ${symbol}. The symbol may not exist or have insufficient data.`);
+        } else {
+          setError(`${errorMessage} (Status: ${response.status})`);
+        }
+        setChartData([]);
+        return;
       }
       
       const result = await response.json();
+      console.log(`API Response for ${symbol}:`, { 
+        symbol: result.symbol, 
+        count: result.count,
+        hasHistorical: !!result.historical,
+        historicalLength: result.historical?.length 
+      });
       
       // Transform the historical data to chart format
       const historicalData = result.historical || [];
       
-      const chartData: ChartData[] = historicalData.map((item: any) => ({
-        date: item.date,
-        price: item.close, // Use closing price or index value
-        volume: item.volume
-      }));
+      if (historicalData.length === 0) {
+        console.warn(`No historical data points found for ${symbol}`);
+        setError(`No historical data available for ${symbol} in the selected period.`);
+        setChartData([]);
+        return;
+      }
       
-      console.log(`Loaded ${chartData.length} data points for ${symbol} (${period})`);
+      const chartData: ChartData[] = historicalData
+        .filter((item: any) => item && item.close !== undefined && item.close !== null && !isNaN(item.close))
+        .map((item: any) => ({
+          date: item.date,
+          price: item.close, // Use closing price or index value
+          volume: item.volume || 0
+        }));
+      
+      console.log(`Loaded ${chartData.length} valid data points for ${symbol} (${period})`);
+      
+      if (chartData.length === 0) {
+        console.warn(`All data points filtered out for ${symbol} - no valid prices found`);
+        setError(`No valid price data found for ${symbol}. All data points were filtered out.`);
+      } else {
+        setError(null); // Clear any previous errors
+      }
       
       setChartData(chartData);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching chart data:', error);
-      setError('Failed to load chart data');
+      console.error('Error details:', {
+        symbol,
+        period,
+        message: error.message,
+        stack: error.stack
+      });
+      setError(`Failed to load chart data: ${error.message || 'Unknown error'}`);
+      setChartData([]); // Reset chartData on error to prevent rendering issues
     } finally {
       setLoading(false);
     }
@@ -585,6 +633,35 @@ export default function DashboardPage() {
     return changePercent >= 0 ? `+${changePercent.toFixed(2)}%` : `${changePercent.toFixed(2)}%`;
   };
 
+  // Calculate percentage change for the selected period from chart data
+  const calculatePeriodChange = (): { change: number; changePercent: number } | null => {
+    try {
+      if (selectedSymbol === 'GREED') {
+        // For Fear & Greed Index
+        if (!fearGreedData || !Array.isArray(fearGreedData) || fearGreedData.length < 2) return null;
+        const firstValue = fearGreedData[0]?.value;
+        const lastValue = fearGreedData[fearGreedData.length - 1]?.value;
+        if (firstValue === undefined || lastValue === undefined || firstValue === null || lastValue === null) return null;
+        const change = lastValue - firstValue;
+        const changePercent = firstValue !== 0 ? (change / firstValue) * 100 : 0;
+        return { change, changePercent };
+      } else {
+        // For regular stocks/indices
+        if (!chartData || !Array.isArray(chartData) || chartData.length < 2) return null;
+        const firstPrice = chartData[0]?.price;
+        const lastPrice = chartData[chartData.length - 1]?.price;
+        if (firstPrice === undefined || lastPrice === undefined || firstPrice === null || lastPrice === null) return null;
+        if (typeof firstPrice !== 'number' || typeof lastPrice !== 'number') return null;
+        const change = lastPrice - firstPrice;
+        const changePercent = firstPrice !== 0 ? (change / firstPrice) * 100 : 0;
+        return { change, changePercent };
+      }
+    } catch (error) {
+      console.error('Error calculating period change:', error);
+      return null;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       {/* Header */}
@@ -650,10 +727,27 @@ export default function DashboardPage() {
           </div>
 
           {/* Chart Title */}
-          <div className="px-4 py-2 border-b border-gray-700">
+          <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <h2 className="text-lg font-semibold">
               {allWatchlistSymbols.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
             </h2>
+            {(() => {
+              const periodChange = calculatePeriodChange();
+              if (periodChange) {
+                const isPositive = periodChange.changePercent >= 0;
+                return (
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-lg font-semibold ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                      {formatChangePercent(periodChange.changePercent)}
+                    </span>
+                    <span className={`text-sm ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                      ({selectedPeriod})
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Chart Area */}
