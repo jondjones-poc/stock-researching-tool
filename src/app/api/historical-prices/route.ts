@@ -75,7 +75,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'FMP_API_KEY is not configured' }, { status: 500 });
     }
 
-    let url = `https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&apikey=${FMP_API_KEY}`;
+    // Try multiple FMP endpoints - some may work better than others
+    // Endpoint 1: historical-price-eod/full (used in graphs API)
+    let url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${symbol}&apikey=${FMP_API_KEY}`;
     
     if (from && to) {
       url += `&from=${from}&to=${to}`;
@@ -95,6 +97,16 @@ export async function GET(request: Request) {
       });
       data = response.data;
       status = response.status;
+      
+      // Log the actual response for debugging
+      console.log(`FMP API response for ${symbol}:`, {
+        status: status,
+        dataType: typeof data,
+        isArray: Array.isArray(data),
+        dataLength: Array.isArray(data) ? data.length : (data?.historical?.length || 'N/A'),
+        hasError: data && typeof data === 'object' && 'Error Message' in data,
+        errorMessage: data?.['Error Message'] || null
+      });
     } catch (axiosError: any) {
       // Handle network errors or timeouts (shouldn't happen with validateStatus: true, but just in case)
       if (axiosError.code === 'ECONNABORTED') {
@@ -119,31 +131,213 @@ export async function GET(request: Request) {
     // Handle non-200 status codes
     if (status !== 200) {
       console.error(`FMP API returned status ${status} for ${symbol}:`, data);
+      
+      // If 404, try without date range as fallback
+      if (status === 404 && (from || to)) {
+        console.log(`Trying FMP without date range for ${symbol}...`);
+        try {
+          const fallbackUrl = `https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&apikey=${FMP_API_KEY}`;
+          const fallbackResponse = await axios.get(fallbackUrl, {
+            timeout: 15000,
+            validateStatus: () => true
+          });
+          
+          if (fallbackResponse.status === 200) {
+            const fallbackData = fallbackResponse.data;
+            // Process fallback data (same logic as below)
+            if (Array.isArray(fallbackData) && fallbackData.length > 0) {
+              const historicalData = fallbackData
+                .filter((item: any) => item && item.date && item.close !== undefined && item.close !== null)
+                .map((item: any) => ({
+                  date: item.date,
+                  open: item.open ?? item.close ?? 0,
+                  high: item.high ?? item.close ?? 0,
+                  low: item.low ?? item.close ?? 0,
+                  close: item.close ?? 0,
+                  volume: item.volume ?? 0,
+                  change: item.change ?? 0,
+                  changePercent: item.changePercent ?? 0
+                }));
+              
+              // Apply date filtering
+              let filteredData = historicalData;
+              if (from || to) {
+                filteredData = historicalData.filter((item: any) => {
+                  const itemDate = new Date(item.date).toISOString().split('T')[0];
+                  if (from && itemDate < from) return false;
+                  if (to && itemDate > to) return false;
+                  return true;
+                });
+              }
+              
+              filteredData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              
+              if (filteredData.length > 0) {
+                console.log(`Fallback request returned ${filteredData.length} data points for ${symbol}`);
+                return NextResponse.json({
+                  symbol: symbol,
+                  historical: filteredData,
+                  count: filteredData.length
+                });
+              }
+            } else if (fallbackData && fallbackData.historical && Array.isArray(fallbackData.historical) && fallbackData.historical.length > 0) {
+              // Handle object with historical property
+              const historicalData = fallbackData.historical
+                .filter((item: any) => item && item.date && item.close !== undefined && item.close !== null)
+                .map((item: any) => ({
+                  date: item.date,
+                  open: item.open ?? item.close ?? 0,
+                  high: item.high ?? item.close ?? 0,
+                  low: item.low ?? item.close ?? 0,
+                  close: item.close ?? 0,
+                  volume: item.volume ?? 0,
+                  change: item.change ?? 0,
+                  changePercent: item.changePercent ?? 0
+                }));
+              
+              let filteredData = historicalData;
+              if (from || to) {
+                filteredData = historicalData.filter((item: any) => {
+                  const itemDate = new Date(item.date).toISOString().split('T')[0];
+                  if (from && itemDate < from) return false;
+                  if (to && itemDate > to) return false;
+                  return true;
+                });
+              }
+              
+              filteredData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              
+              if (filteredData.length > 0) {
+                console.log(`Fallback request returned ${filteredData.length} data points for ${symbol}`);
+                return NextResponse.json({
+                  symbol: symbol,
+                  historical: filteredData,
+                  count: filteredData.length
+                });
+              }
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Fallback request failed:', fallbackError);
+        }
+      }
+      
       return NextResponse.json({ 
         error: data?.['Error Message'] || `FMP API returned status ${status}`,
-        details: data
+        details: data,
+        symbol: symbol
       }, { status: status === 404 ? 404 : 500 });
     }
 
     // Check if the response is an error object (sometimes FMP returns 200 with error message)
     if (data && typeof data === 'object' && 'Error Message' in data) {
       console.error('FMP API error message in response:', data['Error Message']);
-      return NextResponse.json({ 
-        error: data['Error Message'] || 'FMP API returned an error',
-        details: data
-      }, { status: 404 });
+      
+      // If using eod endpoint and it fails, try the original endpoint as fallback
+      if (url.includes('historical-price-eod')) {
+        console.log('EOD endpoint failed, trying historical-price-full endpoint...');
+        try {
+          const fallbackUrl = `https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&apikey=${FMP_API_KEY}${from && to ? `&from=${from}&to=${to}` : ''}`;
+          const fallbackResponse = await axios.get(fallbackUrl, {
+            timeout: 15000,
+            validateStatus: () => true
+          });
+          
+          if (fallbackResponse.status === 200 && !fallbackResponse.data?.['Error Message']) {
+            const fallbackData = fallbackResponse.data;
+            // Process fallback data (will be handled by array/object checks below)
+            data = fallbackData;
+            status = 200;
+          }
+        } catch (fallbackError) {
+          console.error('Fallback endpoint also failed:', fallbackError);
+        }
+      }
+      
+      // If still an error after fallback, return error
+      if (data && typeof data === 'object' && 'Error Message' in data) {
+        return NextResponse.json({ 
+          error: data['Error Message'] || 'FMP API returned an error',
+          details: data
+        }, { status: 404 });
+      }
     }
 
     // Check if data is an array (FMP sometimes returns array directly)
     if (Array.isArray(data)) {
       if (data.length === 0) {
-        console.warn(`FMP returned empty array for ${symbol}`);
+        console.warn(`FMP returned empty array for ${symbol}, trying without date range...`);
+        
+        // Try without date range - sometimes FMP needs the full dataset
+        try {
+          const altUrl = `https://financialmodelingprep.com/stable/historical-price-full?symbol=${symbol}&apikey=${FMP_API_KEY}`;
+          console.log('Trying FMP without date range:', altUrl.replace(FMP_API_KEY, 'API_KEY_HIDDEN'));
+          
+          const altResponse = await axios.get(altUrl, {
+            timeout: 15000,
+            validateStatus: () => true
+          });
+          
+          if (altResponse.status === 200) {
+            const altData = altResponse.data;
+            
+            // Check if we got data this time
+            let historicalArray: any[] = [];
+            if (Array.isArray(altData) && altData.length > 0) {
+              historicalArray = altData;
+            } else if (altData && altData.historical && Array.isArray(altData.historical) && altData.historical.length > 0) {
+              historicalArray = altData.historical;
+            }
+            
+            if (historicalArray.length > 0) {
+              console.log(`FMP returned ${historicalArray.length} data points without date range`);
+              const historicalData = historicalArray
+                .filter((item: any) => item && item.date && item.close !== undefined && item.close !== null)
+                .map((item: any) => ({
+                  date: item.date,
+                  open: item.open ?? item.close ?? 0,
+                  high: item.high ?? item.close ?? 0,
+                  low: item.low ?? item.close ?? 0,
+                  close: item.close ?? 0,
+                  volume: item.volume ?? 0,
+                  change: item.change ?? 0,
+                  changePercent: item.changePercent ?? 0
+                }));
+              
+              // Apply date filtering if provided
+              let filteredData = historicalData;
+              if (from || to) {
+                filteredData = historicalData.filter((item: any) => {
+                  const itemDate = new Date(item.date).toISOString().split('T')[0];
+                  if (from && itemDate < from) return false;
+                  if (to && itemDate > to) return false;
+                  return true;
+                });
+              }
+              
+              filteredData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              
+              if (filteredData.length > 0) {
+                return NextResponse.json({
+                  symbol: symbol,
+                  historical: filteredData,
+                  count: filteredData.length
+                });
+              }
+            }
+          }
+        } catch (altError: any) {
+          console.error('Alternative request also failed:', altError.message);
+        }
+        
+        // If all attempts fail, return error
         return NextResponse.json({ 
           error: `No historical data available for symbol "${symbol}"`,
-          details: 'FMP API returned empty results'
+          details: 'FMP API returned empty results. The symbol may not exist in FMP database or your API key may not have access to this data.',
+          symbol: symbol
         }, { status: 404 });
       }
-      // If it's an array, wrap it in historical property
+      // If it's an array with data, wrap it in historical property
       const historicalData = data.map((item: any) => ({
         date: item.date,
         open: item.open ?? item.close ?? 0,
@@ -164,16 +358,45 @@ export async function GET(request: Request) {
       });
     }
 
-    if (!data || !data.historical || !Array.isArray(data.historical)) {
-      console.error('Invalid FMP response structure for', symbol, ':', data);
+    // FMP API can return data in different structures:
+    // 1. { historical: [...] }
+    // 2. { historicalStockList: [...] }
+    // 3. Direct array (handled above)
+    let historicalArray: any[] | null = null;
+    
+    if (data && typeof data === 'object') {
+      if (Array.isArray(data.historical)) {
+        historicalArray = data.historical;
+      } else if (Array.isArray(data.historicalStockList)) {
+        historicalArray = data.historicalStockList;
+      } else if (data.symbol && Array.isArray(data[data.symbol])) {
+        // Sometimes FMP returns { symbol: [...] }
+        historicalArray = data[data.symbol];
+      }
+    }
+
+    if (!historicalArray || historicalArray.length === 0) {
+      console.error('Invalid FMP response structure for', symbol, ':', {
+        hasData: !!data,
+        dataType: typeof data,
+        isArray: Array.isArray(data),
+        keys: data && typeof data === 'object' ? Object.keys(data) : [],
+        hasHistorical: !!(data && data.historical),
+        hasHistoricalStockList: !!(data && data.historicalStockList)
+      });
       return NextResponse.json({ 
         error: `No historical data available for symbol "${symbol}" or invalid response format`,
-        details: 'Response structure does not contain historical array'
+        details: 'Response structure does not contain historical array',
+        debug: {
+          responseType: typeof data,
+          isArray: Array.isArray(data),
+          keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 10) : []
+        }
       }, { status: 404 });
     }
 
     // Transform the data to our format with null checks
-    const historicalData = data.historical
+    const historicalData = historicalArray
       .filter((item: any) => item && item.date && item.close !== undefined && item.close !== null)
       .map((item: any) => ({
         date: item.date,
@@ -189,12 +412,32 @@ export async function GET(request: Request) {
     // Sort by date ascending (oldest first)
     historicalData.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    console.log(`Fetched ${historicalData.length} days of historical data for ${symbol} from FMP`);
+    // Apply date filtering if from/to parameters are provided
+    let filteredData = historicalData;
+    if (from || to) {
+      filteredData = historicalData.filter((item: any) => {
+        const itemDate = new Date(item.date).toISOString().split('T')[0];
+        if (from && itemDate < from) return false;
+        if (to && itemDate > to) return false;
+        return true;
+      });
+    }
+
+    console.log(`Fetched ${historicalData.length} days of historical data for ${symbol} from FMP${filteredData.length !== historicalData.length ? ` (filtered to ${filteredData.length} days)` : ''}`);
+
+    if (filteredData.length === 0) {
+      console.warn(`No data available for ${symbol} after date filtering (from: ${from}, to: ${to})`);
+      return NextResponse.json({ 
+        error: `No historical data available for symbol "${symbol}" in the selected date range`,
+        details: `Total data points: ${historicalData.length}, Filtered: ${filteredData.length}`,
+        dateRange: { from, to }
+      }, { status: 404 });
+    }
 
     return NextResponse.json({
       symbol: data.symbol || symbol,
-      historical: historicalData,
-      count: historicalData.length
+      historical: filteredData,
+      count: filteredData.length
     });
 
   } catch (error: any) {

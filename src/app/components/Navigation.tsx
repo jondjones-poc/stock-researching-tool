@@ -8,9 +8,9 @@ export default function Navigation() {
   
   // Determine which tab is active based on pathname
   const isFinancesTab = pathname?.startsWith('/finances') || false;
-  const isStocksTab = !isFinancesTab && (
+  const isResearchTab = pathname?.startsWith('/research') || false;
+  const isStocksTab = !isFinancesTab && !isResearchTab && (
     pathname === '/watchlist' || 
-    pathname === '/research' || 
     pathname === '/compare' ||
     pathname === '/dcf' ||
     pathname === '/ddm' ||
@@ -45,6 +45,16 @@ export default function Navigation() {
               }`}
             >
               📈 Stocks
+            </Link>
+            <Link
+              href="/research/world-alerts"
+              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
+                isResearchTab
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              🔍 Research
             </Link>
           </div>
           <Link
@@ -140,6 +150,20 @@ export default function Navigation() {
                 </Link>
               </>
             )}
+            {isResearchTab && (
+              <>
+                <Link 
+                  href="/research/world-alerts" 
+                  className={`text-lg font-semibold transition-colors ${
+                    pathname === '/research/world-alerts' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  🌍 World Alerts
+                </Link>
+              </>
+            )}
             {isStocksTab && (
               <>
                 <Link 
@@ -171,16 +195,6 @@ export default function Navigation() {
                   }`}
                 >
                   📋 Companies
-                </Link>
-                <Link 
-                  href="/research" 
-                  className={`text-lg font-semibold transition-colors ${
-                    pathname === '/research' 
-                      ? 'text-blue-600 dark:text-blue-400' 
-                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
-                  }`}
-                >
-                  🔍 Research
                 </Link>
                 <Link 
                   href="/compare" 

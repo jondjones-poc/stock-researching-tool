@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { dashboardConfig, WatchlistSymbol } from './config/dashboard';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface WatchlistData {
@@ -50,6 +51,8 @@ interface FearGreedPoint {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
@@ -75,6 +78,7 @@ export default function DashboardPage() {
   const [fearGreedData, setFearGreedData] = useState<FearGreedPoint[]>([]);
   const [fearGreedLoading, setFearGreedLoading] = useState(false);
   const [fearGreedError, setFearGreedError] = useState<string | null>(null);
+  const processedSymbolRef = useRef<string | null>(null);
 
   // Delete stock valuation from database
   const handleDeleteStockValuation = async (symbol: string, id: number) => {
@@ -464,9 +468,91 @@ export default function DashboardPage() {
     fetchWatchlistSymbols();
   }, []);
 
-  // Set default symbol when watchlist loads
+  // Handle query string parameter on mount and when it changes
   useEffect(() => {
-    if (!loadingWatchlist && allWatchlistSymbols.length > 0 && selectedSymbol === 'VIX') {
+    const symbolParam = searchParams.get('symbol');
+    if (!symbolParam) {
+      processedSymbolRef.current = null;
+      return;
+    }
+    
+    const symbolUpper = symbolParam.toUpperCase();
+    
+    // Check if we've already processed this symbol
+    if (processedSymbolRef.current === symbolUpper) return;
+    
+    // Check if symbol is already selected to avoid unnecessary updates
+    if (selectedSymbol.toUpperCase() === symbolUpper) {
+      processedSymbolRef.current = symbolUpper;
+      return;
+    }
+    
+    // Function to process the symbol
+    const processSymbol = () => {
+      // Try to find the symbol in the watchlist
+      let foundSymbol: WatchlistSymbol | undefined = undefined;
+      let foundCategory: string | null = null;
+      
+      if (allWatchlistSymbols.length > 0) {
+        foundSymbol = allWatchlistSymbols.find(s => s.symbol.toUpperCase() === symbolUpper);
+        
+        // Find which category this symbol belongs to
+        if (foundSymbol && Object.keys(watchlistSymbols).length > 0) {
+          for (const [category, symbols] of Object.entries(watchlistSymbols)) {
+            if (symbols.some(s => s.symbol.toUpperCase() === symbolUpper)) {
+              foundCategory = category;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Also check dashboardConfig in case it's not in database yet
+      if (!foundSymbol) {
+        for (const [category, symbols] of Object.entries(dashboardConfig.watchlist)) {
+          const configSymbol = symbols.find(s => s.symbol.toUpperCase() === symbolUpper);
+          if (configSymbol) {
+            foundSymbol = configSymbol;
+            foundCategory = category;
+            break;
+          }
+        }
+      }
+      
+      // Set the symbol (use found symbol or just the uppercase param)
+      const symbolToSet = foundSymbol?.symbol || symbolUpper;
+      setSelectedSymbol(symbolToSet);
+      
+      // Mark as processed
+      processedSymbolRef.current = symbolUpper;
+      
+      // Set category filter if found
+      if (foundCategory && categoryFilter !== foundCategory) {
+        setCategoryFilter(foundCategory as 'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST');
+      }
+    };
+    
+    // Wait for watchlist to load, but don't block indefinitely
+    if (loadingWatchlist) {
+      // Set a timeout to proceed anyway after 1 second
+      const timeout = setTimeout(() => {
+        console.log(`Setting symbol ${symbolUpper} from query param (watchlist still loading)`);
+        processSymbol();
+      }, 1000);
+      return () => clearTimeout(timeout);
+    }
+    
+    // Process immediately if watchlist is loaded
+    processSymbol();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, loadingWatchlist]);
+
+  // Set default symbol when watchlist loads (only if no query param)
+  useEffect(() => {
+    const symbolParam = searchParams.get('symbol');
+    if (symbolParam) return; // Don't override query param
+    
+    if (!loadingWatchlist && allWatchlistSymbols.length > 0 && selectedSymbol === 'GREED') {
       // Check if VIX exists, otherwise use first MARKETS symbol or first available
       const vixSymbol = allWatchlistSymbols.find(s => s.symbol === 'VIX');
       if (!vixSymbol) {
@@ -478,7 +564,7 @@ export default function DashboardPage() {
         }
       }
     }
-  }, [loadingWatchlist, allWatchlistSymbols, watchlistSymbols, selectedSymbol]);
+  }, [loadingWatchlist, allWatchlistSymbols, watchlistSymbols, selectedSymbol, searchParams]);
 
   useEffect(() => {
     if (!loadingWatchlist) {
@@ -607,6 +693,9 @@ export default function DashboardPage() {
 
   // Handle clicking on stock name to show earnings
   const handleStockClick = (symbol: string) => {
+    // Update URL with query string
+    router.push(`/?symbol=${symbol}`);
+    
     // Skip for market indicators - they have their own info panels
     const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI', 'GREED'];
     if (marketIndicators.includes(symbol)) {
@@ -1496,7 +1585,11 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={symbol.symbol}
-                            onClick={() => setSelectedSymbol(symbol.symbol)}
+                            onClick={() => {
+                              setSelectedSymbol(symbol.symbol);
+                              // Update URL with query string
+                              router.push(`/?symbol=${symbol.symbol}`);
+                            }}
                             onDoubleClick={(e) => handleDoubleClick(e, symbol.symbol)}
                             className={`px-4 py-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 ${
                               isSelected ? 'bg-blue-100 dark:bg-blue-900/30 border-l-2 border-blue-500' : ''
@@ -1506,7 +1599,10 @@ export default function DashboardPage() {
                               <div className="flex-1">
                                 <div 
                                   className="cursor-pointer hover:opacity-80 transition-opacity"
-                                  onClick={() => handleStockClick(symbol.symbol)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStockClick(symbol.symbol);
+                                  }}
                                   title="Click to view earnings information"
                                 >
                                   <div className="flex items-start">
@@ -1514,6 +1610,17 @@ export default function DashboardPage() {
                                     <div className="flex-1 min-w-0">
                                       <div className="font-medium text-sm text-gray-900 dark:text-white">
                                         {symbol.name}
+                                      </div>
+                                      <div 
+                                        className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedSymbol(symbol.symbol);
+                                          router.push(`/?symbol=${symbol.symbol}`);
+                                        }}
+                                        title="Click to select and update URL"
+                                      >
+                                        {symbol.symbol}
                                       </div>
                                     </div>
                                   </div>
