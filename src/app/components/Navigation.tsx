@@ -162,6 +162,16 @@ export default function Navigation() {
                 >
                   🌍 World Alerts
                 </Link>
+                <Link 
+                  href="/research/dividend-fcf-analysis" 
+                  className={`text-lg font-semibold transition-colors ${
+                    pathname === '/research/dividend-fcf-analysis' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  💰 Dividend & FCF Analysis
+                </Link>
               </>
             )}
             {isStocksTab && (
