@@ -152,6 +152,19 @@ export default function CompanyWatchlistPage() {
   const [clearingDcfProjections, setClearingDcfProjections] = useState<boolean>(false);
   const [symbolCopyCopied, setSymbolCopyCopied] = useState<boolean>(false);
   const [savingStockDetails, setSavingStockDetails] = useState<boolean>(false);
+  const [askDividendFcfAiClicked, setAskDividendFcfAiClicked] = useState<boolean>(false);
+  const [dividendFcfData, setDividendFcfData] = useState<{
+    dividendCAGR10Y: number | null;
+    dividendCAGR5Y: number | null;
+    fcfCAGR10Y: number | null;
+    fcfCAGR5Y: number | null;
+    price: number | null;
+    dividendPayout: number | null;
+    dividendYield: number | null;
+    payoutRatioTTM: number | null;
+    fcfPayoutRatioTTM: number | null;
+  } | null>(null);
+  const [dividendFcfLoading, setDividendFcfLoading] = useState<boolean>(false);
   
   const [formData, setFormData] = useState<StockValuation>({
     stock: '',
@@ -212,12 +225,32 @@ export default function CompanyWatchlistPage() {
       loadEarningsData(formData.stock);
       loadDcfProjections(formData.stock);
       fetchValueDriverClassification(formData.stock);
+      fetchDividendFcfData(formData.stock);
     } else {
       setMatchingDcfEntries([]);
       setEarningsCalendar(null);
+      setDividendFcfData(null);
       setValueDriverClassification(null);
     }
   }, [formData.stock]);
+
+  // Update dividendFcfData price when ddmData or formData.active_price changes
+  useEffect(() => {
+    if (dividendFcfData && formData.stock) {
+      const newPrice = formData.active_price || ddmData?.currentPrice || null;
+      if (newPrice !== dividendFcfData.price) {
+        const dividendYield = newPrice && dividendFcfData.dividendPayout && newPrice > 0
+          ? (dividendFcfData.dividendPayout / newPrice) * 100
+          : dividendFcfData.dividendYield;
+        
+        setDividendFcfData({
+          ...dividendFcfData,
+          price: newPrice,
+          dividendYield
+        });
+      }
+    }
+  }, [ddmData?.currentPrice, formData.active_price]);
 
   // Sync DDM Price with DDM with Safety value when DDM data is loaded
   useEffect(() => {
@@ -435,6 +468,128 @@ export default function CompanyWatchlistPage() {
       setDdmData(null);
     } finally {
       setDdmLoading(false);
+    }
+  };
+
+  // Calculate CAGR: (Ending Value / Starting Value)^(1 / Years) - 1
+  const calculateCAGR = (startValue: number, endValue: number, years: number): number => {
+    if (startValue <= 0 || years <= 0) return 0;
+    return (Math.pow(endValue / startValue, 1 / years) - 1) * 100;
+  };
+
+  // Fetch Dividend & FCF Analysis data
+  const fetchDividendFcfData = async (symbol: string) => {
+    setDividendFcfLoading(true);
+    try {
+      // Fetch data from dividend-breakdown API
+      const response = await fetch(`/api/dividend-breakdown?symbol=${symbol}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          setDividendFcfData(null);
+          return;
+        }
+        console.error('Dividend FCF API error:', response.status);
+        setDividendFcfData(null);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      if (!result.data || result.data.length === 0) {
+        setDividendFcfData(null);
+        return;
+      }
+
+      // Sort data by year descending
+      const sortedData = result.data.sort((a: any, b: any) => b.year - a.year);
+      
+      if (sortedData.length < 2) {
+        setDividendFcfData(null);
+        return;
+      }
+
+      const latestYear = sortedData[0].year;
+      const latest = sortedData[0];
+
+      // Get all years that have data (non-zero values)
+      const yearsWithData = sortedData
+        .filter((item: any) => 
+          (parseFloat(item.free_cash_flow) || 0) > 0 || 
+          (parseFloat(item.dividends_paid) || 0) > 0 || 
+          (parseFloat(item.adjusted_dividend) || 0) > 0
+        )
+        .map((item: any) => item.year)
+        .sort((a: number, b: number) => a - b); // Sort ascending (oldest first)
+
+      if (yearsWithData.length < 2) {
+        setDividendFcfData(null);
+        return;
+      }
+
+      // Get the oldest and latest years that have data
+      const oldestYear = yearsWithData[0];
+      const actualYears = latestYear - oldestYear;
+
+      // Find data for specific years
+      const oldestData = sortedData.find((item: any) => item.year === oldestYear);
+      const fcf5Y = sortedData.find((item: any) => item.year === latestYear - 5);
+      const div5Y = sortedData.find((item: any) => item.year === latestYear - 5);
+
+      const latestFCF = parseFloat(latest.free_cash_flow) || 0;
+      const latestDividendsPaid = parseFloat(latest.dividends_paid) || 0;
+      const latestAdjustedDividend = parseFloat(latest.adjusted_dividend) || 0;
+
+      const oldestFCF = oldestData ? (parseFloat(oldestData.free_cash_flow) || 0) : 0;
+      const oldestDividend = oldestData ? (parseFloat(oldestData.adjusted_dividend) || 0) : 0;
+
+      // Calculate FCF CAGR (10 year) - use oldest and latest if we have at least 9 years of data (10 data points)
+      const fcfCAGR10Y = oldestFCF > 0 && latestFCF > 0 && actualYears >= 9
+        ? calculateCAGR(oldestFCF, latestFCF, actualYears)
+        : null;
+      
+      // Calculate FCF CAGR (5 year)
+      const fcfCAGR5Y = fcf5Y && latestFCF > 0 && parseFloat(fcf5Y.free_cash_flow) > 0
+        ? calculateCAGR(parseFloat(fcf5Y.free_cash_flow), latestFCF, 5)
+        : null;
+
+      // Calculate Dividend CAGR (10 year) - use oldest and latest if we have at least 9 years of data
+      const dividendCAGR10Y = oldestDividend > 0 && latestAdjustedDividend > 0 && actualYears >= 9
+        ? calculateCAGR(oldestDividend, latestAdjustedDividend, actualYears)
+        : null;
+      
+      // Calculate Dividend CAGR (5 year)
+      const dividendCAGR5Y = div5Y && latestAdjustedDividend > 0 && parseFloat(div5Y.adjusted_dividend) > 0
+        ? calculateCAGR(parseFloat(div5Y.adjusted_dividend), latestAdjustedDividend, 5)
+        : null;
+
+      // Get current metrics
+      const price = formData.active_price || ddmData?.currentPrice || null;
+      const dividendPayout = latestAdjustedDividend > 0 ? latestAdjustedDividend : null;
+      const dividendYield = price && dividendPayout && price > 0
+        ? (dividendPayout / price) * 100
+        : null;
+      const payoutRatioTTM = parseFloat(latest.payout_ratio) || null;
+      const fcfPayoutRatioTTM = latestFCF > 0 && latestDividendsPaid > 0
+        ? latestDividendsPaid / latestFCF
+        : null;
+
+      setDividendFcfData({
+        dividendCAGR10Y,
+        dividendCAGR5Y,
+        fcfCAGR10Y,
+        fcfCAGR5Y,
+        price,
+        dividendPayout,
+        dividendYield,
+        payoutRatioTTM,
+        fcfPayoutRatioTTM
+      });
+    } catch (error) {
+      console.error('Error fetching Dividend & FCF data:', error);
+      setDividendFcfData(null);
+    } finally {
+      setDividendFcfLoading(false);
     }
   };
 
@@ -1372,6 +1527,65 @@ export default function CompanyWatchlistPage() {
       console.error('Error creating valuation analysis prompt:', error);
       setMessage({ type: 'error', text: error?.message || 'Failed to create valuation analysis prompt.' });
       setAskAiClicked(false);
+    }
+  };
+
+  const handleAskDividendFcfAI = async () => {
+    if (!formData.stock || !dividendFcfData) {
+      setMessage({ type: 'error', text: 'Stock symbol and dividend data are required' });
+      return;
+    }
+
+    try {
+      setAskDividendFcfAiClicked(true);
+      
+      // Build the prompt with all Dividend & FCF Analysis data
+      const lines: string[] = [];
+      lines.push('You are a dividend investment analyst. Please review the following Dividend & Free Cash Flow (FCF) analysis data for this stock.');
+      lines.push(`\nStock Symbol: ${formData.stock.toUpperCase()}`);
+      lines.push(`Current Price: ${dividendFcfData.price !== null ? `$${dividendFcfData.price.toFixed(2)}` : 'N/A'}`);
+      
+      lines.push(`\n--- CAGR METRICS ---`);
+      lines.push(`10 Year Dividend CAGR: ${dividendFcfData.dividendCAGR10Y !== null ? `${dividendFcfData.dividendCAGR10Y >= 0 ? '+' : ''}${dividendFcfData.dividendCAGR10Y.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`5 Year Dividend CAGR: ${dividendFcfData.dividendCAGR5Y !== null ? `${dividendFcfData.dividendCAGR5Y >= 0 ? '+' : ''}${dividendFcfData.dividendCAGR5Y.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`10 Year FCF CAGR: ${dividendFcfData.fcfCAGR10Y !== null ? `${dividendFcfData.fcfCAGR10Y >= 0 ? '+' : ''}${dividendFcfData.fcfCAGR10Y.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`5 Year FCF CAGR: ${dividendFcfData.fcfCAGR5Y !== null ? `${dividendFcfData.fcfCAGR5Y >= 0 ? '+' : ''}${dividendFcfData.fcfCAGR5Y.toFixed(2)}%` : 'N/A'}`);
+      
+      lines.push(`\n--- CURRENT METRICS ---`);
+      lines.push(`Price: ${dividendFcfData.price !== null ? `$${dividendFcfData.price.toFixed(2)}` : 'N/A'}`);
+      lines.push(`Dividend Payout: ${dividendFcfData.dividendPayout !== null ? `$${dividendFcfData.dividendPayout.toFixed(2)}` : 'N/A'}`);
+      lines.push(`Dividend Yield: ${dividendFcfData.dividendYield !== null ? `${dividendFcfData.dividendYield.toFixed(2)}%` : 'N/A'}`);
+      lines.push(`Payout Ratio TTM: ${dividendFcfData.payoutRatioTTM !== null ? `${(dividendFcfData.payoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}`);
+      lines.push(`FCF Payout Ratio TTM: ${dividendFcfData.fcfPayoutRatioTTM !== null ? `${(dividendFcfData.fcfPayoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}`);
+      
+      lines.push(`\n--- ANALYSIS REQUEST ---`);
+      lines.push('\nPlease:');
+      lines.push('1. Validate the data - Check if the CAGR calculations, payout ratios, and other metrics appear correct and reasonable');
+      lines.push('2. Explain what the data means - Interpret the CAGR growth rates, payout ratios, and dividend yield in the context of dividend investing');
+      lines.push('3. Assess dividend sustainability - Evaluate whether the dividend appears sustainable based on FCF coverage and payout ratios');
+      lines.push('4. Evaluate growth trends - Analyze the 5-year vs 10-year CAGR trends to understand if growth is accelerating or decelerating');
+      lines.push('5. Provide investment recommendation - Based on this analysis, is this stock a good buy for a dividend-focused investment strategy?');
+      lines.push('6. Identify risks - What are the key risks or concerns based on these metrics?');
+      lines.push('7. Compare to benchmarks - How do these metrics compare to typical dividend aristocrat or dividend growth stock standards?');
+      
+      const prompt = lines.join('\n');
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setMessage({ type: 'success', text: 'Dividend & FCF analysis prompt copied to clipboard! Paste into ChatGPT for analysis and recommendations.' });
+        
+        // Reset the clicked state after 3 seconds
+        setTimeout(() => {
+          setAskDividendFcfAiClicked(false);
+        }, 3000);
+      } else {
+        setMessage({ type: 'error', text: 'Could not access clipboard. Please copy the prompt manually.' });
+        setAskDividendFcfAiClicked(false);
+      }
+    } catch (error: any) {
+      console.error('Error creating dividend & FCF analysis prompt:', error);
+      setMessage({ type: 'error', text: error?.message || 'Failed to create dividend & FCF analysis prompt.' });
+      setAskDividendFcfAiClicked(false);
     }
   };
 
@@ -2928,23 +3142,6 @@ export default function CompanyWatchlistPage() {
               </div>
             )}
 
-            {/* DCF Entry Buttons */}
-            {matchingDcfEntries.length > 0 && (
-              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                <div className="flex flex-wrap items-center justify-center gap-3">
-                  {matchingDcfEntries.map((entry) => (
-                    <Link
-                      key={entry.id}
-                      href={`/dcf?id=${entry.id}`}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
-                    >
-                      Calculations - {new Date(entry.created_at).toLocaleDateString()}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Open DCF Page Button */}
             <div className="flex justify-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
               <Link
@@ -3020,6 +3217,98 @@ export default function CompanyWatchlistPage() {
                   </Link>
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* Dividend & FCF Analysis Section */}
+        {showSections && formData.stock && dividendFcfData && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Dividend & FCF Analysis</h2>
+              <button
+                onClick={handleAskDividendFcfAI}
+                disabled={!formData.stock || askDividendFcfAiClicked || !dividendFcfData}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                  askDividendFcfAiClicked
+                    ? 'bg-green-600 text-white cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
+                }`}
+              >
+                {askDividendFcfAiClicked ? '✓ Copied!' : '🤖 Ask AI'}
+              </button>
+            </div>
+            {dividendFcfLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-gray-500 dark:text-gray-400">Loading Dividend & FCF data...</div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-gray-300">Metric</th>
+                      <th className="text-right py-3 px-4 font-semibold text-gray-700 dark:text-gray-300">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">Price</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.price !== null ? `$${dividendFcfData.price.toFixed(2)}` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">10 Year Dividend CAGR</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.dividendCAGR10Y !== null ? `${dividendFcfData.dividendCAGR10Y >= 0 ? '+' : ''}${dividendFcfData.dividendCAGR10Y.toFixed(2)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">5 Year Dividend CAGR</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.dividendCAGR5Y !== null ? `${dividendFcfData.dividendCAGR5Y >= 0 ? '+' : ''}${dividendFcfData.dividendCAGR5Y.toFixed(2)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">10 Year FCF CAGR</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.fcfCAGR10Y !== null ? `${dividendFcfData.fcfCAGR10Y >= 0 ? '+' : ''}${dividendFcfData.fcfCAGR10Y.toFixed(2)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">5 Year FCF CAGR</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.fcfCAGR5Y !== null ? `${dividendFcfData.fcfCAGR5Y >= 0 ? '+' : ''}${dividendFcfData.fcfCAGR5Y.toFixed(2)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">Dividend Payout</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.dividendPayout !== null ? `$${dividendFcfData.dividendPayout.toFixed(2)}` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">Dividend Yield</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.dividendYield !== null ? `${dividendFcfData.dividendYield.toFixed(2)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">Payout Ratio TTM</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.payoutRatioTTM !== null ? `${(dividendFcfData.payoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">FCF Payout Ratio TTM</td>
+                      <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
+                        {dividendFcfData.fcfPayoutRatioTTM !== null ? `${(dividendFcfData.fcfPayoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

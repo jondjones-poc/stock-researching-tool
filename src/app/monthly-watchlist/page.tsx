@@ -187,68 +187,62 @@ export default function MonthlyWatchList() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">
-          Watchlist
-        </h1>
-
-        {/* Month/Year Selector */}
+        {/* Filter and Add Stock Section - Combined */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Filter by:
-            </label>
-            <select
-              value={currentMonth}
-              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
-                <option key={month} value={month}>
-                  {getMonthName(month)}
-                </option>
-              ))}
-            </select>
-            <select
-              value={currentYear}
-              onChange={(e) => setCurrentYear(parseInt(e.target.value))}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+          <div className="flex items-center gap-4 flex-wrap justify-between">
+            {/* Add Stock Section - First */}
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <select
+                id="stock-select"
+                value={selectedStockId}
+                onChange={(e) => setSelectedStockId(e.target.value)}
+                disabled={saving || loading}
+                className="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">-- Add Stock --</option>
+                {stockValuations.map((stock) => (
+                  <option key={stock.id} value={stock.id}>
+                    {stock.stock}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleAddStock}
+                disabled={saving || loading || !selectedStockId}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium whitespace-nowrap"
+              >
+                {saving ? 'Adding...' : 'Add'}
+              </button>
+            </div>
 
-        {/* Add Stock Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-          <div className="flex items-center gap-4">
-            <label htmlFor="stock-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Add Stock:
-            </label>
-            <select
-              id="stock-select"
-              value={selectedStockId}
-              onChange={(e) => setSelectedStockId(e.target.value)}
-              disabled={saving || loading}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="">-- Select a stock --</option>
-              {stockValuations.map((stock) => (
-                <option key={stock.id} value={stock.id}>
-                  {stock.stock}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={handleAddStock}
-              disabled={saving || loading || !selectedStockId}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-            >
-              {saving ? 'Adding...' : 'Add'}
-            </button>
+            {/* Filter by Section - Right Aligned */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                Filter by:
+              </label>
+              <select
+                value={currentMonth}
+                onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                  <option key={month} value={month}>
+                    {getMonthName(month)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={currentYear}
+                onChange={(e) => setCurrentYear(parseInt(e.target.value))}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 

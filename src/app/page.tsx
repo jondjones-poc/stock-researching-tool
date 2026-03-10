@@ -753,46 +753,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
-      {/* Header */}
-      <div className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <span className="text-lg font-semibold">
-              {allWatchlistSymbols.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
-            </span>
-            <span className="text-sm text-gray-500 dark:text-gray-400">· 1W · NYSE</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            {getWatchlistData(selectedSymbol) && (
-              <>
-                <span className="text-xl font-bold text-green-400">
-                  {formatPrice(getWatchlistData(selectedSymbol)!.last)}
-                </span>
-                <span className="text-green-400">
-                  {formatChange(getWatchlistData(selectedSymbol)!.change)}
-                </span>
-                <span className="text-green-400">
-                  ({formatChangePercent(getWatchlistData(selectedSymbol)!.changePercent)})
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-4">
-          {/* Add Stock Button */}
-          <button 
-            onClick={() => setShowAddModal(true)}
-            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300"
-            title="Add Stock to Watchlist"
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-
       <div className="flex">
         {/* Main Chart Area */}
         <div className="flex-1 bg-white dark:bg-gray-900">
@@ -1545,6 +1505,15 @@ export default function DashboardPage() {
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-gray-900 dark:text-white">Watchlist</h3>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300 transition-colors"
+                title="Add Stock to Watchlist"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"></path>
+                </svg>
+              </button>
             </div>
             <select
               value={categoryFilter}
@@ -1686,18 +1655,6 @@ export default function DashboardPage() {
             )}
           </div>
           
-          {/* Add Stock Button - Pinned to bottom */}
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Stock
-            </button>
-          </div>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface CashFlowData {
@@ -34,6 +35,8 @@ interface Metrics {
 }
 
 export default function DividendFCFAnalysisPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [ticker, setTicker] = useState('');
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
@@ -261,6 +264,25 @@ export default function DividendFCFAnalysisPage() {
     loadSymbols();
   }, []);
 
+  // Load symbol from query string on page load
+  useEffect(() => {
+    const symbolFromQuery = searchParams.get('symbol');
+    if (symbolFromQuery && symbolFromQuery.trim()) {
+      const symbol = symbolFromQuery.trim().toUpperCase();
+      // Only load if it's different from current selection to avoid unnecessary reloads
+      if (symbol !== selectedSymbol) {
+        setSelectedSymbol(symbol);
+        setTicker(symbol);
+        // Try to load from database
+        loadDataFromDatabase(symbol);
+      }
+    } else if (!symbolFromQuery && selectedSymbol) {
+      // Clear selection if query string is removed
+      setSelectedSymbol('');
+      setTicker('');
+    }
+  }, [searchParams]);
+
 
   // Load data from database when symbol is selected
   const loadDataFromDatabase = async (symbol: string) => {
@@ -333,9 +355,11 @@ export default function DividendFCFAnalysisPage() {
 
   // Handle symbol selection from dropdown
   const handleSymbolSelect = (symbol: string) => {
-    setSelectedSymbol(symbol);
+    // Update URL with query string - useEffect will handle loading
     if (symbol) {
-      loadDataFromDatabase(symbol);
+      router.push(`/research/dividend-fcf-analysis?symbol=${encodeURIComponent(symbol)}`);
+    } else {
+      router.push('/research/dividend-fcf-analysis');
     }
   };
 
@@ -893,8 +917,8 @@ Thank you!`;
 - Price: ${currentMetrics.price !== null ? `$${currentMetrics.price.toFixed(2)}` : 'N/A'}
 - Dividend Payout: ${currentMetrics.dividendPayout !== null ? `$${currentMetrics.dividendPayout.toFixed(2)}` : 'N/A'}
 - Dividend Yield: ${currentMetrics.dividendYield !== null ? `${currentMetrics.dividendYield.toFixed(2)}%` : 'N/A'}
-- Payout Ratio TTM: ${currentMetrics.payoutRatioTTM !== null ? currentMetrics.payoutRatioTTM.toFixed(3) : 'N/A'}
-- FCF Payout Ratio TTM: ${currentMetrics.fcfPayoutRatioTTM !== null ? currentMetrics.fcfPayoutRatioTTM.toFixed(3) : 'N/A'}
+- Payout Ratio TTM: ${currentMetrics.payoutRatioTTM !== null ? `${(currentMetrics.payoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}
+- FCF Payout Ratio TTM: ${currentMetrics.fcfPayoutRatioTTM !== null ? `${(currentMetrics.fcfPayoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}
 `;
 
     const prompt = `I have analyzed the dividend and free cash flow (FCF) data for ${symbol.toUpperCase()}. Please review the following information:
@@ -938,9 +962,6 @@ Thank you!`;
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">
-          💰 Dividend & FCF Analysis
-        </h1>
 
         {/* Symbol Selection and Ticker Input */}
         <div className="mb-6 space-y-4">
@@ -1243,7 +1264,7 @@ Thank you!`;
                         Payout Ratio TTM
                       </td>
                       <td className="px-4 py-3 text-sm text-center text-gray-700 dark:text-gray-300">
-                        {currentMetrics.payoutRatioTTM !== null ? currentMetrics.payoutRatioTTM.toFixed(3) : 'N/A'}
+                        {currentMetrics.payoutRatioTTM !== null ? `${(currentMetrics.payoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}
                       </td>
                     </tr>
                     <tr className="hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -1251,7 +1272,7 @@ Thank you!`;
                         FCF Payout Ratio TTM
                       </td>
                       <td className="px-4 py-3 text-sm text-center text-gray-700 dark:text-gray-300">
-                        {currentMetrics.fcfPayoutRatioTTM !== null ? currentMetrics.fcfPayoutRatioTTM.toFixed(3) : 'N/A'}
+                        {currentMetrics.fcfPayoutRatioTTM !== null ? `${(currentMetrics.fcfPayoutRatioTTM * 100).toFixed(1)}%` : 'N/A'}
                       </td>
                     </tr>
                   </tbody>
@@ -1300,13 +1321,14 @@ Thank you!`;
                   <XAxis
                     dataKey="year"
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
                   />
                   <YAxis
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
                     tickFormatter={(tick) => tick.toFixed(3)}
-                    label={{ value: 'FCF Payout Ratio', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.7)' } }}
+                    width={80}
+                    label={{ value: 'FCF Payout Ratio', angle: -90, position: 'left', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.9)', fontSize: 16, fontWeight: 'bold' }, offset: 15 }}
                   />
                   <Tooltip
                     formatter={(value: number) => [value.toFixed(3), 'FCF Payout Ratio']}
@@ -1326,6 +1348,55 @@ Thank you!`;
                   />
                 </LineChart>
               </ResponsiveContainer>
+              
+              {/* Explanation Section for FCF Payout Ratio Over Time */}
+              <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-200 mb-3">
+                  📊 What to Look For: Interpreting FCF Payout Ratio Over Time
+                </h3>
+                <div className="space-y-3 text-sm text-purple-800 dark:text-purple-200">
+                  <div>
+                    <strong className="font-semibold">1. Understanding the Ratio:</strong> The FCF Payout Ratio shows what percentage of Free Cash Flow is paid out as dividends. A ratio of <strong>0.50</strong> means 50% of FCF goes to dividends, leaving 50% for reinvestment and growth.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">2. Ideal Range:</strong> For dividend kingdom stocks, look for ratios typically between <strong>0.30 and 0.70</strong>:
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li><strong>Below 0.30:</strong> Very conservative, room for significant dividend increases</li>
+                      <li><strong>0.30-0.50:</strong> Healthy balance, sustainable with growth potential</li>
+                      <li><strong>0.50-0.70:</strong> Higher payout, still sustainable but less room for growth</li>
+                      <li><strong>Above 0.70:</strong> Warning sign - may be unsustainable long-term</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong className="font-semibold">3. Trend Analysis:</strong> Look for <strong>stable or declining trends</strong>:
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li><strong>Declining ratio:</strong> Good sign - dividends growing slower than FCF, improving sustainability</li>
+                      <li><strong>Stable ratio:</strong> Healthy - company maintaining balance as both grow</li>
+                      <li><strong>Rising ratio:</strong> Monitor closely - may indicate dividends growing faster than FCF can support</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong className="font-semibold">4. Consistency Matters:</strong> The line should be <strong>relatively smooth</strong> without wild swings. Erratic patterns suggest:
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li>Unpredictable cash flow generation</li>
+                      <li>Inconsistent dividend policy</li>
+                      <li>Potential financial instability</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong className="font-semibold">5. Red Flags to Avoid:</strong>
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li>Ratio consistently above 0.80 or 0.90 (unsustainable)</li>
+                      <li>Ratio above 1.0 (paying more in dividends than generating FCF - major red flag)</li>
+                      <li>Sharp upward spikes (dividend increases outpacing FCF growth)</li>
+                      <li>Extreme volatility year-to-year</li>
+                    </ul>
+                  </div>
+                  <div className="pt-2 border-t border-purple-300 dark:border-purple-700">
+                    <strong className="font-semibold">💡 Ideal Dividend Kingdom Stock:</strong> A company with an FCF Payout Ratio that stays within a healthy range (0.30-0.70), shows a stable or slightly declining trend over time, and demonstrates consistency. This indicates the company can sustainably pay and grow dividends while maintaining financial flexibility for reinvestment and growth opportunities.
+                  </div>
+                </div>
+              </div>
             </div>
           );
         })()}
@@ -1380,12 +1451,13 @@ Thank you!`;
                   <XAxis 
                     dataKey="year" 
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
                   />
                   <YAxis 
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
-                    label={{ value: 'Payout Ratio', angle: -90, position: 'insideLeft', style: { fill: 'rgba(107, 114, 128, 0.7)' } }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
+                    width={80}
+                    label={{ value: 'Payout Ratio', angle: -90, position: 'left', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.9)', fontSize: 16, fontWeight: 'bold' }, offset: 15 }}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -1419,12 +1491,13 @@ Thank you!`;
                   <XAxis 
                     dataKey="year" 
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
                   />
                   <YAxis 
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
-                    label={{ value: 'Amount ($)', angle: -90, position: 'insideLeft', style: { fill: 'rgba(107, 114, 128, 0.7)' } }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
+                    width={80}
+                    label={{ value: 'Amount ($)', angle: -90, position: 'left', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.9)', fontSize: 16, fontWeight: 'bold' }, offset: 15 }}
                     tickFormatter={(value) => formatNumber(value)}
                   />
                   <Tooltip 
@@ -1538,18 +1611,19 @@ Thank you!`;
                   <XAxis
                     dataKey="year"
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
                   />
                   <YAxis
                     stroke="rgba(107, 114, 128, 0.5)"
-                    tick={{ fill: 'rgba(107, 114, 128, 0.7)' }}
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
                     tickFormatter={(tick) => {
                       if (tick >= 1000000000) return `${(tick / 1000000000).toFixed(1)}B`;
                       if (tick >= 1000000) return `${(tick / 1000000).toFixed(1)}M`;
                       if (tick >= 1000) return `${(tick / 1000).toFixed(1)}K`;
                       return tick.toString();
                     }}
-                    label={{ value: 'Amount ($)', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.7)' } }}
+                    width={80}
+                    label={{ value: 'Amount ($)', angle: -90, position: 'left', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.9)', fontSize: 16, fontWeight: 'bold' }, offset: 15 }}
                   />
                   <Tooltip
                     formatter={(value: number, name: string) => {
@@ -1579,6 +1653,160 @@ Thank you!`;
                   />
                 </BarChart>
               </ResponsiveContainer>
+              
+              {/* Explanation Section for Dividend Kingdom Analysis */}
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-200 mb-3">
+                  📊 What to Look For: Evaluating Dividend Kingdom Candidates
+                </h3>
+                <div className="space-y-3 text-sm text-blue-800 dark:text-blue-200">
+                  <div>
+                    <strong className="font-semibold">1. Free Cash Flow Coverage:</strong> The blue bars (Free Cash Flow) should be consistently <strong>higher</strong> than the red bars (Dividends Paid). This shows the company generates enough cash to comfortably cover its dividend payments, providing a safety cushion.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">2. Growing Trend:</strong> Both lines should show an <strong>upward trajectory</strong> over time. Growing FCF indicates the business is healthy and expanding, while growing dividends show management's commitment to rewarding shareholders.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">3. Healthy Gap:</strong> There should be a <strong>meaningful gap</strong> between Free Cash Flow and Dividends Paid. A large gap (FCF significantly exceeds dividends) indicates:
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li>Room for future dividend increases</li>
+                      <li>Ability to reinvest in the business</li>
+                      <li>Protection during economic downturns</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong className="font-semibold">4. Consistency:</strong> Look for <strong>stable, predictable patterns</strong>. Avoid companies with erratic FCF or dividend payments, as this suggests business instability or unreliable dividend policies.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">5. Red Flags to Avoid:</strong>
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li>Dividends Paid exceeding Free Cash Flow (dividend is not sustainable)</li>
+                      <li>Declining FCF while dividends remain flat or grow (unsustainable long-term)</li>
+                      <li>Erratic patterns with large year-to-year swings</li>
+                    </ul>
+                  </div>
+                  <div className="pt-2 border-t border-blue-300 dark:border-blue-700">
+                    <strong className="font-semibold">💡 Ideal Dividend Kingdom Stock:</strong> A company where Free Cash Flow consistently exceeds Dividends Paid by a healthy margin, both metrics show steady growth over time, and the pattern demonstrates reliability and sustainability. This indicates a strong candidate for a dividend growth portfolio.
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Yearly Dividends Bar Chart - Full Width */}
+        {tableYears.length > 0 && (() => {
+          // Prepare chart data from editableTableData
+          const yearlyDividendsData = tableYears
+            .map(year => {
+              const adjustedDividend = getCellValue(year, 'adjustedDividend');
+              return {
+                year: year.toString(),
+                adjustedDividend: adjustedDividend > 0 ? adjustedDividend : null
+              };
+            })
+            .filter(item => item.adjustedDividend !== null);
+
+          if (yearlyDividendsData.length === 0) {
+            return null;
+          }
+
+          return (
+            <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                Yearly Dividends
+              </h2>
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart data={yearlyDividendsData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="year"
+                    stroke="rgba(107, 114, 128, 0.5)"
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
+                  />
+                  <YAxis
+                    stroke="rgba(107, 114, 128, 0.5)"
+                    tick={{ fill: 'rgba(107, 114, 128, 0.9)', fontSize: 14 }}
+                    tickFormatter={(tick) => {
+                      if (tick >= 1000000000) return `$${(tick / 1000000000).toFixed(1)}B`;
+                      if (tick >= 1000000) return `$${(tick / 1000000).toFixed(1)}M`;
+                      if (tick >= 1000) return `$${(tick / 1000).toFixed(1)}K`;
+                      return `$${tick.toFixed(2)}`;
+                    }}
+                    width={80}
+                    label={{ value: 'Dividend Amount ($)', angle: -90, position: 'left', style: { textAnchor: 'middle', fill: 'rgba(107, 114, 128, 0.9)', fontSize: 16, fontWeight: 'bold' }, offset: 15 }}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => {
+                      const formatted = value >= 1000000000
+                        ? `$${(value / 1000000000).toFixed(2)}B`
+                        : value >= 1000000
+                        ? `$${(value / 1000000).toFixed(2)}M`
+                        : value >= 1000
+                        ? `$${(value / 1000).toFixed(2)}K`
+                        : `$${value.toFixed(2)}`;
+                      return [formatted, 'Adjusted Dividend'];
+                    }}
+                    labelFormatter={(label) => `Year: ${label}`}
+                    contentStyle={{ backgroundColor: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: '0.5rem' }}
+                    labelStyle={{ color: '#1f2937' }}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="adjustedDividend"
+                    name="Adjusted Dividend"
+                    fill="#10b981"
+                    label={{
+                      position: 'top',
+                      formatter: (label: any) => {
+                        const value = typeof label === 'number' ? label : (label?.value ?? 0);
+                        return value > 0 ? `$${value.toFixed(2)}` : '';
+                      },
+                      fill: 'rgba(107, 114, 128, 0.9)',
+                      fontSize: 12,
+                      fontWeight: 'bold'
+                    }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+              
+              {/* Explanation Section for Yearly Dividends Analysis */}
+              <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <h3 className="text-lg font-semibold text-green-900 dark:text-green-200 mb-3">
+                  📈 What to Look For: Evaluating Dividend Growth for Dividend Kingdom
+                </h3>
+                <div className="space-y-3 text-sm text-green-800 dark:text-green-200">
+                  <div>
+                    <strong className="font-semibold">1. Consistent Growth Pattern:</strong> Look for a <strong>steady upward trend</strong> in dividend payments over time. The bars should generally increase from left to right (oldest to newest year), showing the company's commitment to growing shareholder returns.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">2. No Cuts or Suspensions:</strong> A strong dividend kingdom candidate should have <strong>no years with zero dividends</strong> or significant decreases. Even during economic downturns, dividend aristocrats and kings maintain or increase their payouts.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">3. Growth Rate:</strong> Calculate the <strong>compound annual growth rate (CAGR)</strong> of dividends. Ideal candidates show:
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li>5-year CAGR of 5% or higher</li>
+                      <li>10-year CAGR showing consistent long-term growth</li>
+                      <li>Growth that outpaces inflation (typically 2-3%)</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong className="font-semibold">4. Predictability:</strong> The pattern should be <strong>smooth and predictable</strong>, not erratic. Companies that raise dividends annually (or quarterly) demonstrate financial discipline and shareholder-friendly management.
+                  </div>
+                  <div>
+                    <strong className="font-semibold">5. Red Flags to Avoid:</strong>
+                    <ul className="list-disc list-inside mt-1 ml-4 space-y-1">
+                      <li>Flat or declining dividends over multiple years</li>
+                      <li>Erratic patterns with large swings up and down</li>
+                      <li>Recent dividend cuts or suspensions</li>
+                      <li>Dividends that don't keep pace with inflation</li>
+                    </ul>
+                  </div>
+                  <div className="pt-2 border-t border-green-300 dark:border-green-700">
+                    <strong className="font-semibold">💡 Ideal Dividend Kingdom Stock:</strong> A company that shows consistent, predictable dividend growth year-over-year, with no cuts or suspensions, and a strong CAGR that demonstrates management's commitment to rewarding shareholders. This graph should tell a story of reliability and growth - the foundation of a strong dividend portfolio.
+                  </div>
+                </div>
+              </div>
             </div>
           );
         })()}
