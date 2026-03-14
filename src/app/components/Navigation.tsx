@@ -9,7 +9,8 @@ export default function Navigation() {
   // Determine which tab is active based on pathname
   const isFinancesTab = pathname?.startsWith('/finances') || false;
   const isResearchTab = pathname?.startsWith('/research') || false;
-  const isStocksTab = !isFinancesTab && !isResearchTab && (
+  const isReportingTab = pathname?.startsWith('/reporting') || false;
+  const isStocksTab = !isFinancesTab && !isResearchTab && !isReportingTab && (
     pathname === '/watchlist' || 
     pathname === '/compare' ||
     pathname === '/dcf' ||
@@ -56,6 +57,16 @@ export default function Navigation() {
             >
               🔍 Research
             </Link>
+            <Link
+              href="/reporting"
+              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
+                isReportingTab
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              📋 Reporting
+            </Link>
           </div>
           <Link
             href="/settings"
@@ -74,13 +85,13 @@ export default function Navigation() {
         </div>
 
         {/* Menu Items - Show based on active tab */}
-        <div className="flex justify-between items-center py-4">
-          <div className="flex items-center space-x-8">
+        <div className="flex justify-between items-center py-3">
+          <div className="flex items-center flex-nowrap gap-x-5">
             {isFinancesTab && (
               <>
                 <Link 
                   href="/finances/summary" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/summary'
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -90,7 +101,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/finances" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances'
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -100,7 +111,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/finances/networth-report" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/networth-report' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -110,7 +121,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/finances/24-7-wage" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/24-7-wage' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -120,7 +131,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/finances/retirement-by-target-pot" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/retirement-by-target-pot' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -130,7 +141,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/finances/cashflow" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/cashflow' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -140,7 +151,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/finances/investment-tracker" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/investment-tracker' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -148,13 +159,23 @@ export default function Navigation() {
                 >
                   📈 Investment Tracker
                 </Link>
+                <Link 
+                  href="/finances/dividends" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/finances/dividends' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  💰 Portfolio
+                </Link>
               </>
             )}
             {isResearchTab && (
               <>
                 <Link 
                   href="/research/world-alerts" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/research/world-alerts' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -164,7 +185,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/research/dividend-fcf-analysis" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/research/dividend-fcf-analysis' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -174,11 +195,25 @@ export default function Navigation() {
                 </Link>
               </>
             )}
+            {isReportingTab && (
+              <>
+                <Link 
+                  href="/reporting" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/reporting' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  Retirement
+                </Link>
+              </>
+            )}
             {isStocksTab && (
               <>
                 <Link 
                   href="/" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -188,7 +223,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/monthly-watchlist" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/monthly-watchlist' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -198,7 +233,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/watchlist" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/watchlist' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -208,7 +243,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/compare" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/compare' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -218,7 +253,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/dcf" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/dcf' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -228,7 +263,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/ddm" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/ddm' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
@@ -238,7 +273,7 @@ export default function Navigation() {
                 </Link>
                 <Link 
                   href="/graphs" 
-                  className={`text-lg font-semibold transition-colors ${
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/graphs' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
