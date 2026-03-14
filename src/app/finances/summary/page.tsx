@@ -67,6 +67,11 @@ export default function SummaryPage() {
   const [totalPortfolioValueAtRetirement, setTotalPortfolioValueAtRetirement] = useState<number | null>(null);
   const [totalInvestedAmount, setTotalInvestedAmount] = useState<number | null>(null);
 
+  // Dividend summary (from dividend filter on Portfolio page)
+  const [dividendYearlyGbp, setDividendYearlyGbp] = useState<number | null>(null);
+  const [dividendMonthlyGbp, setDividendMonthlyGbp] = useState<number | null>(null);
+  const [dividendYieldPct, setDividendYieldPct] = useState<number | null>(null);
+
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const investmentTarget = 20000; // £20,000 per year
@@ -168,6 +173,61 @@ export default function SummaryPage() {
     };
     fetchIncomeEntries();
   }, [currentYear]);
+
+  // Fetch dividend summary (dividend filter only: same logic as Portfolio page)
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const [divRes, gbpRes, cacheRes] = await Promise.all([
+          fetch('/api/etoro/dividends'),
+          fetch('/api/usd-to-gbp'),
+          fetch('/api/etoro/stock-ticker-cache'),
+        ]);
+        if (cancelled) return;
+        const divData = await divRes.json().catch(() => ({}));
+        const stocks = Array.isArray(divData.stocks) ? divData.stocks : [];
+        const cacheData = cacheRes.ok ? await cacheRes.json() : { rows: [] };
+        const rows = Array.isArray(cacheData.rows) ? cacheData.rows : [];
+        const isDividendByInstrument: Record<number, boolean> = {};
+        rows.forEach((r: { instrumentId?: number; isDividend?: boolean }) => {
+          const id = r.instrumentId;
+          if (id != null && typeof r.isDividend === 'boolean') isDividendByInstrument[id] = r.isDividend;
+        });
+        const isDividendStock = (s: { instrumentId?: number; isDividend?: boolean | string | null }) => {
+          const id = s.instrumentId;
+          const fromCache = id != null ? isDividendByInstrument[id] : undefined;
+          const flag = typeof fromCache === 'boolean' ? fromCache : s.isDividend;
+          return flag !== false && flag !== 'false';
+        };
+        const dividendStocks = stocks.filter(isDividendStock);
+        const toUse = dividendStocks.length > 0 ? dividendStocks : stocks;
+        let totalValue = 0;
+        let totalYearly = 0;
+        toUse.forEach((s: { currentPrice?: number; sharesOwned?: number; dividendPerShare?: number }) => {
+          const p = Number(s.currentPrice);
+          const sh = Number(s.sharesOwned);
+          const dps = Number(s.dividendPerShare);
+          if (Number.isFinite(p) && Number.isFinite(sh)) totalValue += p * sh;
+          if (Number.isFinite(dps) && Number.isFinite(sh)) totalYearly += dps * sh;
+        });
+        const rate = gbpRes.ok ? (await gbpRes.json())?.rate : null;
+        const gbpRate = Number.isFinite(rate) ? Number(rate) : 1;
+        if (cancelled) return;
+        setDividendYearlyGbp(totalYearly * gbpRate);
+        setDividendMonthlyGbp((totalYearly / 12) * gbpRate);
+        setDividendYieldPct(totalValue > 0 ? (totalYearly / totalValue) * 100 : null);
+      } catch {
+        if (!cancelled) {
+          setDividendYearlyGbp(null);
+          setDividendMonthlyGbp(null);
+          setDividendYieldPct(null);
+        }
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, []);
 
   // Get previous month networth
   const getPreviousMonthNetworth = () => {
@@ -979,6 +1039,37 @@ export default function SummaryPage() {
                 )}
                 <div className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                   {currentYear}
+                </div>
+              </div>
+            </div>
+
+            {/* Dividend Summary Section - at bottom */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                Dividend Summary
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Yearly Dividend</div>
+                  <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                    {dividendYearlyGbp != null
+                      ? `£${dividendYearlyGbp.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Monthly Dividend</div>
+                  <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                    {dividendMonthlyGbp != null
+                      ? `£${dividendMonthlyGbp.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Portfolio Dividend Yield</div>
+                  <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                    {dividendYieldPct != null ? `${dividendYieldPct.toFixed(2)}%` : '—'}
+                  </div>
                 </div>
               </div>
             </div>

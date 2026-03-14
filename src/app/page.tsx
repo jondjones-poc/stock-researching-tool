@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { dashboardConfig, WatchlistSymbol } from './config/dashboard';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -51,6 +51,18 @@ interface FearGreedPoint {
 }
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-gray-500 dark:text-gray-400">Loading dashboard...</div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
@@ -185,14 +197,24 @@ export default function DashboardPage() {
   };
 
   // Fetch watchlist data - only for visible symbols in current category
-  const fetchWatchlistData = async () => {
+  // Use ref to prevent infinite loops from object dependencies
+  const watchlistSymbolsRef = useRef(watchlistSymbols);
+  const allWatchlistSymbolsRef = useRef(allWatchlistSymbols);
+  
+  // Update refs when values change
+  useEffect(() => {
+    watchlistSymbolsRef.current = watchlistSymbols;
+    allWatchlistSymbolsRef.current = allWatchlistSymbols;
+  }, [watchlistSymbols, allWatchlistSymbols]);
+
+  const fetchWatchlistData = useCallback(async () => {
     try {
       let symbolsToFetch: WatchlistSymbol[] = [];
       
       if (categoryFilter === 'ALL') {
-        symbolsToFetch = allWatchlistSymbols;
+        symbolsToFetch = allWatchlistSymbolsRef.current;
       } else {
-        symbolsToFetch = watchlistSymbols[categoryFilter] || [];
+        symbolsToFetch = watchlistSymbolsRef.current[categoryFilter] || [];
       }
       
       const symbolList = symbolsToFetch.map(symbol => symbol.symbol);
@@ -220,7 +242,7 @@ export default function DashboardPage() {
       // Don't set error state - just use empty data
       setWatchlistData([]);
     }
-  };
+  }, [categoryFilter]);
 
   // Calculate date range based on selected period
   const getDateRange = (period: string) => {
@@ -575,8 +597,7 @@ export default function DashboardPage() {
         fetchChartData(selectedSymbol, selectedPeriod);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, watchlistSymbols, allWatchlistSymbols]);
+  }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, fetchWatchlistData]);
 
   // Close context menu on click outside
   useEffect(() => {

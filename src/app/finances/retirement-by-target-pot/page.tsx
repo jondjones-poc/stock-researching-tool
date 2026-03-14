@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { RetirementByDividends } from '../retirement-by-dividends/page';
 
 interface NetworthReportData {
   year: number;
@@ -2900,12 +2901,12 @@ export default function RetirementByTargetPotPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<'cashflow' | 'target' | 'summary'>(
-    (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary') ? tabParam : 'summary'
+  const [activeTab, setActiveTab] = useState<'cashflow' | 'target' | 'summary' | 'dividends'>(
+    (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary' || tabParam === 'dividends') ? tabParam : 'summary'
   );
 
   // Update URL when tab changes
-  const handleTabChange = (tab: 'cashflow' | 'target' | 'summary') => {
+  const handleTabChange = (tab: 'cashflow' | 'target' | 'summary' | 'dividends') => {
     setActiveTab(tab);
     router.push(`/finances/retirement-by-target-pot?tab=${tab}`, { scroll: false });
   };
@@ -2913,7 +2914,7 @@ export default function RetirementByTargetPotPage() {
   // Sync with URL on mount
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary') {
+    if (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary' || tabParam === 'dividends') {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
@@ -2954,6 +2955,16 @@ export default function RetirementByTargetPotPage() {
             >
               Retirement by Target Pot
             </button>
+            <button
+              onClick={() => handleTabChange('dividends')}
+              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
+                activeTab === 'dividends'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              Retirement by Dividends
+            </button>
           </div>
         </div>
 
@@ -2961,6 +2972,7 @@ export default function RetirementByTargetPotPage() {
         {activeTab === 'cashflow' && <RetirementByCashflow />}
         {activeTab === 'target' && <RetirementByTargetPot />}
         {activeTab === 'summary' && <RetirementSummary />}
+        {activeTab === 'dividends' && <RetirementByDividends />}
       </div>
     </div>
   );
