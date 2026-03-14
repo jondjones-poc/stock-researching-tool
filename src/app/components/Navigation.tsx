@@ -8,17 +8,18 @@ export default function Navigation() {
   
   // Determine which tab is active based on pathname
   const isFinancesTab = pathname?.startsWith('/finances') || false;
-  const isResearchTab = pathname?.startsWith('/research') || false;
+  const isResearchTab = pathname?.startsWith('/research') && pathname !== '/research/dividend-fcf-analysis' || false;
   const isReportingTab = pathname?.startsWith('/reporting') || false;
-  const isStocksTab = !isFinancesTab && !isResearchTab && !isReportingTab && (
-    pathname === '/watchlist' || 
+  const isStocksTab = !isFinancesTab && !isReportingTab && (
+    pathname === '/watchlist' ||
     pathname === '/compare' ||
     pathname === '/dcf' ||
     pathname === '/ddm' ||
     pathname === '/graphs' ||
     pathname === '/' ||
-    pathname === '/monthly-watchlist'
-  );
+    pathname === '/monthly-watchlist' ||
+    pathname === '/research/dividend-fcf-analysis'
+  ) || false;
 
 
   return (
@@ -48,6 +49,16 @@ export default function Navigation() {
               📈 Stocks
             </Link>
             <Link
+              href="/reporting/networth"
+              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
+                isReportingTab
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
+              }`}
+            >
+              📋 Reporting
+            </Link>
+            <Link
               href="/research/world-alerts"
               className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
                 isResearchTab
@@ -56,16 +67,6 @@ export default function Navigation() {
               }`}
             >
               🔍 Research
-            </Link>
-            <Link
-              href="/reporting"
-              className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
-                isReportingTab
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'
-              }`}
-            >
-              📋 Reporting
             </Link>
           </div>
           <Link
@@ -137,7 +138,7 @@ export default function Navigation() {
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  🎯 Retirement Target
+                  🎯 Retirement
                 </Link>
                 <Link 
                   href="/finances/cashflow" 
@@ -157,7 +158,7 @@ export default function Navigation() {
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  📈 Investment Tracker
+                  📈 Investing
                 </Link>
                 <Link 
                   href="/finances/dividends" 
@@ -183,20 +184,20 @@ export default function Navigation() {
                 >
                   🌍 World Alerts
                 </Link>
-                <Link 
-                  href="/research/dividend-fcf-analysis" 
-                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/research/dividend-fcf-analysis' 
-                      ? 'text-blue-600 dark:text-blue-400' 
-                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
-                  }`}
-                >
-                  💰 Dividend & FCF Analysis
-                </Link>
               </>
             )}
             {isReportingTab && (
               <>
+                <Link 
+                  href="/reporting/networth" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/reporting/networth' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  Networth
+                </Link>
                 <Link 
                   href="/reporting" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
@@ -270,6 +271,16 @@ export default function Navigation() {
                   }`}
                 >
                   💎 DDM
+                </Link>
+                <Link 
+                  href="/research/dividend-fcf-analysis" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/research/dividend-fcf-analysis' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  💰 Dividend & FCF Analysis
                 </Link>
                 <Link 
                   href="/graphs" 

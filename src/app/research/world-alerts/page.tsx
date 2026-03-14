@@ -79,20 +79,19 @@ export default function WorldAlertsPage() {
       const response = await fetch(`/api/gdelt?query=${encodeURIComponent(query)}&mode=GeoJSON&format=json`);
       
       if (!response.ok) {
-        // Try to get error message from response
         let errorMessage = 'Failed to fetch alerts';
         let userMessage = '';
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
-          userMessage = errorData.message || errorMessage;
-          
-          // Special handling for rate limiting
+          const text = await response.text();
+          const errorData = text ? (() => { try { return JSON.parse(text); } catch { return null; } })() : null;
+          if (errorData && typeof errorData === 'object') {
+            errorMessage = errorData.error || errorData.message || errorMessage;
+            userMessage = errorData.message || errorMessage;
+          }
           if (response.status === 429) {
             userMessage = 'Rate limit exceeded. The GDELT API is limiting requests. Please wait a few moments before trying again.';
           }
-          
-          console.error('API Error:', errorData);
+          console.error('API Error:', response.status, response.statusText, errorMessage);
         } catch (parseError) {
           console.error('API Error Status:', response.status, response.statusText);
           if (response.status === 429) {

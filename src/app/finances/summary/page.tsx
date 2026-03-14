@@ -174,49 +174,24 @@ export default function SummaryPage() {
     fetchIncomeEntries();
   }, [currentYear]);
 
-  // Fetch dividend summary (dividend filter only: same logic as Portfolio page)
+  // Fetch dividend summary from database (income_entry with income_type name like 'dividend')
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       try {
-        const [divRes, gbpRes, cacheRes] = await Promise.all([
-          fetch('/api/etoro/dividends'),
-          fetch('/api/usd-to-gbp'),
-          fetch('/api/etoro/stock-ticker-cache'),
+        const year = new Date().getFullYear();
+        const [monthRes, yearRes] = await Promise.all([
+          fetch('/api/dividend-income/current-month'),
+          fetch(`/api/dividend-income/year?year=${year}`),
         ]);
         if (cancelled) return;
-        const divData = await divRes.json().catch(() => ({}));
-        const stocks = Array.isArray(divData.stocks) ? divData.stocks : [];
-        const cacheData = cacheRes.ok ? await cacheRes.json() : { rows: [] };
-        const rows = Array.isArray(cacheData.rows) ? cacheData.rows : [];
-        const isDividendByInstrument: Record<number, boolean> = {};
-        rows.forEach((r: { instrumentId?: number; isDividend?: boolean }) => {
-          const id = r.instrumentId;
-          if (id != null && typeof r.isDividend === 'boolean') isDividendByInstrument[id] = r.isDividend;
-        });
-        const isDividendStock = (s: { instrumentId?: number; isDividend?: boolean | string | null }) => {
-          const id = s.instrumentId;
-          const fromCache = id != null ? isDividendByInstrument[id] : undefined;
-          const flag = typeof fromCache === 'boolean' ? fromCache : s.isDividend;
-          return flag !== false && flag !== 'false';
-        };
-        const dividendStocks = stocks.filter(isDividendStock);
-        const toUse = dividendStocks.length > 0 ? dividendStocks : stocks;
-        let totalValue = 0;
-        let totalYearly = 0;
-        toUse.forEach((s: { currentPrice?: number; sharesOwned?: number; dividendPerShare?: number }) => {
-          const p = Number(s.currentPrice);
-          const sh = Number(s.sharesOwned);
-          const dps = Number(s.dividendPerShare);
-          if (Number.isFinite(p) && Number.isFinite(sh)) totalValue += p * sh;
-          if (Number.isFinite(dps) && Number.isFinite(sh)) totalYearly += dps * sh;
-        });
-        const rate = gbpRes.ok ? (await gbpRes.json())?.rate : null;
-        const gbpRate = Number.isFinite(rate) ? Number(rate) : 1;
-        if (cancelled) return;
-        setDividendYearlyGbp(totalYearly * gbpRate);
-        setDividendMonthlyGbp((totalYearly / 12) * gbpRate);
-        setDividendYieldPct(totalValue > 0 ? (totalYearly / totalValue) * 100 : null);
+        const monthData = monthRes.ok ? await monthRes.json().catch(() => ({})) : {};
+        const yearData = yearRes.ok ? await yearRes.json().catch(() => ({})) : {};
+        const monthly = Number(monthData?.total);
+        const yearly = Number(yearData?.total);
+        setDividendMonthlyGbp(Number.isFinite(monthly) ? monthly : 0);
+        setDividendYearlyGbp(Number.isFinite(yearly) ? yearly : 0);
+        setDividendYieldPct(null);
       } catch {
         if (!cancelled) {
           setDividendYearlyGbp(null);
