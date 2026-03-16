@@ -376,6 +376,14 @@ export default function Home() {
 
       const result = await response.json();
 
+      if (response.status === 409) {
+        setSaveMessage({ 
+          type: 'success', 
+          text: `${data.symbol} is already in your Company Watchlist.` 
+        });
+        return;
+      }
+
       if (!response.ok) {
         setSaveMessage({ 
           type: 'error', 

@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create new stock valuation
+// POST - Create new stock valuation (reject if symbol already exists)
 export async function POST(request: NextRequest) {
   try {
     const body: StockValuation = await request.json();
@@ -129,6 +129,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Stock symbol is required' },
         { status: 400 }
+      );
+    }
+
+    const symbol = body.stock.toUpperCase();
+
+    // Prevent duplicate symbols: one watchlist entry per symbol
+    const existing = await query(
+      'SELECT id FROM stock_valuations WHERE UPPER(stock) = $1 ORDER BY created_at DESC LIMIT 1',
+      [symbol]
+    );
+    if (existing.rows.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Stock already in watchlist',
+          existingId: existing.rows[0].id,
+        },
+        { status: 409 }
       );
     }
 
@@ -145,7 +162,7 @@ export async function POST(request: NextRequest) {
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
       ) RETURNING id, created_at, updated_at`,
       [
-        body.stock.toUpperCase(),
+        symbol,
         body.buy_price ?? null,
         body.active_price ?? null,
         body.dcf_price ?? null,

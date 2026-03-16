@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Decimal from 'decimal.js';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface StockValuation {
   id?: number;
@@ -53,6 +54,15 @@ interface Link {
   stock_valuations_id: number;
 }
 
+interface WatchlistReason {
+  id: number;
+  stock_valuations_id: number;
+  type: 'buy' | 'avoid';
+  body: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface NewsItem {
   title: string;
   url: string;
@@ -78,6 +88,16 @@ export default function CompanyWatchlistPage() {
   const [newLink, setNewLink] = useState('');
   const [addingLink, setAddingLink] = useState(false);
   const [showSections, setShowSections] = useState(false);
+  const [buyReasons, setBuyReasons] = useState<WatchlistReason[]>([]);
+  const [avoidReasons, setAvoidReasons] = useState<WatchlistReason[]>([]);
+  const [loadingReasons, setLoadingReasons] = useState(false);
+  const [newBuyReason, setNewBuyReason] = useState('');
+  const [newAvoidReason, setNewAvoidReason] = useState('');
+  const [addingBuyReason, setAddingBuyReason] = useState(false);
+  const [addingAvoidReason, setAddingAvoidReason] = useState(false);
+  const [editingReasonId, setEditingReasonId] = useState<number | null>(null);
+  const [editingReasonText, setEditingReasonText] = useState('');
+  const [askAiCopied, setAskAiCopied] = useState(false);
   const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
   const [loadingMatchingEntries, setLoadingMatchingEntries] = useState(false);
   const [earningsCalendar, setEarningsCalendar] = useState<{
@@ -163,6 +183,7 @@ export default function CompanyWatchlistPage() {
     dividendYield: number | null;
     payoutRatioTTM: number | null;
     fcfPayoutRatioTTM: number | null;
+    yearlyFcfPayoutRatios: { year: number; payoutRatio: number }[];
   } | null>(null);
   const [dividendFcfLoading, setDividendFcfLoading] = useState<boolean>(false);
   
@@ -217,6 +238,16 @@ export default function CompanyWatchlistPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stockList, searchParams]);
+
+  // Load reasons whenever a stock is selected (covers refresh and any code path that sets stockValuationId)
+  useEffect(() => {
+    if (stockValuationId != null && typeof stockValuationId === 'number') {
+      setBuyReasons([]);
+      setAvoidReasons([]);
+      loadReasons(stockValuationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockValuationId]);
 
   // Load matching DCF entries, earnings, DCF projections, and value driver classification when stock symbol changes
   useEffect(() => {
@@ -574,6 +605,16 @@ export default function CompanyWatchlistPage() {
         ? latestDividendsPaid / latestFCF
         : null;
 
+      // Build yearly FCF payout ratio for chart (year ascending)
+      const yearlyFcfPayoutRatios = sortedData
+        .filter((item: any) => (parseFloat(item.free_cash_flow) || 0) > 0)
+        .map((item: any) => {
+          const fcf = parseFloat(item.free_cash_flow) || 0;
+          const div = parseFloat(item.dividends_paid) || 0;
+          return { year: item.year, payoutRatio: fcf > 0 ? div / fcf : 0 };
+        })
+        .sort((a: { year: number }, b: { year: number }) => a.year - b.year);
+
       setDividendFcfData({
         dividendCAGR10Y,
         dividendCAGR5Y,
@@ -583,7 +624,8 @@ export default function CompanyWatchlistPage() {
         dividendPayout,
         dividendYield,
         payoutRatioTTM,
-        fcfPayoutRatioTTM
+        fcfPayoutRatioTTM,
+        yearlyFcfPayoutRatios
       });
     } catch (error) {
       console.error('Error fetching Dividend & FCF data:', error);
@@ -837,6 +879,8 @@ export default function CompanyWatchlistPage() {
         bull_case_high_price: null,
       });
       setStockValuationId(null);
+      setBuyReasons([]);
+      setAvoidReasons([]);
       setLinks([]);
       setNewLink('');
       setShowSections(false);
@@ -957,8 +1001,9 @@ export default function CompanyWatchlistPage() {
         fetchValueDriverClassification(data.stock);
       }
 
-      // Load links for this stock
+      // Load links and reasons for this stock
       await loadLinks(result.id);
+      await loadReasons(result.id);
     } catch (error: any) {
       console.error('Error loading stock valuation:', error);
       setMessage({ 
@@ -1061,6 +1106,150 @@ export default function CompanyWatchlistPage() {
     } catch (error: any) {
       console.error('Error deleting link:', error);
       setMessage({ type: 'error', text: `Error deleting link: ${error.message || 'Unknown error'}` });
+    }
+  };
+
+  const loadReasons = async (stockValuationId: number) => {
+    setLoadingReasons(true);
+    try {
+      const response = await fetch(`/api/watchlist-reasons?stock_valuations_id=${stockValuationId}`);
+      const result = await response.json();
+      if (response.ok && result.data != null) {
+        const list = Array.isArray(result.data) ? result.data : [result.data];
+        setBuyReasons(list.filter((r: WatchlistReason) => r.type === 'buy'));
+        setAvoidReasons(list.filter((r: WatchlistReason) => r.type === 'avoid'));
+      }
+      // On error or missing data, leave existing state so we don't wipe optimistically added items
+    } catch (error: any) {
+      console.error('Error loading watchlist reasons:', error);
+      // Don't clear state on failure so optimistically added items and Ask AI still have data
+    } finally {
+      setLoadingReasons(false);
+    }
+  };
+
+  const handleAddBuyReason = async () => {
+    if (!newBuyReason.trim() || !stockValuationId) return;
+    setAddingBuyReason(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/watchlist-reasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock_valuations_id: stockValuationId, type: 'buy', body: newBuyReason.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setMessage({ type: 'error', text: result.error || 'Failed to add reason' });
+        return;
+      }
+      setMessage({ type: 'success', text: 'Reason added' });
+      setNewBuyReason('');
+      // Optimistically add so it shows and Ask AI includes it even if reload fails
+      if (result.data && typeof result.data === 'object') {
+        setBuyReasons(prev => [...prev, { ...result.data, type: 'buy' as const }]);
+      }
+      await loadReasons(stockValuationId);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: `Error: ${(error as Error).message}` });
+    } finally {
+      setAddingBuyReason(false);
+    }
+  };
+
+  const handleAddAvoidReason = async () => {
+    if (!newAvoidReason.trim() || !stockValuationId) return;
+    setAddingAvoidReason(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/watchlist-reasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock_valuations_id: stockValuationId, type: 'avoid', body: newAvoidReason.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setMessage({ type: 'error', text: result.error || 'Failed to add reason' });
+        return;
+      }
+      setMessage({ type: 'success', text: 'Reason added' });
+      setNewAvoidReason('');
+      // Optimistically add so it shows and Ask AI includes it even if reload fails
+      if (result.data && typeof result.data === 'object') {
+        setAvoidReasons(prev => [...prev, { ...result.data, type: 'avoid' as const }]);
+      }
+      await loadReasons(stockValuationId);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: `Error: ${(error as Error).message}` });
+    } finally {
+      setAddingAvoidReason(false);
+    }
+  };
+
+  const handleUpdateReason = async (id: number, body: string) => {
+    if (!body.trim()) return;
+    try {
+      const response = await fetch(`/api/watchlist-reasons?id=${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: body.trim() }),
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        setMessage({ type: 'error', text: result.error || 'Failed to update' });
+        return;
+      }
+      setEditingReasonId(null);
+      setEditingReasonText('');
+      if (stockValuationId) await loadReasons(stockValuationId);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: (error as Error).message });
+    }
+  };
+
+  const handleDeleteReason = async (id: number) => {
+    try {
+      const response = await fetch(`/api/watchlist-reasons?id=${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const result = await response.json();
+        setMessage({ type: 'error', text: result.error || 'Failed to delete' });
+        return;
+      }
+      setEditingReasonId(null);
+      setEditingReasonText('');
+      if (stockValuationId) await loadReasons(stockValuationId);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: (error as Error).message });
+    }
+  };
+
+  const copyAskAiPrompt = async () => {
+    const symbol = formData.stock ? formData.stock.toUpperCase() : 'this stock';
+    const buyList = buyReasons.length > 0
+      ? buyReasons.map(r => `- ${r.body}`).join('\n')
+      : '- (none listed)';
+    const avoidList = avoidReasons.length > 0
+      ? avoidReasons.map(r => `- ${r.body}`).join('\n')
+      : '- (none listed)';
+    const prompt = `I am considering investing in ${symbol} with a long-term horizon (e.g. 5 years). Here are my reasons to buy and reasons not to buy. Please validate these ideas, challenge weak ones, and suggest what I might be missing.
+
+Reasons to buy:
+${buyList}
+
+Reasons not to buy:
+${avoidList}
+
+Please validate the above with a long-term (e.g. 5-year) view in mind, point out any weak or biased arguments, and suggest additional factors I should consider. Then provide exactly 5 additional reasons to buy and 5 additional reasons not to buy that I might have missed.`;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setAskAiCopied(true);
+        setTimeout(() => setAskAiCopied(false), 3000);
+      } else {
+        setMessage({ type: 'error', text: 'Clipboard not available' });
+      }
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Failed to copy to clipboard' });
     }
   };
 
@@ -1786,6 +1975,14 @@ export default function CompanyWatchlistPage() {
 
       const result = await response.json();
 
+      if (response.status === 409 && result.existingId) {
+        setMessage({ type: 'success', text: 'This stock is already in your watchlist. Switched to existing entry.' });
+        setStockValuationId(result.existingId);
+        await loadStockList();
+        await handleStockSelect(result.existingId.toString());
+        return;
+      }
+
       if (!response.ok) {
         setMessage({ 
           type: 'error', 
@@ -1950,6 +2147,8 @@ export default function CompanyWatchlistPage() {
         free_cash_flow: null,
       });
       setStockValuationId(null);
+      setBuyReasons([]);
+      setAvoidReasons([]);
       setSelectedStockId('');
       setLinks([]);
       setNewLink('');
@@ -2026,6 +2225,8 @@ export default function CompanyWatchlistPage() {
                 setShowSections(true);
                 setSelectedStockId('');
                 setStockValuationId(null);
+                setBuyReasons([]);
+                setAvoidReasons([]);
                 setFormData({
                   stock: '',
                   buy_price: null,
@@ -3142,7 +3343,7 @@ export default function CompanyWatchlistPage() {
               </div>
             )}
 
-            {/* Open DCF Page Button */}
+            {/* Open DCF Page Button - sticks with DCF Projections table */}
             <div className="flex justify-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
               <Link
                 href={
@@ -3155,6 +3356,57 @@ export default function CompanyWatchlistPage() {
                 View DCF Projections
               </Link>
             </div>
+
+            {/* FCF Payout Ratio Over Time - when Dividend/FCF data exists */}
+            {(dividendFcfData?.yearlyFcfPayoutRatios?.length ?? 0) > 0 && dividendFcfData && (
+              <div className="mt-6 mb-4 p-6 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">FCF Payout Ratio Over Time</h3>
+                <ResponsiveContainer width="100%" height={340}>
+                  <LineChart
+                    data={dividendFcfData.yearlyFcfPayoutRatios.map((d) => ({
+                      year: d.year.toString(),
+                      payoutRatio: d.payoutRatio
+                    }))}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-600" />
+                    <XAxis
+                      dataKey="year"
+                      className="text-gray-600 dark:text-gray-400"
+                      tick={{ fontSize: 12 }}
+                    />
+                    <YAxis
+                      tickFormatter={(v) => v.toFixed(3)}
+                      width={64}
+                      className="text-gray-600 dark:text-gray-400"
+                      tick={{ fontSize: 12 }}
+                      label={{ value: 'FCF Payout Ratio', angle: -90, position: 'insideLeft', style: { fontSize: 12 }, offset: 10 }}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => [value.toFixed(3), 'FCF Payout Ratio']}
+                      labelFormatter={(label) => `Year: ${label}`}
+                      contentStyle={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: '0.5rem' }}
+                      labelStyle={{ color: '#1f2937' }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="payoutRatio"
+                      name="FCF Payout Ratio"
+                      stroke="#8884d8"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Source: Dividend & FCF data. Full analysis at{' '}
+                  <Link href={`/research/dividend-fcf-analysis?symbol=${formData.stock}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                    Dividend / FCF Analysis
+                  </Link>
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -3584,85 +3836,6 @@ export default function CompanyWatchlistPage() {
           </div>
         )}
 
-        {/* Research Section */}
-        {showSections && stockValuationId && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Research
-              </h2>
-            </div>
-
-            {/* Add Link Section */}
-            <div className="mb-6 flex gap-2">
-              <input
-                type="url"
-                value={newLink}
-                onChange={(e) => setNewLink(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleAddLink();
-                  }
-                }}
-                placeholder="https://example.com/article"
-                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <button
-                onClick={handleAddLink}
-                disabled={addingLink || !newLink.trim()}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
-              >
-                {addingLink ? 'Adding...' : (
-                  <>
-                    <span className="text-xl">+</span>
-                    <span>Add Link</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Links List */}
-            {loadingLinks ? (
-              <div className="text-center py-4 text-gray-500 dark:text-gray-400">
-                Loading links...
-              </div>
-            ) : links.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                No research links yet. Add your first link above.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {links.map((link) => (
-                  <div
-                    key={link.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={link.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
-                      >
-                        {link.link}
-                      </a>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Added: {new Date(link.date_added).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleDeleteLink(link.id)}
-                      className="ml-4 px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Action Buttons - Bottom of page */}
         {showSections && (
           <div className="flex justify-center items-center gap-4 mt-8 mb-8">
@@ -3765,6 +3938,253 @@ export default function CompanyWatchlistPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Reasons to buy / Reasons not to buy - bottom of page */}
+        {showSections && stockValuationId && (
+          <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 text-center">Buy / Avoid reasons</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Reasons to buy */}
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-6 border-2 border-green-200 dark:border-green-800">
+                <h3 className="text-xl font-semibold text-green-800 dark:text-green-200 mb-4">Reasons to buy</h3>
+                {loadingReasons ? (
+                  <p className="text-base text-green-700 dark:text-green-300 py-2">Loading...</p>
+                ) : buyReasons.length === 0 ? null : (
+                  <ul className="space-y-3 mb-4">
+                    {buyReasons.map((r) => (
+                      <li key={r.id} className="flex items-start gap-3 group p-3 rounded-lg bg-green-100/50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/50">
+                        {editingReasonId === r.id ? (
+                          <div className="flex-1 flex gap-2 flex-wrap items-center">
+                            <input
+                              type="text"
+                              value={editingReasonText}
+                              onChange={(e) => setEditingReasonText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleUpdateReason(r.id, editingReasonText);
+                                if (e.key === 'Escape') { setEditingReasonId(null); setEditingReasonText(''); }
+                              }}
+                              className="flex-1 min-w-[200px] px-3 py-2 border-2 border-green-400 dark:border-green-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-base"
+                              autoFocus
+                            />
+                            <button type="button" onClick={() => handleUpdateReason(r.id, editingReasonText)} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Save</button>
+                            <button type="button" onClick={() => { setEditingReasonId(null); setEditingReasonText(''); }} className="px-3 py-2 bg-gray-500 text-white rounded-lg text-sm font-medium">Cancel</button>
+                          </div>
+                        ) : (
+                          <>
+                            <span
+                              className="flex-1 text-base font-medium text-green-900 dark:text-green-100 cursor-text leading-snug"
+                              onClick={() => { setEditingReasonId(r.id); setEditingReasonText(r.body); }}
+                            >
+                              {r.body}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReason(r.id)}
+                              className="opacity-0 group-hover:opacity-100 px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              aria-label="Delete"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={newBuyReason}
+                    onChange={(e) => setNewBuyReason(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddBuyReason()}
+                    placeholder="Add a reason..."
+                    className="flex-1 px-4 py-3 border-2 border-green-300 dark:border-green-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-base focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddBuyReason}
+                    disabled={addingBuyReason || !newBuyReason.trim()}
+                    className="px-5 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-base font-medium"
+                  >
+                    {addingBuyReason ? 'Adding...' : 'Add'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Reasons not to buy */}
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-6 border-2 border-red-200 dark:border-red-800">
+                <h3 className="text-xl font-semibold text-red-800 dark:text-red-200 mb-4">Reasons not to buy</h3>
+                {loadingReasons ? (
+                  <p className="text-base text-red-700 dark:text-red-300 py-2">Loading...</p>
+                ) : avoidReasons.length === 0 ? null : (
+                  <ul className="space-y-3 mb-4">
+                    {avoidReasons.map((r) => (
+                      <li key={r.id} className="flex items-start gap-3 group p-3 rounded-lg bg-red-100/50 dark:bg-red-900/30 border border-red-200 dark:border-red-700/50">
+                        {editingReasonId === r.id ? (
+                          <div className="flex-1 flex gap-2 flex-wrap items-center">
+                            <input
+                              type="text"
+                              value={editingReasonText}
+                              onChange={(e) => setEditingReasonText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleUpdateReason(r.id, editingReasonText);
+                                if (e.key === 'Escape') { setEditingReasonId(null); setEditingReasonText(''); }
+                              }}
+                              className="flex-1 min-w-[200px] px-3 py-2 border-2 border-red-400 dark:border-red-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-base"
+                              autoFocus
+                            />
+                            <button type="button" onClick={() => handleUpdateReason(r.id, editingReasonText)} className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium">Save</button>
+                            <button type="button" onClick={() => { setEditingReasonId(null); setEditingReasonText(''); }} className="px-3 py-2 bg-gray-500 text-white rounded-lg text-sm font-medium">Cancel</button>
+                          </div>
+                        ) : (
+                          <>
+                            <span
+                              className="flex-1 text-base font-medium text-red-900 dark:text-red-100 cursor-text leading-snug"
+                              onClick={() => { setEditingReasonId(r.id); setEditingReasonText(r.body); }}
+                            >
+                              {r.body}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReason(r.id)}
+                              className="opacity-0 group-hover:opacity-100 px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              aria-label="Delete"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={newAvoidReason}
+                    onChange={(e) => setNewAvoidReason(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddAvoidReason()}
+                    placeholder="Add a reason..."
+                    className="flex-1 px-4 py-3 border-2 border-red-300 dark:border-red-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-base focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddAvoidReason}
+                    disabled={addingAvoidReason || !newAvoidReason.trim()}
+                    className="px-5 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-base font-medium"
+                  >
+                    {addingAvoidReason ? 'Adding...' : 'Add'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={copyAskAiPrompt}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center gap-2"
+              >
+                Ask AI
+              </button>
+              {askAiCopied && (
+                <p className="text-sm text-gray-600 dark:text-gray-400">Copied! Paste into ChatGPT.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Research Section - below Buy / Avoid reasons */}
+        {showSections && stockValuationId && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-8 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Research
+              </h2>
+            </div>
+
+            {/* Add Link Section */}
+            <div className="mb-6 flex gap-2">
+              <input
+                type="url"
+                value={newLink}
+                onChange={(e) => setNewLink(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddLink();
+                  }
+                }}
+                placeholder="https://example.com/article"
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={handleAddLink}
+                disabled={addingLink || !newLink.trim()}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
+              >
+                {addingLink ? 'Adding...' : (
+                  <>
+                    <span className="text-xl">+</span>
+                    <span>Add Link</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Links List */}
+            {loadingLinks ? (
+              <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                Loading links...
+              </div>
+            ) : links.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                No research links yet. Add your first link above.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {links.map((link) => (
+                  <div
+                    key={link.id}
+                    className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={link.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+                      >
+                        {link.link}
+                      </a>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Added: {new Date(link.date_added).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteLink(link.id)}
+                      className="ml-4 px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Remove from watchlist - very bottom when stock is selected */}
+        {showSections && stockValuationId && (
+          <div className="mt-10 pt-8 border-t border-gray-200 dark:border-gray-700 flex justify-center">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={saving}
+              className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            >
+              {saving ? 'Removing...' : 'Remove from watchlist'}
+            </button>
           </div>
         )}
       </div>

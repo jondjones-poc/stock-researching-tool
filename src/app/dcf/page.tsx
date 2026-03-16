@@ -209,9 +209,9 @@ export default function DCFCalculator() {
           bull: (data.revenueGrowth.bull || 0) * 100
         },
         netIncomeGrowth: {
-          bear: (data.netIncomeGrowth.bear || 0) * 100,
-          base: (data.netIncomeGrowth.base || 0) * 100,
-          bull: (data.netIncomeGrowth.bull || 0) * 100
+          bear: Math.round((data.netIncomeGrowth.bear || 0) * 1000) / 10,
+          base: Math.round((data.netIncomeGrowth.base || 0) * 1000) / 10,
+          bull: Math.round((data.netIncomeGrowth.bull || 0) * 1000) / 10
         },
         peLow: {
           bear: Math.round(data.peLow.bear || 0),
@@ -330,9 +330,9 @@ export default function DCFCalculator() {
               bull: (data.revenueGrowth.bull || 0) * 100
             },
             netIncomeGrowth: {
-              bear: (data.netIncomeGrowth.bear || 0) * 100,
-              base: (data.netIncomeGrowth.base || 0) * 100,
-              bull: (data.netIncomeGrowth.bull || 0) * 100
+              bear: Math.round((data.netIncomeGrowth.bear || 0) * 1000) / 10,
+              base: Math.round((data.netIncomeGrowth.base || 0) * 1000) / 10,
+              bull: Math.round((data.netIncomeGrowth.bull || 0) * 1000) / 10
             },
             peLow: {
               bear: Math.round(data.peLow.bear || 0),
@@ -477,8 +477,9 @@ export default function DCFCalculator() {
   };
 
   const handleInputChange = (field: keyof typeof formData, scenario: 'bear' | 'base' | 'bull', value: string) => {
-    const numValue = parseFloat(value) || 0;
-    
+    let numValue = parseFloat(value) || 0;
+    if (field === 'netIncomeGrowth') numValue = Math.round(numValue * 10) / 10;
+
     setFormData(prev => {
       const nextField = {
         ...(prev[field] as { bear: number; base: number; bull: number }),
@@ -621,9 +622,9 @@ export default function DCFCalculator() {
           bull: (data.revenueGrowth.bull || 0) * 100
         },
         netIncomeGrowth: {
-          bear: (data.netIncomeGrowth.bear || 0) * 100,
-          base: (data.netIncomeGrowth.base || 0) * 100,
-          bull: (data.netIncomeGrowth.bull || 0) * 100
+          bear: Math.round((data.netIncomeGrowth.bear || 0) * 1000) / 10,
+          base: Math.round((data.netIncomeGrowth.base || 0) * 1000) / 10,
+          bull: Math.round((data.netIncomeGrowth.bull || 0) * 1000) / 10
         },
         peLow: {
           bear: Math.round(data.peLow.bear || 0),
@@ -960,6 +961,39 @@ export default function DCFCalculator() {
 
         const createResult = await createResponse.json();
 
+        if (createResponse.status === 409 && createResult.existingId) {
+          // Stock already in watchlist, fetch existing then update with DCF prices
+          const getResponse = await fetch(`/api/stock-valuations?id=${createResult.existingId}`);
+          const getResult = await getResponse.json();
+          const existing = getResponse.ok && getResult.data ? getResult.data : {};
+          const updateResponse = await fetch(`/api/stock-valuations?id=${createResult.existingId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...existing,
+              stock: dcfData.symbol.toUpperCase(),
+              active_price: dcfData.stockPrice,
+              bear_case_avg_price: bearCaseAvg,
+              bear_case_low_price: bearCaseLow,
+              bear_case_high_price: bearCaseHigh,
+              base_case_avg_price: baseCaseAvg,
+              base_case_low_price: baseCaseLow,
+              base_case_high_price: baseCaseHigh,
+              bull_case_avg_price: bullCaseAvg,
+              bull_case_low_price: bullCaseLow,
+              bull_case_high_price: bullCaseHigh,
+            }),
+          });
+          if (!updateResponse.ok) {
+            const updateResult = await updateResponse.json();
+            setDbMessage({ type: 'error', text: updateResult.error || 'Failed to update watchlist' });
+          } else {
+            setDbMessage({ type: 'success', text: 'Share Price Summary data updated in watchlist successfully!' });
+          }
+          setSavingToWatchlist(false);
+          return;
+        }
+
         if (!createResponse.ok) {
           setDbMessage({ type: 'error', text: createResult.error || 'Failed to create watchlist entry' });
           setSavingToWatchlist(false);
@@ -1138,33 +1172,33 @@ export default function DCFCalculator() {
                   <label className="w-16 text-sm font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bear:</label>
                   <input
                     type="number"
-                    step="0.01"
-                    value={formData.netIncomeGrowth.bear}
+                    step="0.1"
+                    value={Number(formData.netIncomeGrowth.bear || 0).toFixed(1)}
                     onChange={(e) => handleInputChange('netIncomeGrowth', 'bear', e.target.value)}
                     className="flex-1 min-w-0 px-2 py-1 border border-red-200 dark:border-red-800 rounded focus:outline-none focus:ring-1 focus:ring-red-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
-                    placeholder="0.00"
+                    placeholder="0.0"
                   />
                 </div>
                 <div className="flex items-center gap-1">
                   <label className="w-16 text-sm font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Base:</label>
                   <input
                     type="number"
-                    step="0.01"
-                    value={formData.netIncomeGrowth.base}
+                    step="0.1"
+                    value={Number(formData.netIncomeGrowth.base || 0).toFixed(1)}
                     onChange={(e) => handleInputChange('netIncomeGrowth', 'base', e.target.value)}
                     className="flex-1 min-w-0 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
-                    placeholder="0.00"
+                    placeholder="0.0"
                   />
                 </div>
                 <div className="flex items-center gap-1">
                   <label className="w-16 text-sm font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1 py-0.5 rounded text-center flex-shrink-0">Bull:</label>
                   <input
                     type="number"
-                    step="0.01"
-                    value={formData.netIncomeGrowth.bull}
+                    step="0.1"
+                    value={Number(formData.netIncomeGrowth.bull || 0).toFixed(1)}
                     onChange={(e) => handleInputChange('netIncomeGrowth', 'bull', e.target.value)}
                     className="flex-1 min-w-0 px-2 py-1 border border-green-200 dark:border-green-800 rounded focus:outline-none focus:ring-1 focus:ring-green-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
-                    placeholder="0.00"
+                    placeholder="0.0"
                   />
                 </div>
               </div>
@@ -1418,10 +1452,18 @@ export default function DCFCalculator() {
                         if (dcfData?.symbol) {
                           lines.push(`\nStock symbol: ${dcfData.symbol}`);
                         }
+                        lines.push('\nData used in the calculation (please validate these numbers):');
+                        lines.push(
+                          `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+                          `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+                          `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+                          `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+                          `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+                        );
                         lines.push(
                           '\nMy current bear-case DCF inputs (percentages are per year):',
                           `- Revenue growth (bear): ${formData.revenueGrowth.bear.toFixed(2)}%`,
-                          `- Net income growth (bear): ${formData.netIncomeGrowth.bear.toFixed(2)}%`,
+                          `- Net income growth (bear): ${formData.netIncomeGrowth.bear.toFixed(1)}%`,
                           `- P/E low (bear): ${formData.peLow.bear.toFixed(0)}x`,
                           `- P/E high (bear): ${formData.peHigh.bear.toFixed(0)}x`,
                           `- Current stock price: ${formatCurrency(formData.stockPrice)}`
@@ -1436,6 +1478,7 @@ export default function DCFCalculator() {
                         }
                         lines.push(
                           '\nInstructions (bear case):',
+                          '0. First verify the base data above (revenue, net income, stock price, shares outstanding, current EPS) are correct and consistent with current financials.',
                           '1. Based on recent fundamentals, growth, margins and valuation, suggest realistic bear-case values for revenue growth, net income growth, and P/E low/high.',
                           '2. Highlight where my current bear assumptions are too optimistic or unnecessarily pessimistic.',
                           '3. Suggest a reasonable 5-year bear-case price range and compare it to today’s price.',
@@ -1484,10 +1527,18 @@ export default function DCFCalculator() {
                         if (dcfData?.symbol) {
                           lines.push(`\nStock symbol: ${dcfData.symbol}`);
                         }
+                        lines.push('\nData used in the calculation (please validate these numbers):');
+                        lines.push(
+                          `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+                          `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+                          `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+                          `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+                          `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+                        );
                         lines.push(
                           '\nMy current base-case DCF inputs (percentages are per year):',
                           `- Revenue growth (base): ${formData.revenueGrowth.base.toFixed(2)}%`,
-                          `- Net income growth (base): ${formData.netIncomeGrowth.base.toFixed(2)}%`,
+                          `- Net income growth (base): ${formData.netIncomeGrowth.base.toFixed(1)}%`,
                           `- P/E low (base): ${formData.peLow.base.toFixed(0)}x`,
                           `- P/E high (base): ${formData.peHigh.base.toFixed(0)}x`,
                           `- Current stock price: ${formatCurrency(formData.stockPrice)}`
@@ -1502,6 +1553,7 @@ export default function DCFCalculator() {
                         }
                         lines.push(
                           '\nInstructions (base case):',
+                          '0. First verify the base data above (revenue, net income, stock price, shares outstanding, current EPS) are correct and consistent with current financials.',
                           '1. Suggest base-case revenue and net income growth rates that align with consensus expectations and recent company performance.',
                           '2. Suggest reasonable P/E low and high values for a base scenario.',
                           '3. Comment on whether my current base-case output looks realistic vs today’s price.',
@@ -1550,10 +1602,18 @@ export default function DCFCalculator() {
                         if (dcfData?.symbol) {
                           lines.push(`\nStock symbol: ${dcfData.symbol}`);
                         }
+                        lines.push('\nData used in the calculation (please validate these numbers):');
+                        lines.push(
+                          `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+                          `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+                          `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+                          `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+                          `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+                        );
                         lines.push(
                           '\nMy current bull-case DCF inputs (percentages are per year):',
                           `- Revenue growth (bull): ${formData.revenueGrowth.bull.toFixed(2)}%`,
-                          `- Net income growth (bull): ${formData.netIncomeGrowth.bull.toFixed(2)}%`,
+                          `- Net income growth (bull): ${formData.netIncomeGrowth.bull.toFixed(1)}%`,
                           `- P/E low (bull): ${formData.peLow.bull.toFixed(0)}x`,
                           `- P/E high (bull): ${formData.peHigh.bull.toFixed(0)}x`,
                           `- Current stock price: ${formatCurrency(formData.stockPrice)}`
@@ -1568,6 +1628,7 @@ export default function DCFCalculator() {
                         }
                         lines.push(
                           '\nInstructions (bull case):',
+                          '0. First verify the base data above (revenue, net income, stock price, shares outstanding, current EPS) are correct and consistent with current financials.',
                           '1. Suggest bull-case growth and P/E assumptions that are optimistic but still grounded in reality for this business and sector.',
                           '2. Highlight if my current bull assumptions are unrealistic in either direction.',
                           '3. Provide a reasonable bull-case 5-year price range and compare it to today’s price.',
@@ -1685,7 +1746,7 @@ export default function DCFCalculator() {
 
             {/* Current Price Row */}
             <div className="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/20 dark:to-slate-900/20 rounded-lg p-6 mb-4 border border-gray-200 dark:border-gray-700">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="text-center">
                   <div className="text-lg text-white mb-1">Current Market Price</div>
                   <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">
@@ -1699,9 +1760,91 @@ export default function DCFCalculator() {
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1">Investment Signal</div>
-                  <div className={`text-2xl font-bold ${dcfData && dcfData.stockPrice < ((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2) ? 'text-green-600' : 'text-red-600'}`}>
-                    {dcfData && dcfData.stockPrice < ((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2) ? 'BUY' : 'HOLD'}
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1 flex items-center justify-center gap-1">
+                    Base Signal
+                    {dcfData && projections && (() => {
+                      const low = projections.sharePriceLow.base[4];
+                      const high = projections.sharePriceHigh.base[4];
+                      const midpoint = (low + high) / 2;
+                      const current = dcfData.stockPrice;
+                      const isBuy = current < midpoint;
+                      return (
+                        <span className="relative inline-flex group">
+                          <span
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-help text-[10px] font-bold hover:bg-gray-400 dark:hover:bg-gray-500"
+                            aria-label="Base signal explanation"
+                          >
+                            ⓘ
+                          </span>
+                          <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg whitespace-pre-line opacity-0 invisible group-hover:opacity-100 group-hover:visible z-10 transition-opacity min-w-[220px]">
+                            BUY when current price &lt; base case year‑4 average (midpoint of low–high range).
+                            {'\n\n'}
+                            Current price: {formatCurrency(current)}
+                            {'\n'}
+                            Base case year‑4 low: {formatCurrency(low)}
+                            {'\n'}
+                            Base case year‑4 high: {formatCurrency(high)}
+                            {'\n'}
+                            Midpoint: {formatCurrency(midpoint)}
+                            {'\n\n'}
+                            {formatCurrency(current)} {isBuy ? '<' : '≥'} {formatCurrency(midpoint)} → {isBuy ? 'BUY' : 'HOLD'}
+                          </span>
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div className={`text-2xl font-bold ${dcfData && projections ? (dcfData.stockPrice < ((projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2) ? 'text-green-600' : 'text-red-600') : 'text-gray-500'}`}>
+                    {dcfData && projections && (() => {
+                      const mid = (projections.sharePriceLow.base[4] + projections.sharePriceHigh.base[4]) / 2;
+                      const pct = dcfData.stockPrice ? ((mid - dcfData.stockPrice) / dcfData.stockPrice) * 100 : 0;
+                      const isBuy = dcfData.stockPrice < mid;
+                      const pctStr = pct >= 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
+                      return `${isBuy ? 'BUY' : 'HOLD'} / ${pctStr}`;
+                    })()}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg text-gray-600 dark:text-gray-400 mb-1 flex items-center justify-center gap-1">
+                    Bear Signal
+                    {dcfData && projections && (() => {
+                      const low = projections.sharePriceLow.bear[4];
+                      const high = projections.sharePriceHigh.bear[4];
+                      const midpoint = (low + high) / 2;
+                      const current = dcfData.stockPrice;
+                      const isBuy = current < midpoint;
+                      return (
+                        <span className="relative inline-flex group">
+                          <span
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-help text-[10px] font-bold hover:bg-gray-400 dark:hover:bg-gray-500"
+                            aria-label="Bear signal explanation"
+                          >
+                            ⓘ
+                          </span>
+                          <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg whitespace-pre-line opacity-0 invisible group-hover:opacity-100 group-hover:visible z-10 transition-opacity min-w-[220px]">
+                            BUY when current price &lt; bear case year‑4 average (midpoint of low–high range).
+                            {'\n\n'}
+                            Current price: {formatCurrency(current)}
+                            {'\n'}
+                            Bear case year‑4 low: {formatCurrency(low)}
+                            {'\n'}
+                            Bear case year‑4 high: {formatCurrency(high)}
+                            {'\n'}
+                            Midpoint: {formatCurrency(midpoint)}
+                            {'\n\n'}
+                            {formatCurrency(current)} {isBuy ? '<' : '≥'} {formatCurrency(midpoint)} → {isBuy ? 'BUY' : 'HOLD'}
+                          </span>
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div className={`text-2xl font-bold ${dcfData && projections ? (dcfData.stockPrice < ((projections.sharePriceLow.bear[4] + projections.sharePriceHigh.bear[4]) / 2) ? 'text-green-600' : 'text-red-600') : 'text-gray-500'}`}>
+                    {dcfData && projections && (() => {
+                      const mid = (projections.sharePriceLow.bear[4] + projections.sharePriceHigh.bear[4]) / 2;
+                      const pct = dcfData.stockPrice ? ((mid - dcfData.stockPrice) / dcfData.stockPrice) * 100 : 0;
+                      const isBuy = dcfData.stockPrice < mid;
+                      const pctStr = pct >= 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
+                      return `${isBuy ? 'BUY' : 'HOLD'} / ${pctStr}`;
+                    })()}
                   </div>
                 </div>
               </div>
@@ -1811,10 +1954,18 @@ export default function DCFCalculator() {
                     if (dcfData?.symbol) {
                       lines.push(`\nStock symbol: ${dcfData.symbol}`);
                     }
+                    lines.push('\nData used in the calculation (please validate these numbers):');
+                    lines.push(
+                      `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+                      `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+                      `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+                      `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+                      `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+                    );
                     lines.push(
                       '\nBear Case Inputs (all per-year growth as %):',
                       `- Revenue growth (bear): ${formData.revenueGrowth.bear.toFixed(2)}%`,
-                      `- Net income growth (bear): ${formData.netIncomeGrowth.bear.toFixed(2)}%`,
+                      `- Net income growth (bear): ${formData.netIncomeGrowth.bear.toFixed(1)}%`,
                       `- P/E low (bear): ${formData.peLow.bear.toFixed(0)}x`,
                       `- P/E high (bear): ${formData.peHigh.bear.toFixed(0)}x`,
                       `- Current stock price: ${formatCurrency(formData.stockPrice)}`
@@ -1829,6 +1980,7 @@ export default function DCFCalculator() {
 
                     lines.push(
                       '\nInstructions:',
+                      '0. First verify the base data above (revenue, net income, stock price, shares outstanding, current EPS) are correct and consistent with current financials.',
                       '1. Compare these bear-case assumptions to current analyst expectations and historical trends.',
                       '2. Highlight where revenue growth, net income growth, or P/E multiples look too aggressive or too conservative.',
                       "3. Comment on whether the year-5 bear-case price range is reasonable relative to today's price.",
@@ -1875,10 +2027,18 @@ export default function DCFCalculator() {
                     if (dcfData?.symbol) {
                       lines.push(`\nStock symbol: ${dcfData.symbol}`);
                     }
+                    lines.push('\nData used in the calculation (please validate these numbers):');
+                    lines.push(
+                      `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+                      `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+                      `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+                      `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+                      `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+                    );
                     lines.push(
                       '\nBase Case Inputs (all per-year growth as %):',
                       `- Revenue growth (base): ${formData.revenueGrowth.base.toFixed(2)}%`,
-                      `- Net income growth (base): ${formData.netIncomeGrowth.base.toFixed(2)}%`,
+                      `- Net income growth (base): ${formData.netIncomeGrowth.base.toFixed(1)}%`,
                       `- P/E low (base): ${formData.peLow.base.toFixed(0)}x`,
                       `- P/E high (base): ${formData.peHigh.base.toFixed(0)}x`,
                       `- Current stock price: ${formatCurrency(formData.stockPrice)}`
@@ -1893,6 +2053,7 @@ export default function DCFCalculator() {
 
                     lines.push(
                       '\nInstructions:',
+                      '0. First verify the base data above (revenue, net income, stock price, shares outstanding, current EPS) are correct and consistent with current financials.',
                       '1. Compare these base-case assumptions to current analyst expectations and historical trends.',
                       '2. Highlight where revenue growth, net income growth, or P/E multiples look too aggressive or too conservative.',
                       "3. Comment on whether the year-5 base-case price range is reasonable relative to today's price.",
@@ -1939,10 +2100,18 @@ export default function DCFCalculator() {
                     if (dcfData?.symbol) {
                       lines.push(`\nStock symbol: ${dcfData.symbol}`);
                     }
+                    lines.push('\nData used in the calculation (please validate these numbers):');
+                    lines.push(
+                      `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+                      `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+                      `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+                      `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+                      `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+                    );
                     lines.push(
                       '\nBull Case Inputs (all per-year growth as %):',
                       `- Revenue growth (bull): ${formData.revenueGrowth.bull.toFixed(2)}%`,
-                      `- Net income growth (bull): ${formData.netIncomeGrowth.bull.toFixed(2)}%`,
+                      `- Net income growth (bull): ${formData.netIncomeGrowth.bull.toFixed(1)}%`,
                       `- P/E low (bull): ${formData.peLow.bull.toFixed(0)}x`,
                       `- P/E high (bull): ${formData.peHigh.bull.toFixed(0)}x`,
                       `- Current stock price: ${formatCurrency(formData.stockPrice)}`
@@ -1957,6 +2126,7 @@ export default function DCFCalculator() {
 
                     lines.push(
                       '\nInstructions:',
+                      '0. First verify the base data above (revenue, net income, stock price, shares outstanding, current EPS) are correct and consistent with current financials.',
                       '1. Compare these bull-case assumptions to current analyst expectations and historical trends.',
                       '2. Highlight where revenue growth, net income growth, or P/E multiples look too aggressive or too conservative.',
                       "3. Comment on whether the year-5 bull-case price range is reasonable relative to today's price.",
