@@ -255,13 +255,9 @@ export default function ReportingNetworthPage() {
 
         {/* 3. Investment Tracker – current year */}
         <section className="mb-12">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
             Investment Tracker (current year)
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Cumulative invested from Investment Tracker vs target for the year (settings: amount_to_invest_per_year).
-            Target line = monthly average × months elapsed (£{targetPerMonth.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}/month to hit target).
-          </p>
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 h-[500px]">
             {investmentTrackerLoading ? (
               <div className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">

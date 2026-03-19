@@ -67,10 +67,11 @@ export default function SummaryPage() {
   const [totalPortfolioValueAtRetirement, setTotalPortfolioValueAtRetirement] = useState<number | null>(null);
   const [totalInvestedAmount, setTotalInvestedAmount] = useState<number | null>(null);
 
-  // Dividend summary (from dividend filter on Portfolio page)
+  // Dividend summary: from income entries (dividend type) or, when empty, projected from saved portfolio
   const [dividendYearlyGbp, setDividendYearlyGbp] = useState<number | null>(null);
   const [dividendMonthlyGbp, setDividendMonthlyGbp] = useState<number | null>(null);
   const [dividendYieldPct, setDividendYieldPct] = useState<number | null>(null);
+  const [dividendSource, setDividendSource] = useState<'income' | 'portfolio' | null>(null);
 
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
@@ -174,29 +175,51 @@ export default function SummaryPage() {
     fetchIncomeEntries();
   }, [currentYear]);
 
-  // Fetch dividend summary from database (income_entry with income_type name like 'dividend')
+  // Fetch dividend summary: income entries first; if yearly is 0, use projected from saved portfolio
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       try {
         const year = new Date().getFullYear();
-        const [monthRes, yearRes] = await Promise.all([
+        const [monthRes, yearRes, portfolioRes] = await Promise.all([
           fetch('/api/dividend-income/current-month'),
           fetch(`/api/dividend-income/year?year=${year}`),
+          fetch('/api/reporting/portfolio-dividend-summary'),
         ]);
         if (cancelled) return;
         const monthData = monthRes.ok ? await monthRes.json().catch(() => ({})) : {};
         const yearData = yearRes.ok ? await yearRes.json().catch(() => ({})) : {};
-        const monthly = Number(monthData?.total);
-        const yearly = Number(yearData?.total);
-        setDividendMonthlyGbp(Number.isFinite(monthly) ? monthly : 0);
-        setDividendYearlyGbp(Number.isFinite(yearly) ? yearly : 0);
-        setDividendYieldPct(null);
+        const portfolioData = portfolioRes.ok ? await portfolioRes.json().catch(() => ({})) : {};
+        const incomeYearly = Number(yearData?.total);
+        const incomeMonthly = Number(monthData?.total);
+        const hasIncome = Number.isFinite(incomeYearly) && incomeYearly > 0;
+        if (hasIncome) {
+          setDividendYearlyGbp(incomeYearly);
+          setDividendMonthlyGbp(Number.isFinite(incomeMonthly) ? incomeMonthly : incomeYearly / 12);
+          setDividendYieldPct(null);
+          setDividendSource('income');
+        } else {
+          const py = Number(portfolioData?.yearlyGbp);
+          const pm = Number(portfolioData?.monthlyGbp);
+          const yieldPct = Number(portfolioData?.yieldPct);
+          if (Number.isFinite(py)) {
+            setDividendYearlyGbp(py);
+            setDividendMonthlyGbp(Number.isFinite(pm) ? pm : py / 12);
+            setDividendYieldPct(Number.isFinite(yieldPct) ? yieldPct : null);
+            setDividendSource('portfolio');
+          } else {
+            setDividendYearlyGbp(0);
+            setDividendMonthlyGbp(0);
+            setDividendYieldPct(null);
+            setDividendSource(null);
+          }
+        }
       } catch {
         if (!cancelled) {
           setDividendYearlyGbp(null);
           setDividendMonthlyGbp(null);
           setDividendYieldPct(null);
+          setDividendSource(null);
         }
       }
     };
@@ -1020,9 +1043,24 @@ export default function SummaryPage() {
 
             {/* Dividend Summary Section - at bottom */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">
                 Dividend Summary
               </h2>
+              {dividendSource === 'portfolio' && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                  Projected from saved portfolio (dividend per share × shares). Add income entries with type “Dividend” to track actual received income.
+                </p>
+              )}
+              {dividendSource === 'income' && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                  From income entries with type “Dividend”.
+                </p>
+              )}
+              {!dividendSource && dividendYearlyGbp === 0 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                  No dividend income or portfolio data. Save your eToro portfolio or add income entries with type “Dividend”.
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Yearly Dividend</div>

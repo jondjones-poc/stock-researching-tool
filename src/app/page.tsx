@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { dashboardConfig, WatchlistSymbol } from './config/dashboard';
+import { FearGreedGauge } from './components/FearGreedGauge';
+import { VixVolatilityGauge } from './components/VixVolatilityGauge';
+import { WtiOilGauge } from './components/WtiOilGauge';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -821,70 +824,88 @@ function DashboardContent() {
           </div>
 
           {/* Chart Area */}
-          <div className="h-96 bg-white dark:bg-gray-900 p-4">
+          <div
+            className={`bg-white dark:bg-gray-900 p-4 ${
+              (selectedSymbol === 'GREED' && fearGreedData.length > 0 && !fearGreedLoading) ||
+              (selectedSymbol === 'VIX' && chartData.length > 0 && !loading) ||
+              (selectedSymbol === 'WTI' && chartData.length > 0 && !loading)
+                ? ''
+                : 'h-96'
+            }`}
+          >
             {selectedSymbol === 'GREED' ? (
               fearGreedLoading ? (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex items-center justify-center h-96">
                   <div className="text-gray-500 dark:text-gray-400">Loading Fear &amp; Greed data...</div>
                 </div>
               ) : fearGreedError ? (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex items-center justify-center h-96">
                   <div className="text-red-500 dark:text-red-400">{fearGreedError}</div>
                 </div>
               ) : fearGreedData.length > 0 ? (
-                <div className="h-full bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
-                  <div className="h-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={fearGreedData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                        <XAxis
-                          dataKey="date"
-                          stroke="#9CA3AF"
-                          fontSize={12}
-                          tickFormatter={(value) => {
-                            const date = new Date(value);
-                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-                          }}
-                        />
-                        <YAxis
-                          stroke="#9CA3AF"
-                          fontSize={12}
-                          tickFormatter={(value) => getFearGreedLabel(value as number)}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#1F2937',
-                            border: '1px solid #374151',
-                            borderRadius: '6px',
-                            color: '#F9FAFB'
-                          }}
-                          formatter={(value: number) => [
-                            `${value.toFixed(2)} (${getFearGreedLabel(value)})`,
-                            'Fear & Greed Index'
-                          ]}
-                          labelFormatter={(label) => {
-                            const date = new Date(label);
-                            return date.toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
-                            });
-                          }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="value"
-                          stroke="#F97316"
-                          strokeWidth={2}
-                          dot={false}
-                          activeDot={{ r: 6, stroke: '#F97316', strokeWidth: 2 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
+                <div className="flex flex-col gap-6">
+                  <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
+                    <div className="h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={fearGreedData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis
+                            dataKey="date"
+                            stroke="#9CA3AF"
+                            fontSize={12}
+                            tickFormatter={(value) => {
+                              const date = new Date(value);
+                              return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                            }}
+                          />
+                          <YAxis
+                            stroke="#9CA3AF"
+                            fontSize={12}
+                            tickFormatter={(value) => getFearGreedLabel(value as number)}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#1F2937',
+                              border: '1px solid #374151',
+                              borderRadius: '6px',
+                              color: '#F9FAFB'
+                            }}
+                            formatter={(value: number) => [
+                              `${value.toFixed(2)} (${getFearGreedLabel(value)})`,
+                              'Fear & Greed Index'
+                            ]}
+                            labelFormatter={(label) => {
+                              const date = new Date(label);
+                              return date.toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              });
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#F97316"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 6, stroke: '#F97316', strokeWidth: 2 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
+                    {(() => {
+                      const latest = fearGreedData.reduce((a, p) =>
+                        new Date(p.date) >= new Date(a.date) ? p : a
+                      );
+                      return <FearGreedGauge value={latest.value} asOfDate={latest.date} />;
+                    })()}
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex items-center justify-center h-96">
                   <div className="text-gray-500 dark:text-gray-400">No Fear &amp; Greed data available</div>
                 </div>
               )
@@ -897,6 +918,133 @@ function DashboardContent() {
                 <div className="text-red-500 dark:text-red-400">{error}</div>
               </div>
             ) : chartData.length > 0 ? (
+              selectedSymbol === 'VIX' ? (
+                <div className="flex flex-col gap-6">
+                  <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
+                    <div className="h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis
+                            dataKey="date"
+                            stroke="#9CA3AF"
+                            fontSize={12}
+                            tickFormatter={(value) => {
+                              const date = new Date(value);
+                              if (selectedPeriod === '5D' || selectedPeriod === '1M' || selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
+                                return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                              }
+                              return date.getFullYear().toString();
+                            }}
+                          />
+                          <YAxis stroke="#9CA3AF" fontSize={12} tickFormatter={(value) => value.toFixed(1)} domain={['auto', 'auto']} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#1F2937',
+                              border: '1px solid #374151',
+                              borderRadius: '6px',
+                              color: '#F9FAFB',
+                            }}
+                            formatter={(value: number) => [`${Number(value).toFixed(2)}`, 'VIX']}
+                            labelFormatter={(label) => {
+                              const date = new Date(label);
+                              return date.toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              });
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="price"
+                            stroke="#7c3aed"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 6, stroke: '#7c3aed', strokeWidth: 2 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
+                    {(() => {
+                      const latest = chartData.reduce((a, p) =>
+                        new Date(p.date) >= new Date(a.date) ? p : a
+                      );
+                      return (
+                        <VixVolatilityGauge
+                          value={typeof latest.price === 'number' ? latest.price : Number(latest.price)}
+                          asOfDate={latest.date}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : selectedSymbol === 'WTI' ? (
+                <div className="flex flex-col gap-6">
+                  <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
+                    <div className="h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis
+                            dataKey="date"
+                            stroke="#9CA3AF"
+                            fontSize={12}
+                            tickFormatter={(value) => {
+                              const date = new Date(value);
+                              if (selectedPeriod === '5D' || selectedPeriod === '1M' || selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
+                                return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                              }
+                              return date.getFullYear().toString();
+                            }}
+                          />
+                          <YAxis stroke="#9CA3AF" fontSize={12} tickFormatter={(value) => `$${Number(value).toFixed(0)}`} domain={['auto', 'auto']} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#1F2937',
+                              border: '1px solid #374151',
+                              borderRadius: '6px',
+                              color: '#F9FAFB',
+                            }}
+                            formatter={(value: number) => [`$${Number(value).toFixed(2)}`, 'WTI $/bbl']}
+                            labelFormatter={(label) => {
+                              const date = new Date(label);
+                              return date.toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              });
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="price"
+                            stroke="#ca8a04"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 6, stroke: '#ca8a04', strokeWidth: 2 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
+                    {(() => {
+                      const latest = chartData.reduce((a, p) =>
+                        new Date(p.date) >= new Date(a.date) ? p : a
+                      );
+                      return (
+                        <WtiOilGauge
+                          value={typeof latest.price === 'number' ? latest.price : Number(latest.price)}
+                          asOfDate={latest.date}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : (
               <div className="h-full bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
                 {/* Price Chart */}
                 <div className="h-3/4 mb-2">
@@ -1011,6 +1159,7 @@ function DashboardContent() {
                   </ResponsiveContainer>
                 </div>
               </div>
+            )
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-gray-500 dark:text-gray-400">No chart data available</div>

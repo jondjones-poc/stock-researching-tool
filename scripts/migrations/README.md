@@ -4,6 +4,11 @@ Run against your Postgres/Supabase database in order when needed.
 
 ## Order
 
+0. **000_portfolio_data.sql** (optional — greenfield only)  
+   Full `CREATE TABLE portfolio_data` + indexes matching production.  
+   **Requires `stock_ticker_cache` first** (foreign key on `instrument_id`).  
+   Skip if the table already exists.
+
 1. **001_portfolio_data_fk_stock_ticker_cache.sql**  
    Adds foreign key: `portfolio_data.instrument_id` → `stock_ticker_cache.instrument_id`  
    - Requires both tables to exist.  
