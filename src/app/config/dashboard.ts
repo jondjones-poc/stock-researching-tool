@@ -239,6 +239,13 @@ export const dashboardConfig: DashboardConfig = {
         color: 'black',
         dataSource: 'FRED',
         fredSeriesId: 'DCOILWTICO'
+      },
+      {
+        symbol: 'AII',
+        name: 'AAII Sentiment Survey',
+        category: 'MARKETS',
+        icon: '📊',
+        color: 'blue'
       }
     ],
     WATCHLIST: [

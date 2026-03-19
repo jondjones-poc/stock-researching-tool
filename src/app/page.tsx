@@ -7,7 +7,7 @@ import { VixVolatilityGauge } from './components/VixVolatilityGauge';
 import { WtiOilGauge } from './components/WtiOilGauge';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface WatchlistData {
   symbol: string;
@@ -53,6 +53,15 @@ interface FearGreedPoint {
   value: number;
 }
 
+interface AAIISentimentPoint {
+  date: string;
+  bullish: number;
+  neutral: number;
+  bearish: number;
+}
+
+const AAII_SENTIMENT_URL = 'https://www.aaii.com/sentimentsurvey/sent_results';
+
 export default function DashboardPage() {
   return (
     <Suspense fallback={
@@ -93,6 +102,10 @@ function DashboardContent() {
   const [fearGreedData, setFearGreedData] = useState<FearGreedPoint[]>([]);
   const [fearGreedLoading, setFearGreedLoading] = useState(false);
   const [fearGreedError, setFearGreedError] = useState<string | null>(null);
+  const [aaiiSentimentData, setAaiiSentimentData] = useState<AAIISentimentPoint[]>([]);
+  const [aaiiSentimentLatest, setAaiiSentimentLatest] = useState<AAIISentimentPoint | null>(null);
+  const [aaiiSentimentLoading, setAaiiSentimentLoading] = useState(false);
+  const [aaiiSentimentError, setAaiiSentimentError] = useState<string | null>(null);
   const processedSymbolRef = useRef<string | null>(null);
 
   // Delete stock valuation from database
@@ -153,20 +166,24 @@ function DashboardContent() {
         const data = result.data as { [key: string]: WatchlistSymbol[] };
         const symbols: WatchlistSymbol[] = result.symbols || Object.values(data).flat();
 
-        // Ensure Fear & Greed (GREED) also appears under MARKETS for the sidebar
+        // Ensure Fear & Greed (GREED) and AAII Sentiment (AII) appear under MARKETS for the sidebar
         const greedSymbol = symbols.find((s: WatchlistSymbol) => s.symbol === 'GREED');
         if (greedSymbol) {
-          if (!data.MARKETS) {
-            data.MARKETS = [];
-          }
-          const hasGreedInMarkets = data.MARKETS.some((s: WatchlistSymbol) => s.symbol === 'GREED');
-          if (!hasGreedInMarkets) {
+          if (!data.MARKETS) data.MARKETS = [];
+          if (!data.MARKETS.some((s: WatchlistSymbol) => s.symbol === 'GREED')) {
             data.MARKETS = [...data.MARKETS, greedSymbol];
+          }
+        }
+        const aiiSymbol = symbols.find((s: WatchlistSymbol) => s.symbol === 'AII') ?? dashboardConfig.watchlist.MARKETS.find((s: WatchlistSymbol) => s.symbol === 'AII');
+        if (aiiSymbol) {
+          if (!data.MARKETS) data.MARKETS = [];
+          if (!data.MARKETS.some((s: WatchlistSymbol) => s.symbol === 'AII')) {
+            data.MARKETS = [...data.MARKETS, aiiSymbol];
           }
         }
 
         setWatchlistSymbols(data);
-        setAllWatchlistSymbols(symbols);
+        setAllWatchlistSymbols(Object.values(data).flat());
         
         // Fetch stock_valuations IDs for these symbols
         if (symbols.length > 0) {
@@ -385,10 +402,27 @@ function DashboardContent() {
     }
   };
 
-  // Fetch chart data for selected symbol (non-GREED)
+  const fetchAAIISentiment = useCallback(async () => {
+    try {
+      setAaiiSentimentLoading(true);
+      setAaiiSentimentError(null);
+      const res = await fetch('/api/aaii-sentiment');
+      const json = await res.json();
+      setAaiiSentimentData(Array.isArray(json.data) ? json.data : []);
+      setAaiiSentimentLatest(json.latest ?? null);
+      if (json.error) setAaiiSentimentError(json.error);
+    } catch (e: unknown) {
+      setAaiiSentimentError(e instanceof Error ? e.message : 'Failed to load AAII sentiment');
+      setAaiiSentimentData([]);
+      setAaiiSentimentLatest(null);
+    } finally {
+      setAaiiSentimentLoading(false);
+    }
+  }, []);
+
+  // Fetch chart data for selected symbol (non-GREED, non-AII)
   const fetchChartData = async (symbol: string, period: string) => {
-    if (symbol === 'GREED') {
-      // GREED uses dedicated Fear & Greed fetch; skip here
+    if (symbol === 'GREED' || symbol === 'AII') {
       return;
     }
 
@@ -596,11 +630,13 @@ function DashboardContent() {
       fetchWatchlistData();
       if (selectedSymbol === 'GREED') {
         fetchFearGreedData(selectedPeriod);
+      } else if (selectedSymbol === 'AII') {
+        fetchAAIISentiment();
       } else {
         fetchChartData(selectedSymbol, selectedPeriod);
       }
     }
-  }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, fetchWatchlistData]);
+  }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, fetchWatchlistData, fetchAAIISentiment]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -721,7 +757,7 @@ function DashboardContent() {
     router.push(`/?symbol=${symbol}`);
     
     // Skip for market indicators - they have their own info panels
-    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI', 'GREED'];
+    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI', 'AII', 'GREED'];
     if (marketIndicators.includes(symbol)) {
       setSelectedSymbol(symbol);
       setShowEarnings(false);
@@ -828,7 +864,8 @@ function DashboardContent() {
             className={`bg-white dark:bg-gray-900 p-4 ${
               (selectedSymbol === 'GREED' && fearGreedData.length > 0 && !fearGreedLoading) ||
               (selectedSymbol === 'VIX' && chartData.length > 0 && !loading) ||
-              (selectedSymbol === 'WTI' && chartData.length > 0 && !loading)
+              (selectedSymbol === 'WTI' && chartData.length > 0 && !loading) ||
+              (selectedSymbol === 'AII' && aaiiSentimentData.length > 0 && !aaiiSentimentLoading)
                 ? ''
                 : 'h-96'
             }`}
@@ -907,6 +944,103 @@ function DashboardContent() {
               ) : (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-gray-500 dark:text-gray-400">No Fear &amp; Greed data available</div>
+                </div>
+              )
+            ) : selectedSymbol === 'AII' ? (
+              aaiiSentimentLoading ? (
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-gray-500 dark:text-gray-400">Loading AAII sentiment…</div>
+                </div>
+              ) : aaiiSentimentError ? (
+                <div className="flex items-center justify-center h-96">
+                  <div className="max-w-md text-center">
+                    <p className="text-red-500 dark:text-red-400 mb-2">{aaiiSentimentError}</p>
+                    <a
+                      href={AAII_SENTIMENT_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Open AAII survey page in new tab
+                    </a>
+                  </div>
+                </div>
+              ) : aaiiSentimentData.length > 0 ? (
+                <div className="flex flex-col gap-6">
+                  <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
+                    <div className="h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={aaiiSentimentData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                          <XAxis
+                            dataKey="date"
+                            stroke="#9CA3AF"
+                            fontSize={12}
+                            tickFormatter={(value) => {
+                              const d = new Date(value);
+                              return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            }}
+                          />
+                          <YAxis stroke="#9CA3AF" fontSize={12} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: '#1F2937',
+                              border: '1px solid #374151',
+                              borderRadius: '6px',
+                              color: '#F9FAFB',
+                            }}
+                            formatter={(value: number) => [`${value.toFixed(1)}%`, '']}
+                            labelFormatter={(label) => {
+                              const d = new Date(label);
+                              return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                            }}
+                          />
+                          <Line type="monotone" dataKey="bullish" name="Bullish" stroke="#16a34a" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                          <Line type="monotone" dataKey="neutral" name="Neutral" stroke="#6b7280" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                          <Line type="monotone" dataKey="bearish" name="Bearish" stroke="#dc2626" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  {aaiiSentimentLatest && (
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                        Latest sentiment {new Date(aaiiSentimentLatest.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </h3>
+                      <div className="h-64 max-w-sm flex items-center justify-center">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                            <Pie
+                              data={[
+                                { name: 'Bullish', value: aaiiSentimentLatest.bullish, color: '#16a34a' },
+                                { name: 'Neutral', value: aaiiSentimentLatest.neutral, color: '#6b7280' },
+                                { name: 'Bearish', value: aaiiSentimentLatest.bearish, color: '#dc2626' },
+                              ]}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius="80%"
+                              label={(props: { name?: string; value?: number }) => `${props.name ?? ''} ${(props.value ?? 0).toFixed(0)}%`}
+                            >
+                              {[
+                                { name: 'Bullish', color: '#16a34a' },
+                                { name: 'Neutral', color: '#6b7280' },
+                                { name: 'Bearish', color: '#dc2626' },
+                              ].map((entry) => (
+                                <Cell key={entry.name} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: unknown) => `${Number(value).toFixed(1)}%`} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-gray-500 dark:text-gray-400">No AAII sentiment data available</div>
                 </div>
               )
             ) : loading ? (
@@ -1441,7 +1575,7 @@ function DashboardContent() {
           )}
 
           {/* News Section */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && selectedSymbol !== 'AII' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Latest News - {selectedSymbol}</h4>
               {newsLoading ? (
@@ -1524,7 +1658,7 @@ function DashboardContent() {
           )}
 
           {/* Earnings Information Panel */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && selectedSymbol !== 'AII' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Earnings Information - {selectedSymbol}</h4>
               {earningsLoading ? (
