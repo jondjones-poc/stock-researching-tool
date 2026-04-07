@@ -131,7 +131,7 @@ export function RetirementByDividends() {
     let age = projCurrentAge;
     let year = currentYear;
     let monthlyDiv = monthlyDividendsYear0;
-    let monthlyContrib = projMonthlyContribution;
+    const monthlyContrib = projMonthlyContribution;
     let previousYearlyDividends = 0;
     const maxYears = 200;
 

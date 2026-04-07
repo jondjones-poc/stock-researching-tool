@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 interface NetworthReportData {
   year: number;
@@ -66,6 +67,8 @@ export default function SummaryPage() {
   const [retirementAgeAtTarget, setRetirementAgeAtTarget] = useState<number | null>(null);
   const [totalPortfolioValueAtRetirement, setTotalPortfolioValueAtRetirement] = useState<number | null>(null);
   const [totalInvestedAmount, setTotalInvestedAmount] = useState<number | null>(null);
+  const [investmentTrackerEntries, setInvestmentTrackerEntries] = useState<{ month: string }[]>([]);
+  const [investmentTrackerLoaded, setInvestmentTrackerLoaded] = useState(false);
 
   // Dividend summary: from income entries (dividend type) or, when empty, projected from saved portfolio
   const [dividendYearlyGbp, setDividendYearlyGbp] = useState<number | null>(null);
@@ -387,8 +390,8 @@ export default function SummaryPage() {
         };
         
         // Get last 2 months
-        let month1 = previousMonth;
-        let year1 = previousYear;
+        const month1 = previousMonth;
+        const year1 = previousYear;
         let month2 = month1 - 1;
         let year2 = year1;
         if (month2 < 1) {
@@ -465,7 +468,7 @@ export default function SummaryPage() {
         const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
         let years = Math.floor(totalDays / 365.25);
-        let remainingDays = totalDays - (years * 365.25);
+        const remainingDays = totalDays - (years * 365.25);
         let months = Math.floor(remainingDays / 30.44);
         let days = Math.ceil(remainingDays - (months * 30.44));
         
@@ -529,7 +532,7 @@ export default function SummaryPage() {
       
       // Convert to years, months, days
       let years = Math.floor(totalDays / 365.25);
-      let remainingDays = totalDays - (years * 365.25);
+      const remainingDays = totalDays - (years * 365.25);
       let months = Math.floor(remainingDays / 30.44);
       let days = Math.ceil(remainingDays - (months * 30.44));
       
@@ -774,23 +777,27 @@ export default function SummaryPage() {
 
   // Fetch investment tracker data for current year
   useEffect(() => {
+    setInvestmentTrackerLoaded(false);
     const fetchInvestmentTracker = async () => {
       try {
         const response = await fetch(`/api/investment-tracker?year=${currentYear}`);
         if (!response.ok) throw new Error('Failed to fetch investment tracker data');
         const data = await response.json();
         const entries = data.data || [];
-        
-        // Calculate total invested for current year
+        setInvestmentTrackerEntries(entries);
+
         const total = entries.reduce((sum: number, entry: any) => {
           const amount = typeof entry.invested === 'string' ? parseFloat(entry.invested) : entry.invested;
           return sum + (isNaN(amount) ? 0 : amount);
         }, 0);
-        
+
         setTotalInvestedAmount(total);
       } catch (err: any) {
         console.error('Error fetching investment tracker:', err);
         setTotalInvestedAmount(0);
+        setInvestmentTrackerEntries([]);
+      } finally {
+        setInvestmentTrackerLoaded(true);
       }
     };
     fetchInvestmentTracker();
@@ -798,6 +805,41 @@ export default function SummaryPage() {
 
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
                      'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const currentMonthYm = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const hasWageEntriesThisMonth = incomeEntries.some(
+    (e) => parseInt(String(e.year), 10) === currentYear && parseInt(String(e.month), 10) === currentMonth
+  );
+  const hasInvestmentEntryThisMonth = investmentTrackerEntries.some((e) => e.month === currentMonthYm);
+  // Last completed month (same year as “Current networth” card); Jan → use previous year’s December report
+  const networthReportForLastMonth =
+    previousYear === currentYear ? networthData : previousYearNetworthData;
+  const hasNetworthDataForLastMonth =
+    networthReportForLastMonth != null &&
+    (networthReportForLastMonth.monthsWithData ?? []).includes(previousMonth);
+
+  const financeTodos: { href: string; label: string }[] = [];
+  if (networthReportForLastMonth != null && !hasNetworthDataForLastMonth) {
+    financeTodos.push({
+      href: '/finances/networth-report',
+      label: `Add net worth data for ${monthNames[previousMonth - 1]} ${previousYear}`,
+    });
+  }
+  if (!hasInvestmentEntryThisMonth) {
+    financeTodos.push({
+      href: '/finances/investment-tracker',
+      label: `Add investments for ${monthNames[currentMonth - 1]}`,
+    });
+  }
+  if (!hasWageEntriesThisMonth) {
+    financeTodos.push({
+      href: '/finances/24-7-wage',
+      label: `Add wage entries for ${monthNames[currentMonth - 1]} ${currentYear}`,
+    });
+  }
+
+  const showFinanceTodos =
+    !loading && investmentTrackerLoaded && financeTodos.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-2 sm:px-4 lg:px-6">
@@ -895,6 +937,25 @@ export default function SummaryPage() {
                 </>
               );
             })()}
+
+            {/* Todo — networth first, then investment tracker, then 24/7 wage */}
+            {showFinanceTodos && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2 border-l-4 border-amber-500 dark:border-amber-600">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Todo</h2>
+                <ul className="list-disc list-inside space-y-2 text-gray-700 dark:text-gray-300">
+                  {financeTodos.map((item, idx) => (
+                    <li key={`${item.href}-${idx}`}>
+                      <Link
+                        href={item.href}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                      >
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Current Business Cashflow Section */}
             {currentHNWI !== null && (

@@ -21,6 +21,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const savedTheme = localStorage.getItem('theme') as Theme;
       console.log('Saved theme from localStorage:', savedTheme);
       if (savedTheme) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate theme from localStorage on mount
         setTheme(savedTheme);
         if (savedTheme === 'dark') {
           document.documentElement.classList.add('dark');

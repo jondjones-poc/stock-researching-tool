@@ -319,7 +319,7 @@ export default function SettingsPage() {
                     {settings.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                          No settings found. Click "Add Setting" to create one.
+                          No settings found. Click &ldquo;Add Setting&rdquo; to create one.
                         </td>
                       </tr>
                     ) : (

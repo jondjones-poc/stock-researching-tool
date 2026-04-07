@@ -27,7 +27,8 @@ export default function MapBoundsFitter({ locations }: { locations: AlertLocatio
         
         const bounds = locations.map(loc => [loc.lat, loc.lng] as [number, number]);
         if (bounds.length > 0) {
-          // @ts-ignore - Leaflet types
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- Leaflet LatLngBoundsExpression
+          // @ts-ignore
           map.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
         }
       } catch (error) {

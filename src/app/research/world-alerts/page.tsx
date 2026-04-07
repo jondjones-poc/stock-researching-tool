@@ -236,7 +236,7 @@ export default function WorldAlertsPage() {
         {locations.length > 0 && (
           <div className="mb-4 p-4 bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-800 rounded-lg">
             <p className="text-blue-800 dark:text-blue-200">
-              Found {locations.length} alert{locations.length !== 1 ? 's' : ''} for "{searchQuery}"
+              Found {locations.length} alert{locations.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
             </p>
           </div>
         )}

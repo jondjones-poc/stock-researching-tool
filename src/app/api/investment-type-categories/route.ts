@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
     let sql = '';
     const params: any[] = [];
-    let paramIndex = 1;
+    const paramIndex = 1;
 
     if (investmentTypeId) {
       // Get all categories for an investment type

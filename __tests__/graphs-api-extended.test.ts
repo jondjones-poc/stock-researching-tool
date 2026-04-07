@@ -143,40 +143,12 @@ describe('/api/graphs - Extended with Portfolio, Dividend, and Shares Outstandin
     jest.clearAllMocks();
     process.env.FMP_API_KEY = "test-fmp-api-key";
     process.env.FINNHUB_API_KEY = "test-finnhub-api-key";
-  },
-  {
-    calendarYear: "2022",
-    revenue: 400000000,
-    netIncome: 80000000
-  },
-  {
-    calendarYear: "2021",
-    revenue: 350000000,
-    netIncome: 70000000
-  },
-  {
-    calendarYear: "2020",
-    revenue: 300000000,
-    netIncome: 60000000  });
+  });;
 
   afterEach(() => {
     delete process.env.FMP_API_KEY;
     delete process.env.FINNHUB_API_KEY;
-  },
-  {
-    calendarYear: "2022",
-    revenue: 400000000,
-    netIncome: 80000000
-  },
-  {
-    calendarYear: "2021",
-    revenue: 350000000,
-    netIncome: 70000000
-  },
-  {
-    calendarYear: "2020",
-    revenue: 300000000,
-    netIncome: 60000000  });
+  });;
 
   it('should fetch all graph data including shares outstanding', async () => {
     // Mock all API responses with saved data
@@ -214,21 +186,7 @@ describe('/api/graphs - Extended with Portfolio, Dividend, and Shares Outstandin
     console.log('Portfolio Value Data Points:', data.portfolioValue.length);
     console.log('Dividend Income Data Points:', data.dividendIncome.length);
     console.log('Shares Outstanding Data Points:', data.sharesOutstanding.length);
-  },
-  {
-    calendarYear: "2022",
-    revenue: 400000000,
-    netIncome: 80000000
-  },
-  {
-    calendarYear: "2021",
-    revenue: 350000000,
-    netIncome: 70000000
-  },
-  {
-    calendarYear: "2020",
-    revenue: 300000000,
-    netIncome: 60000000  });
+  });;
 
   it('should process shares outstanding data correctly', async () => {
     mockedAxios.get
@@ -257,21 +215,7 @@ describe('/api/graphs - Extended with Portfolio, Dividend, and Shares Outstandin
     console.log('Shares Outstanding Sample Data:');
     console.log('First Item:', data.sharesOutstanding[0]);
     console.log('Last Item:', data.sharesOutstanding[data.sharesOutstanding.length - 1]);
-  },
-  {
-    calendarYear: "2022",
-    revenue: 400000000,
-    netIncome: 80000000
-  },
-  {
-    calendarYear: "2021",
-    revenue: 350000000,
-    netIncome: 70000000
-  },
-  {
-    calendarYear: "2020",
-    revenue: 300000000,
-    netIncome: 60000000  });
+  });;
 
   it('should handle missing symbol parameter', async () => {
     const request = new NextRequest('http://localhost:3000/api/graphs');
@@ -280,19 +224,5 @@ describe('/api/graphs - Extended with Portfolio, Dividend, and Shares Outstandin
 
     expect(response.status).toBe(400);
     expect(data.error).toBe('Stock symbol is required');
-  },
-  {
-    calendarYear: "2022",
-    revenue: 400000000,
-    netIncome: 80000000
-  },
-  {
-    calendarYear: "2021",
-    revenue: 350000000,
-    netIncome: 70000000
-  },
-  {
-    calendarYear: "2020",
-    revenue: 300000000,
-    netIncome: 60000000  });
+  });;
 });

@@ -17,7 +17,7 @@ interface IncomeSource {
 }
 
 interface IncomeEntry {
-  id: number;
+  id: number | null;
   income_source_id: number;
   add_date: string;
   price: number | string;
@@ -48,7 +48,11 @@ export default function Wage247Page() {
     month: ''
   });
   const [saving, setSaving] = useState(false);
-  const [editingCell, setEditingCell] = useState<{ sourceId: number; month: number; entryId?: number } | null>(null);
+  const [editingCell, setEditingCell] = useState<{
+    sourceId: number;
+    month: number;
+    entryId?: number | null;
+  } | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
 
@@ -169,8 +173,7 @@ export default function Wage247Page() {
     let sum = 0;
     monthNames.forEach((_, monthIndex) => {
       const month = monthIndex + 1;
-      const entry = getEntry(sourceId, month);
-      sum += entry ? parseFloat(entry.price.toString()) : 0;
+      sum += getSourceValue(sourceId, month);
     });
     return sum / 12;
   };
@@ -180,8 +183,7 @@ export default function Wage247Page() {
     let total = 0;
     monthNames.forEach((_, monthIndex) => {
       const month = monthIndex + 1;
-      const entry = getEntry(sourceId, month);
-      total += entry ? parseFloat(entry.price.toString()) : 0;
+      total += getSourceValue(sourceId, month);
     });
     return total;
   };
@@ -409,7 +411,11 @@ export default function Wage247Page() {
   const handleCellDoubleClick = (sourceId: number, month: number) => {
     const entry = getEntry(sourceId, month);
     if (entry) {
-      setEditingCell({ sourceId, month, entryId: entry.id });
+      setEditingCell({
+        sourceId,
+        month,
+        entryId: entry.id != null ? entry.id : undefined,
+      });
       setEditingValue(parseFloat(entry.price.toString()).toString());
     }
   };
@@ -426,18 +432,32 @@ export default function Wage247Page() {
 
     setSaving(true);
     try {
-      const response = await fetch('/api/income-entries', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: editingCell.entryId,
-          price: price
-        })
-      });
+      let response: Response;
+      if (editingCell.entryId != null) {
+        response = await fetch('/api/income-entries', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingCell.entryId,
+            price,
+          }),
+        });
+      } else {
+        const addDate = `${selectedYear}-${String(editingCell.month).padStart(2, '0')}-01`;
+        response = await fetch('/api/income-entries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            income_source_id: editingCell.sourceId,
+            add_date: addDate,
+            price,
+          }),
+        });
+      }
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update entry');
+        throw new Error(errorData.error || 'Failed to save entry');
       }
 
       // Refresh entries

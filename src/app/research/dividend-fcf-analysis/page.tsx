@@ -1664,7 +1664,7 @@ Thank you!`;
                     <strong className="font-semibold">1. Free Cash Flow Coverage:</strong> The blue bars (Free Cash Flow) should be consistently <strong>higher</strong> than the red bars (Dividends Paid). This shows the company generates enough cash to comfortably cover its dividend payments, providing a safety cushion.
                   </div>
                   <div>
-                    <strong className="font-semibold">2. Growing Trend:</strong> Both lines should show an <strong>upward trajectory</strong> over time. Growing FCF indicates the business is healthy and expanding, while growing dividends show management's commitment to rewarding shareholders.
+                    <strong className="font-semibold">2. Growing Trend:</strong> Both lines should show an <strong>upward trajectory</strong> over time. Growing FCF indicates the business is healthy and expanding, while growing dividends show management&apos;s commitment to rewarding shareholders.
                   </div>
                   <div>
                     <strong className="font-semibold">3. Healthy Gap:</strong> There should be a <strong>meaningful gap</strong> between Free Cash Flow and Dividends Paid. A large gap (FCF significantly exceeds dividends) indicates:
@@ -1777,7 +1777,7 @@ Thank you!`;
                 </h3>
                 <div className="space-y-3 text-sm text-green-800 dark:text-green-200">
                   <div>
-                    <strong className="font-semibold">1. Consistent Growth Pattern:</strong> Look for a <strong>steady upward trend</strong> in dividend payments over time. The bars should generally increase from left to right (oldest to newest year), showing the company's commitment to growing shareholder returns.
+                    <strong className="font-semibold">1. Consistent Growth Pattern:</strong> Look for a <strong>steady upward trend</strong> in dividend payments over time. The bars should generally increase from left to right (oldest to newest year), showing the company&apos;s commitment to growing shareholder returns.
                   </div>
                   <div>
                     <strong className="font-semibold">2. No Cuts or Suspensions:</strong> A strong dividend kingdom candidate should have <strong>no years with zero dividends</strong> or significant decreases. Even during economic downturns, dividend aristocrats and kings maintain or increase their payouts.
@@ -1799,11 +1799,11 @@ Thank you!`;
                       <li>Flat or declining dividends over multiple years</li>
                       <li>Erratic patterns with large swings up and down</li>
                       <li>Recent dividend cuts or suspensions</li>
-                      <li>Dividends that don't keep pace with inflation</li>
+                      <li>Dividends that don&apos;t keep pace with inflation</li>
                     </ul>
                   </div>
                   <div className="pt-2 border-t border-green-300 dark:border-green-700">
-                    <strong className="font-semibold">💡 Ideal Dividend Kingdom Stock:</strong> A company that shows consistent, predictable dividend growth year-over-year, with no cuts or suspensions, and a strong CAGR that demonstrates management's commitment to rewarding shareholders. This graph should tell a story of reliability and growth - the foundation of a strong dividend portfolio.
+                    <strong className="font-semibold">💡 Ideal Dividend Kingdom Stock:</strong> A company that shows consistent, predictable dividend growth year-over-year, with no cuts or suspensions, and a strong CAGR that demonstrates management&apos;s commitment to rewarding shareholders. This graph should tell a story of reliability and growth - the foundation of a strong dividend portfolio.
                   </div>
                 </div>
               </div>

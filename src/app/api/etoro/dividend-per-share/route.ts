@@ -190,7 +190,7 @@ export async function POST(_request: NextRequest) {
           continue;
         }
 
-        let annualDps = computeAnnualDpsFromFmpResponse(divRes.data);
+        const annualDps = computeAnnualDpsFromFmpResponse(divRes.data);
 
         if (updated === 0 && annualDps <= 0 && !firstSymbolDebug) {
           const data = divRes.data;

@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     const monthlyDividendIncome: number[] = [];
     let year = currentYear;
     let monthlyDiv = monthlyDividendsYear0;
-    let monthlyContrib = projMonthlyContribution;
+    const monthlyContrib = projMonthlyContribution;
     let previousYearlyDividends = 0;
     const maxYears = 80;
     for (let i = 0; i < maxYears; i++) {

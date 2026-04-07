@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
 
     let result;
     if (year) {
+      const y = parseInt(year, 10);
       result = await query(
         `SELECT 
           ie.id,
@@ -49,8 +50,78 @@ export async function GET(request: NextRequest) {
         JOIN income_type it ON ins.income_type_id = it.id
         WHERE EXTRACT(YEAR FROM ie.add_date) = $1
         ORDER BY it.id, ins.id, ie.add_date`,
-        [parseInt(year)]
+        [y]
       );
+
+      // Virtual rows: linked account + balances exist but no income_entry yet (e.g. source added after months were created)
+      const synthetic = await query(
+        `SELECT 
+          NULL::INTEGER AS id,
+          ins.id AS income_source_id,
+          make_date($1::INTEGER, gs.m::INTEGER, 1) AS add_date,
+          0::NUMERIC AS price,
+          ins.name AS income_source_name,
+          ins.income_type_id,
+          ins.account_id,
+          it.name AS income_type_name,
+          $1::INTEGER AS year,
+          gs.m::INTEGER AS month,
+          (SELECT ab.balance 
+           FROM account_balances ab 
+           WHERE ab.account_id = ins.account_id 
+           AND EXTRACT(YEAR FROM ab.balance_date) = $1
+           AND EXTRACT(MONTH FROM ab.balance_date) = gs.m
+           ORDER BY ab.balance_date DESC 
+           LIMIT 1) AS current_month_balance,
+          (SELECT ab.balance 
+           FROM account_balances ab 
+           WHERE ab.account_id = ins.account_id 
+           AND (
+             (gs.m > 1 
+              AND EXTRACT(YEAR FROM ab.balance_date) = $1
+              AND EXTRACT(MONTH FROM ab.balance_date) = gs.m - 1)
+             OR
+             (gs.m = 1 
+              AND EXTRACT(YEAR FROM ab.balance_date) = $1 - 1
+              AND EXTRACT(MONTH FROM ab.balance_date) = 12)
+           )
+           ORDER BY ab.balance_date DESC 
+           LIMIT 1) AS previous_month_balance
+        FROM income_source ins
+        JOIN income_type it ON ins.income_type_id = it.id
+        CROSS JOIN (VALUES (1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12)) AS gs(m)
+        WHERE ins.account_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM income_entry ie 
+          WHERE ie.income_source_id = ins.id 
+          AND EXTRACT(YEAR FROM ie.add_date) = $1 
+          AND EXTRACT(MONTH FROM ie.add_date) = gs.m
+        )
+        AND (
+          EXISTS (
+            SELECT 1 FROM account_balances ab 
+            WHERE ab.account_id = ins.account_id 
+            AND EXTRACT(YEAR FROM ab.balance_date) = $1 
+            AND EXTRACT(MONTH FROM ab.balance_date) = gs.m
+          )
+          OR EXISTS (
+            SELECT 1 FROM account_balances ab 
+            WHERE ab.account_id = ins.account_id 
+            AND (
+              (gs.m > 1 AND EXTRACT(YEAR FROM ab.balance_date) = $1 AND EXTRACT(MONTH FROM ab.balance_date) = gs.m - 1)
+              OR (gs.m = 1 AND EXTRACT(YEAR FROM ab.balance_date) = $1 - 1 AND EXTRACT(MONTH FROM ab.balance_date) = 12)
+            )
+          )
+        )`,
+        [y]
+      );
+
+      const merged = [...result.rows, ...synthetic.rows].sort((a, b) => {
+        if (a.income_type_id !== b.income_type_id) return Number(a.income_type_id) - Number(b.income_type_id);
+        if (a.income_source_id !== b.income_source_id) return Number(a.income_source_id) - Number(b.income_source_id);
+        return Number(a.month) - Number(b.month);
+      });
+      return NextResponse.json({ data: merged });
     } else {
       result = await query(
         `SELECT 

@@ -12,13 +12,16 @@ export default function DCFExample() {
     // Check if DCF data exists
     if (!hasDCFData()) {
       console.log('No DCF data available. Please run company research first.');
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync loading after local check
       setLoading(false);
       return;
     }
 
     // Retrieve the stored data
     const data = getDCFData();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync state after reading local DCF cache
     setDcfData(data);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(false);
   }, []);
 

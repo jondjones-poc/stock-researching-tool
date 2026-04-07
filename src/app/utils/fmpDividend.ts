@@ -29,7 +29,7 @@ export function computeAnnualDpsFromFmpResponse(data: any): number {
 
   const parseAmount = (d: any): number => {
     const v = d.dividend ?? d.adjustedDividend ?? d.adjDividend ?? d.amount ?? d.dividendAmount ?? d.dps ?? 0;
-    let n = parseFloat(String(v));
+    const n = parseFloat(String(v));
     if (Number.isFinite(n) && n > 0) return n;
     if (d && typeof d === 'object') {
       for (const k of Object.keys(d)) {

@@ -24,6 +24,26 @@ interface MonthlyAccountBalance {
   month: number;
 }
 
+const MONTH_ORDER = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+/** Statement month label from API balance_date — use calendar date in UTC, not local timezone (avoids US rows showing wrong month). */
+function monthNameFromBalanceDate(balanceDate: string): string {
+  const s = String(balanceDate).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const monthNum = parseInt(m[2], 10);
+    if (monthNum >= 1 && monthNum <= 12) return MONTH_ORDER[monthNum - 1];
+  }
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    return MONTH_ORDER[d.getUTCMonth()];
+  }
+  return MONTH_ORDER[0];
+}
+
 export default function FinancesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -150,8 +170,7 @@ export default function FinancesPage() {
       const monthMap = new Map<string, Map<string, { balance: number; id: number; account_id: number; balance_date: string }>>();
       
       monthlyData.forEach(item => {
-        const date = new Date(item.balance_date);
-        const monthKey = date.toLocaleString('default', { month: 'long' });
+        const monthKey = monthNameFromBalanceDate(item.balance_date);
         
         if (!monthMap.has(monthKey)) {
           monthMap.set(monthKey, new Map());
@@ -186,8 +205,7 @@ export default function FinancesPage() {
     const monthMap = new Map<string, Map<string, { balance: number; id: number; account_id: number; balance_date: string }>>();
     
     // Initialize all 12 months for the selected year with default 0 values
-    const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                        'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthOrder: string[] = [...MONTH_ORDER];
     
     // If there's any data for this year, show all 12 months with default 0.00 values
     if (monthlyData.length > 0 && accountsToUse.length > 0) {
@@ -217,13 +235,12 @@ export default function FinancesPage() {
     
     // Override with actual database values (this will replace the defaults)
     monthlyData.forEach(item => {
-      const date = new Date(item.balance_date);
-      const monthKey = date.toLocaleString('default', { month: 'long' });
-      
+      const monthKey = monthNameFromBalanceDate(item.balance_date);
+
       if (!monthMap.has(monthKey)) {
         monthMap.set(monthKey, new Map());
       }
-      
+
       const accountMap = monthMap.get(monthKey)!;
       accountMap.set(item.account_name, {
         balance: item.balance,

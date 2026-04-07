@@ -263,7 +263,7 @@ export async function GET(request: NextRequest) {
     const uniqueInstrumentIds = [...new Set(stockPositions.map(p => p.instrumentID ?? p.instrumentId).filter(id => id))];
     console.log(`Need to fetch symbols for ${uniqueInstrumentIds.length} unique instruments:`, uniqueInstrumentIds);
     
-    let instrumentMap: Record<number | string, string> = {};
+    const instrumentMap: Record<number | string, string> = {};
     const instrumentErrors: string[] = [];
     
     // Lookup order for instrument ID -> ticker symbol:
@@ -573,12 +573,12 @@ export async function GET(request: NextRequest) {
 
         // Get ticker symbol from instrument map (try both string and number keys)
         const idNum = typeof instrumentId === 'string' ? parseInt(instrumentId) : instrumentId;
-        let ticker = instrumentMap[instrumentId] || 
+        const ticker = instrumentMap[instrumentId] || 
                      instrumentMap[idNum] || 
                      `INSTRUMENT_${instrumentId}`;
         // Dividend per share: from stock_ticker_cache first (idNum is number for lookup)
         let dividendPerShare = (Number.isFinite(idNum) ? dpsFromCache[idNum] : undefined) ?? 0;
-        let dividendGrowthRate: number | null = null;
+        const dividendGrowthRate: number | null = null;
         
         if (ticker.startsWith('INSTRUMENT_')) {
           console.warn(`⚠ Instrument ${instrumentId} (${idNum}) missing symbol.`);

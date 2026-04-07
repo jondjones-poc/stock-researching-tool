@@ -222,7 +222,7 @@ function RetirementByCashflow() {
       const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
       let years = Math.floor(totalDays / 365.25);
-      let remainingDays = totalDays - (years * 365.25);
+      const remainingDays = totalDays - (years * 365.25);
       let months = Math.floor(remainingDays / 30.44);
       let days = Math.ceil(remainingDays - (months * 30.44));
       
@@ -720,7 +720,7 @@ function RetirementByTargetPot() {
       
       // Convert to years, months, days
       let years = Math.floor(totalDays / 365.25);
-      let remainingDays = totalDays - (years * 365.25);
+      const remainingDays = totalDays - (years * 365.25);
       let months = Math.floor(remainingDays / 30.44); // Average days per month
       let days = Math.ceil(remainingDays - (months * 30.44));
       
@@ -773,7 +773,7 @@ function RetirementByTargetPot() {
     
     // Start with target pot at retirement
     let portfolioValue = targetPot;
-    let baseWithdrawal = portfolioValue * withdrawalRate;
+    const baseWithdrawal = portfolioValue * withdrawalRate;
     
     // Calculate years from retirement to death
     const yearsInRetirement = deathAge - retirementAge;
@@ -1857,7 +1857,7 @@ function RetirementSummary() {
     // Get the Total Portfolio Value at retirement year from pre-retirement data
     const retirementData = preRetirementData.find(p => p.year === retirementYear);
     let portfolioValue = retirementData ? retirementData.totalPortfolioValue : (preRetirementData[preRetirementData.length - 1]?.totalPortfolioValue || targetPot);
-    let baseWithdrawal = portfolioValue * withdrawalRate;
+    const baseWithdrawal = portfolioValue * withdrawalRate;
     const yearsInRetirement = deathAge - actualRetirementAge;
     
     // Get the yearly cashflow from the retirement year (when target was reached) as baseline for business income
@@ -2915,6 +2915,7 @@ export default function RetirementByTargetPotPage() {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (tabParam === 'target' || tabParam === 'cashflow' || tabParam === 'summary' || tabParam === 'dividends') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync active tab to ?tab= query
       setActiveTab(tabParam);
     }
   }, [searchParams]);

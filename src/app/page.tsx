@@ -429,25 +429,23 @@ function DashboardContent() {
     try {
       setLoading(true);
       setError(null);
-      
-      let response: Response;
-      
+
       // Get date range for the selected period
       const { from, to } = getDateRange(period);
-      
+
       // Find the symbol configuration to check data source
       const symbolConfig = allWatchlistSymbols.find(s => s.symbol === symbol);
-      
+
       // Build URL with data source parameters
       let url = `/api/historical-prices?symbol=${symbol}&from=${from}&to=${to}`;
-      
+
       if (symbolConfig?.dataSource === 'FRED' && symbolConfig?.fredSeriesId) {
         url += `&dataSource=FRED&fredSeriesId=${symbolConfig.fredSeriesId}`;
       }
-      
+
       // Fetch historical price data with date range
       console.log(`Fetching chart data for ${symbol} from ${url}`);
-      response = await fetch(url);
+      const response = await fetch(url);
       
       if (!response.ok) {
         // Try to get error message from response
