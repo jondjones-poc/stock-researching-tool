@@ -269,13 +269,12 @@ export default function FinancesPage() {
     return month === currentMonth && selectedYear === currentYear;
   };
 
-  // Check if a month row has any database entries
+  // Check if a month row has any database entries (any account — not just current filter)
   const hasDatabaseEntries = (month: string) => {
     const accountMap = monthMap.get(month);
     if (!accountMap) return false;
-    
-    // Check if any filtered account in this month has a non-zero id (meaning it's from database)
-    for (const account of filteredAccounts) {
+
+    for (const account of accounts) {
       const balanceData = accountMap.get(account.name);
       if (balanceData && balanceData.id !== 0) {
         return true;
@@ -395,7 +394,7 @@ export default function FinancesPage() {
         
         const existingEntry = accountMap?.get(account.name);
         
-        if (existingEntry && existingEntry.id) {
+        if (existingEntry != null && existingEntry.id != null && existingEntry.id !== 0) {
           // Update existing
           updates.push({ id: existingEntry.id, balance: balanceValue });
         } else {
@@ -523,7 +522,7 @@ export default function FinancesPage() {
           
           const existingEntry = accountMap?.get(account.name);
           
-          if (existingEntry && existingEntry.id) {
+          if (existingEntry != null && existingEntry.id != null && existingEntry.id !== 0) {
             updates.push({ id: existingEntry.id, balance: balanceValue });
           } else {
             balances.push({
@@ -620,7 +619,7 @@ export default function FinancesPage() {
       const existingEntry = accountMap?.get(accountName);
 
       let response;
-      if (existingEntry && existingEntry.id) {
+      if (existingEntry != null && existingEntry.id != null && existingEntry.id !== 0) {
         // Update existing entry
         response = await fetch(`/api/monthly-account-balances?id=${existingEntry.id}`, {
           method: 'PUT',
@@ -1041,9 +1040,12 @@ export default function FinancesPage() {
                           </h4>
                           <div className="grid grid-cols-2 gap-4">
                             {group.accounts.map((account) => {
-                              const value = expandedEditValues.get(account.name) || '0';
-                              const numericValue = parseFloat(value.replace(/[£,]/g, '')) || 0;
-                              const formattedValue = numericValue === 0 ? '' : `£${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                              const value = expandedEditValues.has(account.name)
+                                ? expandedEditValues.get(account.name)!
+                                : '0';
+                              const parsed = parseFloat(value.replace(/[£,]/g, ''));
+                              const numericValue = Number.isFinite(parsed) ? parsed : 0;
+                              const formattedValue = `£${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                               
                               return (
                                 <div key={account.id} className="space-y-1">

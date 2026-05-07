@@ -49,43 +49,36 @@ export default function DCFCalculator() {
   const [symbolCopyCopied, setSymbolCopyCopied] = useState(false);
 
   const searchParams = useSearchParams();
+  const idFromUrl = searchParams.get('id');
+  const symbolFromUrl = searchParams.get('symbol');
 
   useEffect(() => {
     const loadInitialData = async () => {
-      // PRIORITY: Check query string FIRST before doing anything with localStorage
-      const idParam = searchParams.get('id');
-      const symbolParam = searchParams.get('symbol');
-      
-      // If we have URL parameters, clear localStorage to prevent conflicts
-      if (idParam || symbolParam) {
-        // Clear localStorage data to ensure URL parameters take priority
-        localStorage.removeItem('dcfData');
-        // Clear any existing DCF data state
+      // PRIORITY: URL id/symbol over localStorage — but do not wipe localStorage here.
+      // Clearing dcfData on every ?symbol= visit breaks bare /dcf (restore from localStorage)
+      // when DB load fails, navigation is fast, or user returns from watchlist.
+      if (idFromUrl || symbolFromUrl) {
         setDcfData(null);
         setSelectedDcfId('');
       }
-      
+
       // Load the DCF list first
       await loadDcfList();
-      
-      if (idParam) {
-        // Scroll to top when loading from URL parameter
+
+      if (idFromUrl) {
         window.scrollTo(0, 0);
-        handleDcfSelect(idParam);
-      } else if (symbolParam) {
-        // If symbol is provided, load the most recent DCF entry for that symbol
-        // Don't load from localStorage if we have a symbol parameter
+        handleDcfSelect(idFromUrl);
+      } else if (symbolFromUrl) {
         window.scrollTo(0, 0);
-        loadDcfBySymbol(symbolParam);
+        loadDcfBySymbol(symbolFromUrl);
       } else {
-        // Only load from localStorage if no URL parameters are present
         loadData();
       }
     };
-    
+
     loadInitialData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load handlers close over fresh API; id/symbol drive reload
+  }, [idFromUrl, symbolFromUrl]);
 
   // Load matching DCF entries when symbol changes
   useEffect(() => {
@@ -99,14 +92,14 @@ export default function DCFCalculator() {
   // If DCF data exists in local storage and there is a matching DB entry, auto-load that entry
   useEffect(() => {
     // PRIORITY: Don't override an explicit selection from URL or user
-    // Check if we have URL parameters - if so, don't auto-load from localStorage
-    const idParam = searchParams.get('id');
-    const symbolParam = searchParams.get('symbol');
-    if (idParam || symbolParam) {
-      console.log('[DCF] Skipping auto-load from localStorage - URL parameters present:', { idParam, symbolParam });
-      return; // Don't auto-load if URL parameters are present
+    if (idFromUrl || symbolFromUrl) {
+      console.log('[DCF] Skipping auto-load from localStorage - URL parameters present:', {
+        idFromUrl,
+        symbolFromUrl,
+      });
+      return;
     }
-    
+
     if (!dcfData?.symbol || dcfList.length === 0 || selectedDcfId) return;
 
     const upperSymbol = dcfData.symbol.toUpperCase();
@@ -118,7 +111,7 @@ export default function DCFCalculator() {
       console.log('[DCF] Auto-loading matching entry from localStorage:', matchingEntry.symbol, matchingEntry.id);
       handleDcfSelect(matchingEntry.id);
     }
-  }, [dcfData?.symbol, dcfList, selectedDcfId, searchParams]);
+  }, [dcfData?.symbol, dcfList, selectedDcfId, idFromUrl, symbolFromUrl]);
 
   const loadMatchingDcfEntries = async (symbol: string) => {
     if (!symbol) return;
@@ -269,12 +262,15 @@ export default function DCFCalculator() {
       const listResult = await listResponse.json();
 
       if (!listResponse.ok || !listResult.data || listResult.data.length === 0) {
-        // No DCF entry exists for this symbol, set the symbol in the input field
         setDbSymbol(symbol.toUpperCase());
-        setSelectedDcfId(''); // Clear selection since no entry exists
-        setDbMessage({ 
-          type: 'error', 
-          text: `No DCF entry found for ${symbol.toUpperCase()}. Please load or create one.` 
+        setSelectedDcfId('');
+        if (tryHydrateFromResearchLocalStorage(symbol.toUpperCase())) {
+          setDbLoading(false);
+          return;
+        }
+        setDbMessage({
+          type: 'error',
+          text: `No DCF entry found for ${symbol.toUpperCase()}, and no matching Company Research data in this browser. Load the symbol on Company Research first, then open DCF again.`,
         });
         setDbLoading(false);
         return;
@@ -306,55 +302,81 @@ export default function DCFCalculator() {
     console.log('DCF data state changed:', dcfData);
   }, [dcfData]);
 
+  /** Apply DCF payload (from DB or Company Research localStorage) to form + projections */
+  const syncFormFromDcfPayload = (data: DCFData) => {
+    setDcfData(data);
+    setFormData({
+      revenueGrowth: {
+        bear: (data.revenueGrowth.bear || 0) * 100,
+        base: (data.revenueGrowth.base || 0) * 100,
+        bull: (data.revenueGrowth.bull || 0) * 100,
+      },
+      netIncomeGrowth: {
+        bear: Math.round((data.netIncomeGrowth.bear || 0) * 1000) / 10,
+        base: Math.round((data.netIncomeGrowth.base || 0) * 1000) / 10,
+        bull: Math.round((data.netIncomeGrowth.bull || 0) * 1000) / 10,
+      },
+      peLow: {
+        bear: Math.round(data.peLow.bear || 0),
+        base: Math.round(data.peLow.base || 0),
+        bull: Math.round(data.peLow.bull || 0),
+      },
+      peHigh: {
+        bear: Math.round(data.peHigh.bear || 0),
+        base: Math.round(data.peHigh.base || 0),
+        bull: Math.round(data.peHigh.bull || 0),
+      },
+      stockPrice: data.stockPrice || 0,
+    });
+    calculateProjections(data);
+  };
+
+  const isValidDcfPayload = (data: DCFData | null): data is DCFData =>
+    !!data &&
+    !!data.revenueGrowth &&
+    !!data.netIncomeGrowth &&
+    !!data.peLow &&
+    !!data.peHigh;
+
+  /** Company Research stores dcfData with matching symbol — use when DB has no row yet */
+  const tryHydrateFromResearchLocalStorage = (symbol: string): boolean => {
+    const data = getDCFData();
+    if (!isValidDcfPayload(data)) return false;
+    if (data.symbol?.toUpperCase() !== symbol.toUpperCase()) return false;
+    console.log('[DCF] Hydrating from Company Research localStorage for', symbol);
+    syncFormFromDcfPayload(data);
+    setDbSymbol(symbol.toUpperCase());
+    setSelectedDcfId('');
+    setDcfDbId(null);
+    setDbMessage({
+      type: 'success',
+      text: `Loaded ${symbol.toUpperCase()} from Company Research (draft — not in DCF database yet). Adjust assumptions and save when ready.`,
+    });
+    return true;
+  };
+
   const loadData = () => {
     try {
-      // Don't load from localStorage if there are URL parameters (query string takes priority)
-      const idParam = searchParams.get('id');
-      const symbolParam = searchParams.get('symbol');
-      if (idParam || symbolParam) {
-        console.log('[DCF] Skipping localStorage load - URL parameters present:', { idParam, symbolParam });
+      if (idFromUrl || symbolFromUrl) {
+        console.log('[DCF] Skipping localStorage load - URL parameters present:', {
+          idFromUrl,
+          symbolFromUrl,
+        });
         return;
       }
-      
+
       console.log('loadData called');
       if (hasDCFData()) {
         const data = getDCFData();
         console.log('DCF data loaded from localStorage:', data);
-        if (data && data.revenueGrowth && data.netIncomeGrowth && data.peLow && data.peHigh) {
+        if (isValidDcfPayload(data)) {
           console.log('Data validation passed, setting dcfData and formData');
-          setDcfData(data);
-          setFormData({
-            revenueGrowth: {
-              bear: (data.revenueGrowth.bear || 0) * 100,
-              base: (data.revenueGrowth.base || 0) * 100,
-              bull: (data.revenueGrowth.bull || 0) * 100
-            },
-            netIncomeGrowth: {
-              bear: Math.round((data.netIncomeGrowth.bear || 0) * 1000) / 10,
-              base: Math.round((data.netIncomeGrowth.base || 0) * 1000) / 10,
-              bull: Math.round((data.netIncomeGrowth.bull || 0) * 1000) / 10
-            },
-            peLow: {
-              bear: Math.round(data.peLow.bear || 0),
-              base: Math.round(data.peLow.base || 0),
-              bull: Math.round(data.peLow.bull || 0)
-            },
-            peHigh: {
-              bear: Math.round(data.peHigh.bear || 0),
-              base: Math.round(data.peHigh.base || 0),
-              bull: Math.round(data.peHigh.bull || 0)
-            },
-            stockPrice: data.stockPrice || 0
-          });
-          console.log('Calling calculateProjections with data:', data);
-          calculateProjections(data);
+          syncFormFromDcfPayload(data);
         } else {
-          // Data is corrupted or incomplete
           setDcfData(null);
           setProjections(null);
         }
       } else {
-        // No data available
         setDcfData(null);
         setProjections(null);
       }

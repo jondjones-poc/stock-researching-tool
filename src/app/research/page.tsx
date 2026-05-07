@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Decimal from 'decimal.js';
-import Link from 'next/link';
+import { storeResearchSnapshotForDcf } from '../utils/storeResearchSnapshotForDcf';
 
 interface InsiderData {
   symbol?: string;
@@ -224,8 +223,7 @@ export default function Home() {
 
       setData(result);
       
-      // Store data in localStorage for DCF calculation page
-      storeDataForDCF(result);
+      storeResearchSnapshotForDcf(result);
       
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -247,96 +245,6 @@ export default function Home() {
     // Reset state
     setSymbol('');
     setData(null);
-  };
-
-  // Function to store data in localStorage for DCF calculation page
-  const storeDataForDCF = (data: any) => {
-    if (!data) return;
-
-    try {
-      // Check if localStorage is available
-      if (typeof window === 'undefined' || !window.localStorage) {
-        console.warn('localStorage not available');
-        return;
-      }
-
-
-      // Calculate Revenue Growth projections - use default values
-      const revenueGrowthBear = 0.03; // 3%
-      const revenueGrowthBase = 0.04; // 4%
-      const revenueGrowthBull = 0.12; // 12%
-      
-      console.log('Revenue Growth Rates:');
-      console.log('Bear:', revenueGrowthBear * 100 + '%');
-      console.log('Base:', revenueGrowthBase * 100 + '%');
-      console.log('Bull:', revenueGrowthBull * 100 + '%');
-
-      // Calculate Net Income Growth projections - use historical growth rate as base
-      const baseNetIncomeGrowth = data.earningsGrowth?.historicalGrowthRate || 0.2; // Default to 20%
-      const netIncomeGrowthBear = new Decimal(baseNetIncomeGrowth).mul(0.75).toNumber(); // 25% below base
-      const netIncomeGrowthBase = baseNetIncomeGrowth;
-      const netIncomeGrowthBull = new Decimal(baseNetIncomeGrowth).mul(1.25).toNumber(); // 25% above base
-
-      // Calculate PE estimates using current P/E ratio as base case
-      const currentPE = data.peRatios?.currentPE || data.fmp?.fmpPE || 16; // Default to 16 if no PE available
-      
-      // PE Low: Base case is current PE, Bear is 10% below, Bull is 10% above
-      const peLowBase = currentPE;
-      const peLowBear = new Decimal(currentPE).mul(0.9).toNumber(); // 10% below
-      const peLowBull = new Decimal(currentPE).mul(1.1).toNumber(); // 10% above
-      
-      // PE High: Base case is current PE, Bear is 20% below, Bull is 20% above
-      const peHighBase = currentPE;
-      const peHighBear = new Decimal(currentPE).mul(0.8).toNumber(); // 20% below
-      const peHighBull = new Decimal(currentPE).mul(1.2).toNumber(); // 20% above
-
-      // Prepare data for storage
-      const dcfData = {
-        // Growth rates
-        revenueGrowth: {
-          bear: revenueGrowthBear,
-          base: revenueGrowthBase,
-          bull: revenueGrowthBull
-        },
-        netIncomeGrowth: {
-          bear: netIncomeGrowthBear,
-          base: netIncomeGrowthBase,
-          bull: netIncomeGrowthBull
-        },
-        // PE estimates
-        peLow: {
-          bear: peLowBear,
-          base: peLowBase,
-          bull: peLowBull
-        },
-        peHigh: {
-          bear: peHighBear,
-          base: peHighBase,
-          bull: peHighBull
-        },
-        // Financial data
-        revenue: data.financials?.revenue || 0,
-        netIncome: data.financials?.netIncome || 0,
-        sharesOutstanding: data.keyMetrics?.sharesOutstanding || data.fmp?.sharesOutstanding || 0,
-        stockPrice: data.peRatios?.currentPrice || data.fmp?.price || 0,
-        currentEps: data.financials?.eps || (data.financials?.netIncome && data.fmp?.sharesOutstanding 
-          ? data.financials.netIncome / data.fmp.sharesOutstanding 
-          : 0),
-        // Additional context
-        symbol: data.symbol || 'UNKNOWN',
-        timestamp: new Date().toISOString(),
-        // Dividend data for DDM page
-        dividendHistory: data.dividendHistory || null,
-        dividendHistoryError: data.dividendHistoryError || null
-      };
-
-      // Store in localStorage with additional error handling
-      localStorage.setItem('dcfData', JSON.stringify(dcfData));
-      console.log('DCF data stored in localStorage:', dcfData);
-    } catch (error) {
-      console.error('Error storing DCF data:', error);
-      // Don't throw the error, just log it to prevent the page from breaking
-    }
   };
 
   const handleSaveToWatchlist = async () => {

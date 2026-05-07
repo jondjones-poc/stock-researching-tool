@@ -5,6 +5,10 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Decimal from 'decimal.js';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import {
+  storeResearchSnapshotForDcf,
+  fetchAndStoreDcfSnapshotForSymbol,
+} from '../utils/storeResearchSnapshotForDcf';
 
 interface StockValuation {
   id?: number;
@@ -999,6 +1003,8 @@ export default function CompanyWatchlistPage() {
         fetchDdmData(data.stock);
         loadDcfProjections(data.stock);
         fetchValueDriverClassification(data.stock);
+
+        void fetchAndStoreDcfSnapshotForSymbol(data.stock);
       }
 
       // Load links and reasons for this stock
@@ -1290,6 +1296,12 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
     setMessage(null);
 
     try {
+      let snapFinancials: any;
+      let snapPeRatios: any;
+      let snapEarningsGrowth: any;
+      let snapFmp: any;
+      let snapKeyMetrics: any;
+
       // Fetch data from APIs
       const [financialsRes, peRatiosRes, earningsGrowthRes, fmpRes, keyMetricsRes] = await Promise.allSettled([
         fetch(`/api/financials?symbol=${formData.stock.toUpperCase()}`),
@@ -1303,16 +1315,17 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
 
       // Process Financials data for Gross Profit (%)
       if (financialsRes.status === 'fulfilled' && financialsRes.value.ok) {
-        const financials = await financialsRes.value.json();
-        if (financials.grossProfitMargin !== null && financials.grossProfitMargin !== undefined) {
+        snapFinancials = await financialsRes.value.json();
+        if (snapFinancials.grossProfitMargin !== null && snapFinancials.grossProfitMargin !== undefined) {
           // Convert decimal to percentage and round to 2 decimal places (e.g., 0.8910 -> 89.10)
-          updatedFields.gross_profit_pct = Math.round((financials.grossProfitMargin * 100) * 100) / 100;
+          updatedFields.gross_profit_pct = Math.round((snapFinancials.grossProfitMargin * 100) * 100) / 100;
         }
       }
 
       // Process PE Ratios data for Dividend Per Share, PE, EPS, Change %, Year High, Year Low, Active Price
       if (peRatiosRes.status === 'fulfilled' && peRatiosRes.value.ok) {
         const peRatios = await peRatiosRes.value.json();
+        snapPeRatios = peRatios;
         if (peRatios.dividendPerShare !== null && peRatios.dividendPerShare !== undefined) {
           // Round to 2 decimal places
           updatedFields.dividend_per_share = Math.round(peRatios.dividendPerShare * 100) / 100;
@@ -1384,6 +1397,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
       // Process Earnings Growth data for Long Term Earning Growth (%)
       if (earningsGrowthRes.status === 'fulfilled' && earningsGrowthRes.value.ok) {
         const earningsGrowth = await earningsGrowthRes.value.json();
+        snapEarningsGrowth = earningsGrowth;
         // Use analystGrowthRate if available, otherwise use historicalGrowthRate
         const growthRate = earningsGrowth.analystGrowthRate ?? earningsGrowth.historicalGrowthRate;
         if (growthRate !== null && growthRate !== undefined) {
@@ -1396,6 +1410,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
       // NOTE: Year High / Year Low now come exclusively from Finnhub metrics via the pe-ratios API
       if (fmpRes.status === 'fulfilled' && fmpRes.value.ok) {
         const fmp = await fmpRes.value.json();
+        snapFmp = fmp;
         console.log('[Refresh] FMP full response:', JSON.stringify(fmp, null, 2));
         
         // Prioritize FMP's PE if available (FMP tends to have more current data)
@@ -1451,26 +1466,26 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
       // Process Key Metrics data for ROIC (%)
       if (keyMetricsRes.status === 'fulfilled' && keyMetricsRes.value.ok) {
         try {
-          const keyMetrics = await keyMetricsRes.value.json();
-          console.log('Key Metrics full response:', JSON.stringify(keyMetrics, null, 2));
+          snapKeyMetrics = await keyMetricsRes.value.json();
+          console.log('Key Metrics full response:', JSON.stringify(snapKeyMetrics, null, 2));
           
           // Check if there's an error in the response (API might return 200 with error field)
-          if (keyMetrics.error) {
-            console.log('Key Metrics API returned error:', keyMetrics.error);
+          if (snapKeyMetrics.error) {
+            console.log('Key Metrics API returned error:', snapKeyMetrics.error);
           } else {
-            console.log('ROIC value:', keyMetrics.roic);
-            console.log('ROIC type:', typeof keyMetrics.roic);
-            console.log('ROIC is null?', keyMetrics.roic === null);
-            console.log('ROIC is undefined?', keyMetrics.roic === undefined);
+            console.log('ROIC value:', snapKeyMetrics.roic);
+            console.log('ROIC type:', typeof snapKeyMetrics.roic);
+            console.log('ROIC is null?', snapKeyMetrics.roic === null);
+            console.log('ROIC is undefined?', snapKeyMetrics.roic === undefined);
             
             // ROIC is returned as a decimal (e.g., 0.20 = 20%), convert to percentage
             // Check explicitly for null/undefined, but allow 0 as a valid value
-            if (keyMetrics.roic !== null && keyMetrics.roic !== undefined && typeof keyMetrics.roic === 'number') {
+            if (snapKeyMetrics.roic !== null && snapKeyMetrics.roic !== undefined && typeof snapKeyMetrics.roic === 'number') {
               // Convert decimal to percentage and round to 2 decimal places (e.g., 0.20 -> 20.00)
-              updatedFields.roic = Math.round((keyMetrics.roic * 100) * 100) / 100;
+              updatedFields.roic = Math.round((snapKeyMetrics.roic * 100) * 100) / 100;
               console.log('ROIC converted to percentage:', updatedFields.roic);
             } else {
-              console.log('ROIC not set - value is null/undefined or not a number:', keyMetrics.roic);
+              console.log('ROIC not set - value is null/undefined or not a number:', snapKeyMetrics.roic);
             }
           }
         } catch (jsonError) {
@@ -1489,6 +1504,15 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
           console.log('Key Metrics API request rejected:', keyMetricsRes.reason);
         }
       }
+
+      storeResearchSnapshotForDcf({
+        symbol: formData.stock.toUpperCase(),
+        financials: snapFinancials,
+        peRatios: snapPeRatios,
+        earningsGrowth: snapEarningsGrowth,
+        fmp: snapFmp,
+        keyMetrics: snapKeyMetrics,
+      });
 
       // Update form data with fetched values
       if (Object.keys(updatedFields).length > 0) {
@@ -2085,6 +2109,8 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         type: 'success', 
         text: 'Stock details saved successfully!' 
       });
+
+      await fetchAndStoreDcfSnapshotForSymbol(formData.stock);
     } catch (error: any) {
       console.error('Error saving stock details:', error);
       setMessage({ 
