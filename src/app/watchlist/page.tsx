@@ -9,6 +9,7 @@ import {
   storeResearchSnapshotForDcf,
   fetchAndStoreDcfSnapshotForSymbol,
 } from '../utils/storeResearchSnapshotForDcf';
+import WatchlistFundamentalsPanel from '../components/WatchlistFundamentalsPanel';
 
 interface StockValuation {
   id?: number;
@@ -2515,6 +2516,8 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
 
         {/* Form Section */}
         {showSections && (
+        <>
+        <WatchlistFundamentalsPanel symbol={formData.stock} />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -2852,6 +2855,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
           </div>
 
         </div>
+        </>
         )}
 
         {/* Valuation Section */}
