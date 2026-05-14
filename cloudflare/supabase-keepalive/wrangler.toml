@@ -1,0 +1,7 @@
+name = "share-research-supabase-keepalive"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Once per day UTC — adjust if you prefer a specific hour.
+[triggers]
+crons = ["0 8 * * *"]

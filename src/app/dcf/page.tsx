@@ -182,7 +182,7 @@ export default function DCFCalculator() {
       const response = await fetch(`/api/dcf?id=${id}`);
       const result = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || result.data == null) {
         setDbMessage({ type: 'error', text: result.error || 'Failed to load from database' });
         setDbLoading(false);
         return;
@@ -624,7 +624,7 @@ export default function DCFCalculator() {
       const response = await fetch(`/api/dcf?symbol=${encodeURIComponent(dbSymbol.trim().toUpperCase())}`);
       const result = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || result.data == null) {
         setDbMessage({ type: 'error', text: result.error || 'Failed to load from database' });
         setDbLoading(false);
         return;

@@ -1,11 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../utils/db';
 
-// GET - Keep database connection alive
-// This endpoint can be pinged by a serverless function/cron job to prevent the database from going to sleep
-export async function GET(_request: NextRequest) {
+function isKeepaliveAuthorized(request: NextRequest): boolean {
+  const secret = process.env.KEEPALIVE_SECRET;
+  if (!secret) {
+    return true;
+  }
+  const auth = request.headers.get('authorization');
+  if (auth === `Bearer ${secret}`) {
+    return true;
+  }
+  return request.headers.get('x-keepalive-secret') === secret;
+}
+
+// GET - Light query so Supabase Postgres stays active (e.g. weekly inactivity pause).
+// When KEEPALIVE_SECRET is set, require Authorization: Bearer <secret> or X-Keepalive-Secret.
+export async function GET(request: NextRequest) {
+  if (!isKeepaliveAuthorized(request)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
-    // Perform a simple query to keep the connection active
     const result = await query('SELECT NOW() as timestamp, 1 as status');
     
     return NextResponse.json({

@@ -16,6 +16,53 @@ function sortChrono<T extends { date?: string }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 }
 
+/**
+ * FMP "stable" quarterly URLs often return [] on free tier; v3 path-style URLs usually work.
+ * Try each URL until one returns a non-empty array.
+ */
+async function fmpFirstNonEmptyArray(urls: string[]): Promise<any[]> {
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, {
+        timeout: 20000,
+        validateStatus: (s) => s < 500,
+      });
+      if (res.status !== 200) continue;
+      const data = res.data;
+      if (Array.isArray(data) && data.length > 0) return data;
+    } catch {
+      /* next */
+    }
+  }
+  return [];
+}
+
+async function fmpFirstKeyMetricsRow(symbol: string, apiKey: string): Promise<Record<string, unknown> | null> {
+  const urls = [
+    `https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=1&apikey=${apiKey}`,
+    `https://financialmodelingprep.com/stable/key-metrics?symbol=${symbol}&limit=1&apikey=${apiKey}`,
+    `https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?period=quarter&limit=1&apikey=${apiKey}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, { timeout: 15000, validateStatus: (s) => s < 500 });
+      if (res.status !== 200) continue;
+      const data = res.data;
+      if (Array.isArray(data) && data.length > 0) return data[0] as Record<string, unknown>;
+    } catch {
+      /* next */
+    }
+  }
+  return null;
+}
+
+function looksQuarterly(rows: any[]): boolean {
+  return rows.some((r) => {
+    const p = String((r as Record<string, unknown>).period ?? '');
+    return /^Q[1-4]/i.test(p) || p.toLowerCase().includes('quarter');
+  });
+}
+
 export async function GET(request: NextRequest) {
   const symbol = request.nextUrl.searchParams.get('symbol');
   if (!symbol) {
@@ -30,35 +77,40 @@ export async function GET(request: NextRequest) {
   }
 
   const sym = symbol.toUpperCase();
-  const baseErrs: string[] = [];
+  const k = FMP_API_KEY;
 
-  const incomeUrl = `https://financialmodelingprep.com/stable/income-statement?symbol=${sym}&period=quarter&limit=12&apikey=${FMP_API_KEY}`;
-  const balanceUrl = `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${sym}&period=quarter&limit=10&apikey=${FMP_API_KEY}`;
-  const cashUrl = `https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${sym}&period=quarter&limit=10&apikey=${FMP_API_KEY}`;
-  const ratiosUrl = `https://financialmodelingprep.com/stable/ratios?symbol=${sym}&period=quarter&limit=10&apikey=${FMP_API_KEY}`;
-  const keyMetricsUrl = `https://financialmodelingprep.com/stable/key-metrics?symbol=${sym}&limit=1&apikey=${FMP_API_KEY}`;
+  const incomeUrls = [
+    `https://financialmodelingprep.com/api/v3/income-statement/${sym}?period=quarter&limit=12&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/income-statement?symbol=${sym}&period=quarter&limit=12&apikey=${k}`,
+    `https://financialmodelingprep.com/api/v3/income-statement/${sym}?limit=12&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/income-statement?symbol=${sym}&limit=12&apikey=${k}`,
+  ];
+  const balanceUrls = [
+    `https://financialmodelingprep.com/api/v3/balance-sheet-statement/${sym}?period=quarter&limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${sym}&period=quarter&limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/api/v3/balance-sheet-statement/${sym}?limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${sym}&limit=10&apikey=${k}`,
+  ];
+  const cashUrls = [
+    `https://financialmodelingprep.com/api/v3/cash-flow-statement/${sym}?period=quarter&limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${sym}&period=quarter&limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/api/v3/cash-flow-statement/${sym}?limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${sym}&limit=10&apikey=${k}`,
+  ];
+  const ratiosUrls = [
+    `https://financialmodelingprep.com/api/v3/ratios/${sym}?period=quarter&limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/ratios?symbol=${sym}&period=quarter&limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/api/v3/ratios/${sym}?limit=10&apikey=${k}`,
+    `https://financialmodelingprep.com/stable/ratios?symbol=${sym}&limit=10&apikey=${k}`,
+  ];
 
-  const [incRes, balRes, cfRes, ratiosRes, kmRes] = await Promise.allSettled([
-    axios.get(incomeUrl, { timeout: 15000 }),
-    axios.get(balanceUrl, { timeout: 15000 }),
-    axios.get(cashUrl, { timeout: 15000 }),
-    axios.get(ratiosUrl, { timeout: 15000 }),
-    axios.get(keyMetricsUrl, { timeout: 15000 }),
+  const [incomeRaw, balanceRaw, cashRaw, ratiosRaw, kmRow] = await Promise.all([
+    fmpFirstNonEmptyArray(incomeUrls),
+    fmpFirstNonEmptyArray(balanceUrls),
+    fmpFirstNonEmptyArray(cashUrls),
+    fmpFirstNonEmptyArray(ratiosUrls),
+    fmpFirstKeyMetricsRow(sym, k),
   ]);
-
-  const incomeRaw =
-    incRes.status === 'fulfilled' && Array.isArray(incRes.value.data) ? incRes.value.data : [];
-  const balanceRaw =
-    balRes.status === 'fulfilled' && Array.isArray(balRes.value.data) ? balRes.value.data : [];
-  const cashRaw =
-    cfRes.status === 'fulfilled' && Array.isArray(cfRes.value.data) ? cfRes.value.data : [];
-  const ratiosRaw =
-    ratiosRes.status === 'fulfilled' && Array.isArray(ratiosRes.value.data) ? ratiosRes.value.data : [];
-
-  if (incRes.status === 'rejected') baseErrs.push('Income statement (quarterly) failed to load.');
-  if (balRes.status === 'rejected') baseErrs.push('Balance sheet (quarterly) failed to load.');
-  if (cfRes.status === 'rejected') baseErrs.push('Cash flow (quarterly) failed to load.');
-  if (ratiosRes.status === 'rejected') baseErrs.push('Ratios (quarterly) failed to load.');
 
   const income = sortChrono(incomeRaw as { date?: string }[]);
   const balanceByDate = new Map<string, (typeof balanceRaw)[0]>();
@@ -77,12 +129,15 @@ export async function GET(request: NextRequest) {
     return row.period && row.calendarYear ? `${row.period} ${row.calendarYear}` : d;
   };
 
+  const quarterly = looksQuarterly(income);
+
   // --- Quality: margins from income ---
   const grossMarginSeries: QuarterPoint[] = [];
   const operatingMarginSeries: QuarterPoint[] = [];
   let marginNote: string | undefined;
   if (income.length === 0) {
-    marginNote = 'No quarterly income statement data returned (symbol, API limits, or coverage).';
+    marginNote =
+      'No income statement data from FMP (check API key, quota, or ticker coverage). Try another symbol or verify FMP_API_KEY.';
   } else {
     for (const row of income) {
       const r = row as Record<string, unknown>;
@@ -97,14 +152,16 @@ export async function GET(request: NextRequest) {
       grossMarginSeries.push({ label, value: gm });
       operatingMarginSeries.push({ label, value: om });
     }
+    if (!quarterly && income.length > 0) {
+      marginNote = 'Showing annual periods (quarterly data unavailable for this symbol/plan). YoY growth uses year-over-year, not quarter-vs-quarter.';
+    }
   }
 
-  // ROIC: prefer latest key-metrics TTM / annual
+  // ROIC
   let roicPct: number | null = null;
   let roicNote: string | undefined;
-  if (kmRes.status === 'fulfilled' && kmRes.value.data?.[0]) {
-    const km = kmRes.value.data[0];
-    const raw = safeNum(km.roic);
+  if (kmRow) {
+    const raw = safeNum(kmRow.roic);
     if (raw != null) roicPct = raw <= 1.5 ? raw * 100 : raw;
   } else {
     roicNote = 'ROIC could not be loaded from key metrics.';
@@ -113,10 +170,10 @@ export async function GET(request: NextRequest) {
     const last = ratiosChrono[ratiosChrono.length - 1] as Record<string, unknown>;
     const r = safeNum(last.returnOnCapitalEmployed ?? last.returnOnEquity);
     if (r != null) roicPct = r <= 1.5 ? r * 100 : r;
+    if (roicPct != null) roicNote = undefined;
   }
 
-  // --- Growth: revenue YoY, EPS YoY (quarter vs same quarter one year prior: 4 rows back) ---
-  const findYoYSeries = (
+  const findYoYSeriesQuarterly = (
     rows: typeof income,
     field: 'revenue' | 'eps',
   ): { label: string; yoyPct: number | null }[] => {
@@ -134,8 +191,33 @@ export async function GET(request: NextRequest) {
     return out.slice(-6);
   };
 
-  const revenueYoY = income.length > 4 ? findYoYSeries(income, 'revenue') : [];
-  const epsYoY = income.length > 4 ? findYoYSeries(income, 'eps') : [];
+  const findYoYAnnual = (
+    rows: typeof income,
+    field: 'revenue' | 'eps',
+  ): { label: string; yoyPct: number | null }[] => {
+    const out: { label: string; yoyPct: number | null }[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const cur = safeNum((rows[i] as Record<string, unknown>)[field]);
+      const prev = safeNum((rows[i - 1] as Record<string, unknown>)[field]);
+      let yoy: number | null = null;
+      if (cur != null && prev != null && prev !== 0) yoy = ((cur - prev) / Math.abs(prev)) * 100;
+      out.push({
+        label: quarterLabel(rows[i] as { date?: string; period?: string; calendarYear?: string }),
+        yoyPct: yoy,
+      });
+    }
+    return out.slice(-6);
+  };
+
+  let revenueYoY: { label: string; yoyPct: number | null }[] = [];
+  let epsYoY: { label: string; yoyPct: number | null }[] = [];
+  if (income.length > 4 && quarterly) {
+    revenueYoY = findYoYSeriesQuarterly(income, 'revenue');
+    epsYoY = findYoYSeriesQuarterly(income, 'eps');
+  } else if (income.length >= 2 && !quarterly) {
+    revenueYoY = findYoYAnnual(income, 'revenue');
+    epsYoY = findYoYAnnual(income, 'eps');
+  }
 
   const lastEpsYoY = epsYoY.length ? epsYoY[epsYoY.length - 1].yoyPct : null;
   let epsGrowthComment: string | undefined;
@@ -144,7 +226,6 @@ export async function GET(request: NextRequest) {
     else epsGrowthComment = 'Above ~10% YoY: generally attractive EPS growth.';
   }
 
-  // EPS consistency: last 8 quarters absolute EPS (bar)
   const epsConsistency = income.slice(-8).map((row) => {
     const r = row as Record<string, unknown>;
     return {
@@ -153,7 +234,6 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  // --- Cash flow ---
   const conversionSeries: QuarterPoint[] = [];
   const fcfMarginSeries: QuarterPoint[] = [];
   for (const row of income) {
@@ -173,10 +253,7 @@ export async function GET(request: NextRequest) {
     conversionSeries.push({ label, value: conv });
     fcfMarginSeries.push({ label, value: fcfM });
   }
-  if (cashRaw.length === 0 && income.length)
-    baseErrs.push('Cash flow statement missing — conversion and FCF margin may be incomplete.');
 
-  // --- Stability: debt/equity, interest cover ---
   const debtEquitySeries: QuarterPoint[] = [];
   const interestCoverSeries: QuarterPoint[] = [];
   const last8bal = sortChrono(balanceRaw as { date?: string }[]).slice(-8);
@@ -207,7 +284,6 @@ export async function GET(request: NextRequest) {
     interestCoverSeries.push({ label, value: ic });
   }
 
-  // Prefer ratios interest coverage if computed spotty
   if (interestCoverSeries.every((x) => x.value == null) && ratiosChrono.length > 0) {
     interestCoverSeries.length = 0;
     for (const r of ratiosChrono.slice(-8)) {
@@ -220,7 +296,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // --- Valuation: PE from ratios quarterly ---
   const peSeries: QuarterPoint[] = [];
   for (const r of ratiosChrono.slice(-8)) {
     const row = r as Record<string, unknown>;
@@ -233,7 +308,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     symbol: sym,
-    warnings: baseErrs,
     quality: {
       grossMargin: { series: grossMarginSeries, error: marginNote },
       operatingMargin: { series: operatingMarginSeries },

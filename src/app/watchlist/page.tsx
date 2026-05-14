@@ -466,19 +466,18 @@ export default function CompanyWatchlistPage() {
     setDdmLoading(true);
     try {
       const response = await fetch(`/api/ddm-data?symbol=${symbol}`);
-      
+      const result = await response.json();
+
       if (!response.ok) {
-        // If 404, no DDM data exists for this symbol
-        if (response.status === 404) {
-          setDdmData(null);
-          return;
-        }
         console.error('DDM API error:', response.status);
         setDdmData(null);
         return;
       }
-      
-      const result = await response.json();
+
+      if (result.missing) {
+        setDdmData(null);
+        return;
+      }
       
       // Determine verdict based on current price, DDM with safety, and intrinsic value
       // Logic matches DDM page: BUY if price <= ddmWithSafety, HOLD if price <= intrinsicValue, else WAIT

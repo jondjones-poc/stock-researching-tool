@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
       );
 
       if (result.rows.length === 0) {
-        return NextResponse.json({ error: 'DDM data not found for symbol' }, { status: 404 });
+        // 200 avoids DevTools "Failed to load resource" for the common no-row case; clients must check missing.
+        return NextResponse.json({
+          error: 'DDM data not found for symbol',
+          missing: true,
+        });
       }
 
       const row = result.rows[0];

@@ -1,0 +1,12 @@
+{
+  "name": "share-research-supabase-keepalive",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250525.0",
+    "wrangler": "^4.28.0"
+  }
+}

@@ -151,22 +151,39 @@ export default function DDMPage() {
     setLoading(true);
     try {
       const response = await fetch(`/api/ddm-data?symbol=${symbol}`);
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Load inputs
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Failed to load stock data');
+        return;
+      }
+
+      if (data.missing) {
         setInputs({
-          currentPrice: data.currentPrice || 0,
-          wacc: data.wacc || 8.5,
-          marginOfSafety: data.marginOfSafety || 20.0,
-          highGrowthYears: data.highGrowthYears || 5,
-          stableGrowthRate: data.stableGrowthRate || 3.0
+          currentPrice: 0,
+          wacc: 8.5,
+          marginOfSafety: 20.0,
+          highGrowthYears: 5,
+          stableGrowthRate: 3.0,
         });
-        
-        setShowCurrentPrice(data.currentPrice > 0);
-        
-        // Load dividend projections
-        if (data.dividendProjections && Array.isArray(data.dividendProjections)) {
+        setDividendProjections([]);
+        setShowCurrentPrice(false);
+        return;
+      }
+
+      // Load inputs
+      setInputs({
+        currentPrice: data.currentPrice || 0,
+        wacc: data.wacc || 8.5,
+        marginOfSafety: data.marginOfSafety || 20.0,
+        highGrowthYears: data.highGrowthYears || 5,
+        stableGrowthRate: data.stableGrowthRate || 3.0,
+      });
+
+      setShowCurrentPrice(data.currentPrice > 0);
+
+      // Load dividend projections
+      if (data.dividendProjections && Array.isArray(data.dividendProjections)) {
           // If we already have projections but all dividends are zero, treat it as "empty"
           // and rebuild from dividendsByYear so we can show real historical values
           const hasNonZeroDividend = data.dividendProjections.some(
@@ -228,9 +245,6 @@ export default function DDMPage() {
           
           setDividendProjections(projections);
         }
-      } else {
-        console.error('Failed to load stock data');
-      }
     } catch (error) {
       console.error('Error loading stock data:', error);
     } finally {
@@ -364,7 +378,8 @@ export default function DDMPage() {
     try {
       // Check if symbol exists
       const checkResponse = await fetch(`/api/ddm-data?symbol=${selectedSymbol}`);
-      const exists = checkResponse.ok;
+      const checkPayload = await checkResponse.json();
+      const exists = checkResponse.ok && !checkPayload.missing;
 
       const saveData = {
         symbol: selectedSymbol,

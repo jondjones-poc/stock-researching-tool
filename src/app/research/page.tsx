@@ -431,8 +431,9 @@ export default function Home() {
 
       // Check if DDM entry already exists
       const checkRes = await fetch(`/api/ddm-data?symbol=${symbol}`);
+      const checkPayload = await checkRes.json();
 
-      if (checkRes.ok) {
+      if (checkRes.ok && !checkPayload.missing) {
         // Update existing entry
         const updateRes = await fetch('/api/ddm-data', {
           method: 'PUT',
@@ -456,7 +457,7 @@ export default function Home() {
           type: 'success',
           text: `Updated DDM entry for ${symbol}.`,
         });
-      } else if (checkRes.status === 404) {
+      } else if (checkRes.ok && checkPayload.missing) {
         // Create new entry with default DDM inputs
         const createPayload = {
           ...basePayload,
@@ -489,13 +490,8 @@ export default function Home() {
           text: `Created new DDM entry for ${symbol}.`,
         });
       } else {
-        let errorText = 'Failed to check existing DDM entry.';
-        try {
-          const errJson = await checkRes.json();
-          if (errJson?.error) errorText = errJson.error;
-        } catch {
-          // ignore parse errors
-        }
+        const errorText =
+          checkPayload?.error || 'Failed to check existing DDM entry.';
         setDdmMessage({ type: 'error', text: errorText });
       }
     } catch (error: any) {

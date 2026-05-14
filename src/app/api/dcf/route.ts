@@ -30,9 +30,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (result.rows.length === 0) {
+      // 200 + null avoids browser "Failed to load resource" for the common "no row yet" case;
+      // clients must check result.data.
       return NextResponse.json(
-        { error: 'No DCF data found' },
-        { status: 404 }
+        { error: 'No DCF data found', data: null },
+        { status: 200 }
       );
     }
 
