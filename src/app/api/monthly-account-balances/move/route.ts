@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../../utils/db';
+import { balanceDateForMonth, monthDateRange, monthYearKey } from '@/lib/month-balance-date';
+import {
+  BALANCE_DATE_IN_MONTH_PREDICATE,
+  balanceDateInMonthPredicate,
+} from '@/lib/month-balance-date-sql';
 
 // POST - Move/change date for all entries in a month
 export async function POST(request: NextRequest) {
@@ -14,28 +19,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert month name to number
-    const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                       'July', 'August', 'September', 'October', 'November', 'December'];
-    const sourceMonthNum = monthOrder.indexOf(sourceMonth) + 1;
-    const targetMonthNum = monthOrder.indexOf(targetMonth) + 1;
+    const sourceYearNum = parseInt(String(sourceYear), 10);
+    const targetYearNum = parseInt(String(targetYear), 10);
+    const sourceRange = monthDateRange(sourceYearNum, sourceMonth);
+    const targetRange = monthDateRange(targetYearNum, targetMonth);
+    const sourceMonthKey = monthYearKey(sourceYearNum, sourceMonth);
+    const targetMonthKey = monthYearKey(targetYearNum, targetMonth);
 
-    if (sourceMonthNum === 0 || targetMonthNum === 0) {
+    if (!sourceRange || !targetRange || !sourceMonthKey || !targetMonthKey) {
       return NextResponse.json(
         { error: 'Invalid month name' },
         { status: 400 }
       );
     }
 
-    // Check if entries exist for target month/year
+    const targetDate = balanceDateForMonth(targetYearNum, targetMonth);
+
     const checkResult = await query(
       `SELECT COUNT(*) as count
        FROM account_balances ab
        JOIN accounts a ON ab.account_id = a.id
        WHERE a.is_active = TRUE
-       AND EXTRACT(YEAR FROM ab.balance_date) = $1
-       AND EXTRACT(MONTH FROM ab.balance_date) = $2`,
-      [targetYear, targetMonthNum]
+       AND ${BALANCE_DATE_IN_MONTH_PREDICATE}`,
+      [targetRange.start, targetRange.endExclusive, targetMonthKey]
     );
 
     const existingCount = parseInt(checkResult.rows[0].count);
@@ -46,19 +52,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate new balance_date (first day of target month)
-    // Use UTC to avoid timezone issues that could shift the date to the previous month
-    const targetDate = `${targetYear}-${String(targetMonthNum).padStart(2, '0')}-01`;
-
-    // First, get all entries that will be moved (for counting and verification)
     const getSourceEntries = await query(
       `SELECT ab.id, ab.account_id, ab.balance_date, ab.balance
        FROM account_balances ab
        JOIN accounts a ON ab.account_id = a.id
        WHERE a.is_active = TRUE
-       AND EXTRACT(YEAR FROM ab.balance_date) = $1
-       AND EXTRACT(MONTH FROM ab.balance_date) = $2`,
-      [sourceYear, sourceMonthNum]
+       AND ${BALANCE_DATE_IN_MONTH_PREDICATE}`,
+      [sourceRange.start, sourceRange.endExclusive, sourceMonthKey]
     );
 
     const entriesToMove = getSourceEntries.rows;
@@ -69,20 +69,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update all entries for source month to target month/year
     const updateResult = await query(
       `UPDATE account_balances ab
        SET balance_date = $1, updated_at = CURRENT_TIMESTAMP
        FROM accounts a
        WHERE ab.account_id = a.id
        AND a.is_active = TRUE
-       AND EXTRACT(YEAR FROM ab.balance_date) = $2
-       AND EXTRACT(MONTH FROM ab.balance_date) = $3
+       AND ${balanceDateInMonthPredicate(2)}
        RETURNING ab.id, ab.account_id, ab.balance_date, ab.balance`,
-      [targetDate, sourceYear, sourceMonthNum]
+      [targetDate, sourceRange.start, sourceRange.endExclusive, sourceMonthKey]
     );
 
-    // Verify that all entries were updated successfully
     if (updateResult.rows.length !== entriesToMove.length) {
       return NextResponse.json(
         { error: `Failed to move all entries. Expected ${entriesToMove.length}, moved ${updateResult.rows.length}` },
@@ -90,31 +87,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // After successful update, verify the old entries are gone (they should be since we updated their dates)
-    // Double-check by querying for any remaining entries in the source month
     const verifyDeletion = await query(
       `SELECT COUNT(*) as count
        FROM account_balances ab
        JOIN accounts a ON ab.account_id = a.id
        WHERE a.is_active = TRUE
-       AND EXTRACT(YEAR FROM ab.balance_date) = $1
-       AND EXTRACT(MONTH FROM ab.balance_date) = $2`,
-      [sourceYear, sourceMonthNum]
+       AND ${BALANCE_DATE_IN_MONTH_PREDICATE}`,
+      [sourceRange.start, sourceRange.endExclusive, sourceMonthKey]
     );
 
     const remainingCount = parseInt(verifyDeletion.rows[0].count);
     if (remainingCount > 0) {
-      // If there are still entries in the source month after UPDATE, explicitly delete them
-      // This handles edge cases where the UPDATE might not have matched all rows
       const deleteResult = await query(
         `DELETE FROM account_balances ab
          USING accounts a
          WHERE ab.account_id = a.id
          AND a.is_active = TRUE
-         AND EXTRACT(YEAR FROM ab.balance_date) = $1
-         AND EXTRACT(MONTH FROM ab.balance_date) = $2
+         AND ${BALANCE_DATE_IN_MONTH_PREDICATE}
          RETURNING ab.id`,
-        [sourceYear, sourceMonthNum]
+        [sourceRange.start, sourceRange.endExclusive, sourceMonthKey]
       );
       console.log(`Deleted ${deleteResult.rows.length} remaining entries from ${sourceMonth} ${sourceYear} after move operation`);
     }

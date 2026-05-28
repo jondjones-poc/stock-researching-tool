@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../utils/db';
+import { normalizeBalanceDate } from '@/lib/month-balance-date';
 
 // GET - Fetch monthly account balances, optionally filtered by year
 export async function GET(request: NextRequest) {
@@ -39,19 +40,33 @@ export async function GET(request: NextRequest) {
     const result = await query(sql, params);
 
     return NextResponse.json({
-      data: result.rows.map(row => ({
-        id: row.id,
-        account_id: row.account_id,
-        account_name: row.account_name,
-        investment_type_id: row.investment_type_id,
-        investment_type_name: row.investment_type_name || null,
-        investment_type_colour: row.investment_type_colour || null,
-        investment_type_order: row.investment_type_order !== null && row.investment_type_order !== undefined ? parseInt(String(row.investment_type_order)) : null,
-        balance_date: row.balance_date,
-        balance: row.balance !== null && row.balance !== undefined ? parseFloat(String(row.balance)) : null,
-        year: row.year,
-        month: row.month,
-      })),
+      data: result.rows.map(row => {
+        let balanceDate: string;
+        try {
+          balanceDate = normalizeBalanceDate(row.balance_date);
+        } catch {
+          balanceDate = String(row.balance_date);
+        }
+        return {
+          id: row.id,
+          account_id: row.account_id,
+          account_name: row.account_name,
+          investment_type_id: row.investment_type_id,
+          investment_type_name: row.investment_type_name || null,
+          investment_type_colour: row.investment_type_colour || null,
+          investment_type_order:
+            row.investment_type_order !== null && row.investment_type_order !== undefined
+              ? parseInt(String(row.investment_type_order))
+              : null,
+          balance_date: balanceDate,
+          balance:
+            row.balance !== null && row.balance !== undefined
+              ? parseFloat(String(row.balance))
+              : null,
+          year: row.year,
+          month: row.month,
+        };
+      }),
     });
   } catch (error: any) {
     console.error('Error fetching monthly account balances:', error);
@@ -90,16 +105,14 @@ export async function POST(request: NextRequest) {
         continue; // Skip invalid entries
       }
 
-      // Validate date format
-      const date = new Date(balance_date);
-      if (isNaN(date.getTime())) {
-        continue; // Skip invalid dates
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(balance_date)) {
+        continue;
       }
 
       // Use INSERT ... ON CONFLICT to upsert
       const result = await query(
         `INSERT INTO account_balances (account_id, balance_date, balance)
-         VALUES ($1, $2, $3)
+         VALUES ($1, $2::date, $3)
          ON CONFLICT (account_id, balance_date)
          DO UPDATE SET balance = $3, updated_at = CURRENT_TIMESTAMP
          RETURNING id, account_id, balance_date, balance`,
@@ -205,53 +218,75 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE - Delete all account balances for a specific month and year
+// DELETE - Delete specific account_balances rows by database id (from delete preview)
 export async function DELETE(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const month = searchParams.get('month');
-    const year = searchParams.get('year');
+    const body = (await request.json()) as { ids?: unknown };
+    const rawIds = body.ids;
 
-    if (!month || !year) {
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
       return NextResponse.json(
-        { error: 'month and year are required' },
+        { error: 'ids array is required. Load delete preview and confirm before deleting.' },
         { status: 400 }
       );
     }
 
-    // Convert month name to number
-    const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                       'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthNum = monthOrder.indexOf(month) + 1;
+    const ids = rawIds
+      .map((id) => parseInt(String(id), 10))
+      .filter((id) => Number.isInteger(id) && id > 0);
 
-    if (monthNum === 0) {
+    if (ids.length !== rawIds.length) {
+      return NextResponse.json({ error: 'All ids must be positive integers' }, { status: 400 });
+    }
+
+    const existing = await query(
+      `SELECT ab.id, ab.balance_date, ab.balance, a.name AS account_name
+       FROM account_balances ab
+       JOIN accounts a ON ab.account_id = a.id
+       WHERE a.is_active = TRUE
+       AND ab.id = ANY($1::int[])`,
+      [ids]
+    );
+
+    if (existing.rows.length !== ids.length) {
+      const found = new Set(existing.rows.map((r) => r.id));
+      const missing = ids.filter((id) => !found.has(id));
       return NextResponse.json(
-        { error: 'Invalid month name' },
-        { status: 400 }
+        {
+          error:
+            'Delete blocked: some rows no longer exist. Refresh delete preview and try again.',
+          missing_ids: missing,
+        },
+        { status: 409 }
       );
     }
 
-    // Delete all entries for the specified month and year
     const deleteResult = await query(
       `DELETE FROM account_balances ab
        USING accounts a
        WHERE ab.account_id = a.id
        AND a.is_active = TRUE
-       AND EXTRACT(YEAR FROM ab.balance_date) = $1
-       AND EXTRACT(MONTH FROM ab.balance_date) = $2
-       RETURNING ab.id`,
-      [parseInt(year), monthNum]
+       AND ab.id = ANY($1::int[])
+       RETURNING ab.id, ab.balance_date, ab.balance, a.name AS account_name`,
+      [ids]
     );
 
     return NextResponse.json({
       success: true,
-      message: `Successfully deleted ${deleteResult.rows.length} entries for ${month} ${year}`,
+      message: `Successfully deleted ${deleteResult.rows.length} row(s) by id`,
       count: deleteResult.rows.length,
+      deleted: deleteResult.rows.map((row) => ({
+        id: row.id,
+        account_name: row.account_name,
+        balance_date: normalizeBalanceDate(row.balance_date),
+        balance: parseFloat(String(row.balance)),
+      })),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error deleting account balances:', error);
     return NextResponse.json(
-      { error: 'Failed to delete account balances', details: error.message },
+      { error: 'Failed to delete account balances', details: message },
       { status: 500 }
     );
   }

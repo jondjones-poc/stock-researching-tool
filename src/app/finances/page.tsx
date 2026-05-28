@@ -1,7 +1,15 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import {
+  MONTH_NAMES,
+  STATEMENT_TIMEZONE,
+  balanceDateForMonth,
+  monthDateRange,
+  monthNameFromBalanceDate,
+  normalizeBalanceDate,
+} from '@/lib/month-balance-date';
 
 interface Account {
   id: number;
@@ -24,24 +32,171 @@ interface MonthlyAccountBalance {
   month: number;
 }
 
-const MONTH_ORDER = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-] as const;
+const MONTH_ORDER = [...MONTH_NAMES];
 
-/** Statement month label from API balance_date — use calendar date in UTC, not local timezone (avoids US rows showing wrong month). */
-function monthNameFromBalanceDate(balanceDate: string): string {
-  const s = String(balanceDate).trim();
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) {
-    const monthNum = parseInt(m[2], 10);
-    if (monthNum >= 1 && monthNum <= 12) return MONTH_ORDER[monthNum - 1];
+/** Parse balance text on save; returns null if not a valid number. */
+function parseBalanceInput(valueStr: string): number | null {
+  const cleaned = valueStr.replace(/[£,\s]/g, '').trim();
+  if (cleaned === '' || cleaned === '-') return 0;
+  if (!/^-?\d*\.?\d+$/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatBalanceNumber(amount: number): string {
+  const abs = Math.abs(amount);
+  const formatted = `£${abs.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return amount < 0 ? `-${formatted}` : formatted;
+}
+
+function formatBalanceCurrency(valueStr: string): string {
+  const parsed = parseBalanceInput(valueStr);
+  if (parsed !== null) return formatBalanceNumber(parsed);
+  const trimmed = valueStr.trim();
+  if (trimmed === '') return formatBalanceNumber(0);
+  return valueStr;
+}
+
+function toEditableBalanceString(valueStr: string): string {
+  const parsed = parseBalanceInput(valueStr);
+  if (parsed !== null) return parsed.toString();
+  return valueStr.replace(/[£,\s]/g, '');
+}
+
+/** Show prior-month hint when the field has no meaningful amount yet. */
+function isBalanceEmptyOrZero(valueStr: string): boolean {
+  const parsed = parseBalanceInput(valueStr);
+  if (parsed !== null) return parsed === 0;
+  return valueStr.replace(/[£,\s]/g, '').trim() === '';
+}
+
+function BalanceInput({
+  value,
+  onChange,
+  className,
+  placeholder = '£0.00',
+  onClick,
+  onKeyDown,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+  placeholder?: string;
+  onClick?: (e: MouseEvent<HTMLInputElement>) => void;
+  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
+  autoFocus?: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  const displayValue = focused ? value : formatBalanceCurrency(value);
+
+  const handleFocus = (e: FocusEvent<HTMLInputElement>) => {
+    setFocused(true);
+    onChange(toEditableBalanceString(value));
+    e.target.select();
+  };
+
+  const handleBlur = () => {
+    setFocused(false);
+    const parsed = parseBalanceInput(value);
+    if (parsed !== null) {
+      onChange(parsed.toString());
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      className={className}
+      placeholder={placeholder}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      autoFocus={autoFocus}
+    />
+  );
+}
+
+function getPreviousMonth(monthName: string, year: number): { month: string; year: number } {
+  const idx = MONTH_ORDER.indexOf(monthName as (typeof MONTH_ORDER)[number]);
+  if (idx <= 0) {
+    return { month: MONTH_ORDER[11], year: year - 1 };
   }
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) {
-    return MONTH_ORDER[d.getUTCMonth()];
-  }
-  return MONTH_ORDER[0];
+  return { month: MONTH_ORDER[idx - 1], year };
+}
+
+function statementMonthKey(month: string, year: number) {
+  return `${year}::${month}`;
+}
+
+function balancesForMonthFromData(
+  data: MonthlyAccountBalance[],
+  month: string,
+  year: number
+): Map<string, number> {
+  const result = new Map<string, number>();
+  data.forEach((item) => {
+    if (monthNameFromBalanceDate(item.balance_date) === month && item.year === year) {
+      result.set(item.account_name, item.balance);
+    }
+  });
+  return result;
+}
+
+function BalanceHistoryHint({
+  lastMonthLabel,
+  lastBalance,
+  onApply,
+}: {
+  lastMonthLabel: string;
+  lastBalance: number;
+  onApply: () => void;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  const apply = (e: MouseEvent<HTMLButtonElement | HTMLSpanElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onApply();
+  };
+
+  return (
+    <span
+      className="relative inline-flex items-center"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <button
+        type="button"
+        onDoubleClick={apply}
+        className="p-0.5 rounded text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-200/80 dark:hover:bg-gray-600/80 transition-colors"
+        aria-label={`Last month (${lastMonthLabel}): ${formatBalanceNumber(lastBalance)}. Double-click to use.`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4" aria-hidden>
+          <path
+            fillRule="evenodd"
+            d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
+      {showTooltip && (
+        <span
+          role="tooltip"
+          onDoubleClick={apply}
+          className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 z-50 w-max max-w-[14rem] px-2 py-1.5 text-xs text-left rounded-md shadow-lg bg-gray-900 text-white dark:bg-gray-950 pointer-events-auto cursor-copy"
+        >
+          <span className="block font-medium">{lastMonthLabel}</span>
+          <span className="block">{formatBalanceNumber(lastBalance)}</span>
+          <span className="block mt-0.5 text-gray-300">Double-click to use</span>
+        </span>
+      )}
+    </span>
+  );
 }
 
 export default function FinancesPage() {
@@ -68,6 +223,27 @@ export default function FinancesPage() {
   const [moveMonth, setMoveMonth] = useState<string | null>(null); // Track which month is being moved
   const [moveTargetMonth, setMoveTargetMonth] = useState<string>('');
   const [moveTargetYear, setMoveTargetYear] = useState<number>(new Date().getFullYear());
+  const [newStatementMonths, setNewStatementMonths] = useState<Set<string>>(() => new Set());
+  const [priorMonthBalances, setPriorMonthBalances] = useState<Map<string, number>>(new Map());
+  const [priorMonthLabel, setPriorMonthLabel] = useState('');
+  const [deletePreview, setDeletePreview] = useState<{
+    month: string;
+    year: number;
+    timezone: string;
+    date_range: { start: string; endExclusive: string };
+    expected_phrase: string;
+    entries: Array<{
+      id: number;
+      account_name: string;
+      balance_date: string;
+      balance: number;
+      calendar_month: string;
+      matches_requested_month: boolean;
+    }>;
+    count: number;
+    warnings: string[];
+  } | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const hasPopulatedFromQueryParams = useRef<boolean>(false); // Track if we've populated values from query params
 
   // Handle query parameters for navigation from networth report
@@ -223,10 +399,7 @@ export default function FinancesPage() {
               balance: 0,
               id: 0, // No database entry yet
               account_id: account.id,
-              balance_date: (() => {
-                const monthNum = monthOrder.indexOf(monthName) + 1;
-                return `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
-              })(),
+              balance_date: balanceDateForMonth(selectedYear, monthName),
             });
           }
         });
@@ -324,6 +497,44 @@ export default function FinancesPage() {
 
   const { monthMap, months } = pivotData(filteredAccounts);
 
+  const expandedAddModeKey = expandedEditRow ? statementMonthKey(expandedEditRow, selectedYear) : null;
+  const isExpandedAddMode = expandedAddModeKey ? newStatementMonths.has(expandedAddModeKey) : false;
+
+  // Prior-month balances for copy-from-history while editing a statement
+  useEffect(() => {
+    if (!expandedEditRow) {
+      setPriorMonthBalances(new Map());
+      setPriorMonthLabel('');
+      return;
+    }
+
+    const { month: prevMonth, year: prevYear } = getPreviousMonth(expandedEditRow, selectedYear);
+    setPriorMonthLabel(`${prevMonth} ${prevYear}`);
+
+    if (prevYear === selectedYear) {
+      setPriorMonthBalances(balancesForMonthFromData(monthlyData, prevMonth, prevYear));
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`/api/monthly-account-balances?year=${prevYear}`);
+        if (!response.ok || cancelled) return;
+        const data = await response.json();
+        if (!cancelled) {
+          setPriorMonthBalances(balancesForMonthFromData(data.data || [], prevMonth, prevYear));
+        }
+      } catch {
+        if (!cancelled) setPriorMonthBalances(new Map());
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedEditRow, selectedYear, monthlyData]);
+
   // Handle cell edit (single cell)
   const handleCellClick = (month: string, accountName: string, currentValue: number | undefined) => {
     // Don't start single cell edit if row is being edited
@@ -371,16 +582,7 @@ export default function FinancesPage() {
 
     try {
       // Get the month date (first day of the month)
-      const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                         'July', 'August', 'September', 'October', 'November', 'December'];
-      const monthIndex = monthOrder.indexOf(month);
-      if (monthIndex === -1) {
-        throw new Error('Invalid month');
-      }
-
-      // Format date as YYYY-MM-DD without timezone conversion issues
-      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
-      const balanceDate = `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
+      const balanceDate = balanceDateForMonth(selectedYear, month);
 
       // Prepare all balances for this row
       const balances: Array<{ account_id: number; balance_date: string; balance: number }> = [];
@@ -388,9 +590,14 @@ export default function FinancesPage() {
 
       const accountMap = monthMap.get(month);
 
+      const invalidAccounts: string[] = [];
       filteredAccounts.forEach(account => {
         const valueStr = rowEditValues.get(account.name) || '0';
-        const balanceValue = parseFloat(valueStr.replace(/[£,]/g, '')) || 0;
+        const balanceValue = parseBalanceInput(valueStr);
+        if (balanceValue === null) {
+          invalidAccounts.push(account.name);
+          return;
+        }
         
         const existingEntry = accountMap?.get(account.name);
         
@@ -406,6 +613,15 @@ export default function FinancesPage() {
           });
         }
       });
+
+      if (invalidAccounts.length > 0) {
+        setMessage({
+          type: 'error',
+          text: `Enter valid numbers for: ${invalidAccounts.join(', ')}`,
+        });
+        setSaving(false);
+        return;
+      }
 
       // Perform updates
       const updatePromises = updates.map(update =>
@@ -498,27 +714,23 @@ export default function FinancesPage() {
     setMessage(null);
 
     try {
-      const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                         'July', 'August', 'September', 'October', 'November', 'December'];
-      const monthIndex = monthOrder.indexOf(month);
-      if (monthIndex === -1) {
-        throw new Error('Invalid month');
-      }
-
-      // Format date as YYYY-MM-DD without timezone conversion issues
-      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
-      const balanceDate = `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
+      const balanceDate = balanceDateForMonth(selectedYear, month);
       const accountMap = monthMap.get(month);
 
       const balances: Array<{ account_id: number; balance_date: string; balance: number }> = [];
       const updates: Array<{ id: number; balance: number }> = [];
+      const invalidAccounts: string[] = [];
 
       // Use all accounts, not just filtered ones, to ensure all accounts are saved
       accounts.forEach(account => {
         const valueStr = expandedEditValues.get(account.name);
         // Only process if value exists in the edit values (user may have edited it)
         if (valueStr !== undefined) {
-          const balanceValue = parseFloat(valueStr.replace(/[£,]/g, '')) || 0;
+          const balanceValue = parseBalanceInput(valueStr);
+          if (balanceValue === null) {
+            invalidAccounts.push(account.name);
+            return;
+          }
           
           const existingEntry = accountMap?.get(account.name);
           
@@ -533,6 +745,15 @@ export default function FinancesPage() {
           }
         }
       });
+
+      if (invalidAccounts.length > 0) {
+        setMessage({
+          type: 'error',
+          text: `Enter valid numbers for: ${invalidAccounts.join(', ')}`,
+        });
+        setSaving(false);
+        return;
+      }
 
       const updatePromises = updates.map(update =>
         fetch(`/api/monthly-account-balances?id=${update.id}`, {
@@ -560,6 +781,11 @@ export default function FinancesPage() {
       }
 
       setMessage({ type: 'success', text: 'All balances saved successfully!' });
+      setNewStatementMonths((prev) => {
+        const next = new Set(prev);
+        next.delete(statementMonthKey(month, selectedYear));
+        return next;
+      });
       setExpandedEditRow(null);
       setExpandedEditValues(new Map());
 
@@ -599,20 +825,14 @@ export default function FinancesPage() {
         throw new Error('Account not found');
       }
 
-      // Parse the balance value (remove £ and commas)
-      const balanceValue = parseFloat(editingValue.replace(/[£,]/g, '')) || 0;
-
-      // Get the month date (first day of the month)
-      const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                         'July', 'August', 'September', 'October', 'November', 'December'];
-      const monthIndex = monthOrder.indexOf(month);
-      if (monthIndex === -1) {
-        throw new Error('Invalid month');
+      const balanceValue = parseBalanceInput(editingValue);
+      if (balanceValue === null) {
+        setMessage({ type: 'error', text: 'Enter a valid number' });
+        setSaving(false);
+        return;
       }
 
-      // Format date as YYYY-MM-DD without timezone conversion issues
-      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
-      const balanceDate = `${selectedYear}-${String(monthNum).padStart(2, '0')}-01`;
+      const balanceDate = balanceDateForMonth(selectedYear, month);
 
       // Check if entry exists using the monthMap
       const accountMap = monthMap.get(month);
@@ -685,19 +905,10 @@ export default function FinancesPage() {
     setMessage(null);
 
     try {
-      const monthOrder = ['January', 'February', 'March', 'April', 'May', 'June', 
-                         'July', 'August', 'September', 'October', 'November', 'December'];
-      const monthIndex = monthOrder.indexOf(newMonth);
-      if (monthIndex === -1) {
-        throw new Error('Invalid month');
-      }
+      const balanceDate = balanceDateForMonth(newMonthYear, newMonth);
 
-      // Format date as YYYY-MM-DD without timezone conversion issues
-      const monthNum = monthIndex + 1; // Convert to 1-indexed month (1-12)
-      const balanceDate = `${newMonthYear}-${String(monthNum).padStart(2, '0')}-01`;
-
-      // Create empty balances for all filtered accounts (default to 0)
-      const balances = filteredAccounts.map(account => ({
+      // Create a row per account; API returns database id for each insert
+      const balances = accounts.map((account) => ({
         account_id: account.id,
         balance_date: balanceDate,
         balance: 0,
@@ -709,13 +920,39 @@ export default function FinancesPage() {
         body: JSON.stringify({ balances }),
       });
 
+      const postResult = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to add month');
+        throw new Error(postResult.error || 'Failed to add month');
       }
 
-      setMessage({ type: 'success', text: 'Statement added successfully! You can now edit the values.' });
+      const createdRows = (postResult.data || []) as Array<{
+        id: number;
+        account_id: number;
+        balance_date: string;
+        balance: number;
+      }>;
+
+      const initialValues = new Map<string, string>();
+      accounts.forEach((account) => {
+        const row = createdRows.find((r) => r.account_id === account.id);
+        initialValues.set(account.name, row ? String(row.balance) : '0');
+      });
+
+      setMessage({
+        type: 'success',
+        text: `Statement added (${createdRows.length} rows, ids assigned). Enter your balances below.`,
+      });
       setShowAddMonth(false);
+      setNewStatementMonths((prev) => {
+        const next = new Set(prev);
+        next.add(statementMonthKey(newMonth, newMonthYear));
+        return next;
+      });
+      setSelectedYear(newMonthYear);
+      setExpandedEditRow(newMonth);
+      hasPopulatedFromQueryParams.current = true;
+      setExpandedEditValues(initialValues);
       setNewMonth(new Date().toLocaleString('default', { month: 'long' }));
       setNewMonthYear(new Date().getFullYear());
 
@@ -724,9 +961,6 @@ export default function FinancesPage() {
       if (yearsResponse.ok) {
         const yearsData = await yearsResponse.json();
         setAvailableYears(yearsData.years || []);
-        if (yearsData.years && yearsData.years.length > 0) {
-          setSelectedYear(newMonthYear);
-        }
       }
 
       const dataResponse = await fetch(`/api/monthly-account-balances?year=${newMonthYear}`);
@@ -742,18 +976,82 @@ export default function FinancesPage() {
     }
   };
 
-  // Handle delete month
-  const handleDeleteMonth = async (month: string) => {
-    if (!confirm(`Are you sure you want to delete all entries for ${month} ${selectedYear}? This action cannot be undone.`)) {
+  const closeDeletePreview = () => {
+    setDeletePreview(null);
+    setDeleteConfirmText('');
+  };
+
+  const requestDeleteMonth = (month: string) => {
+    setMessage(null);
+    const range = monthDateRange(selectedYear, month);
+    if (!range) {
+      setMessage({ type: 'error', text: 'Invalid month' });
       return;
     }
 
+    const accountMap = monthMap.get(month);
+    const entries: NonNullable<typeof deletePreview>['entries'] = [];
+
+    accounts.forEach((account) => {
+      const row = accountMap?.get(account.name);
+      if (row && row.id !== 0) {
+        const balanceDate = normalizeBalanceDate(row.balance_date);
+        const calendarMonth = monthNameFromBalanceDate(balanceDate);
+        entries.push({
+          id: row.id,
+          account_name: account.name,
+          balance_date: balanceDate,
+          balance: row.balance,
+          calendar_month: calendarMonth,
+          matches_requested_month: calendarMonth === month,
+        });
+      }
+    });
+
+    const mismatched = entries.filter((e) => !e.matches_requested_month);
+
+    setDeletePreview({
+      month,
+      year: selectedYear,
+      timezone: STATEMENT_TIMEZONE,
+      date_range: range,
+      expected_phrase: `DELETE ${month} ${selectedYear}`,
+      entries,
+      count: entries.length,
+      warnings:
+        mismatched.length > 0
+          ? [
+              `${mismatched.length} row(s) have a different calendar month on their balance_date — review before deleting.`,
+            ]
+          : [],
+    });
+    setDeleteConfirmText('');
+  };
+
+  const confirmDeleteMonth = async () => {
+    if (!deletePreview) return;
+    if (deleteConfirmText !== deletePreview.expected_phrase) {
+      setMessage({
+        type: 'error',
+        text: `Type exactly: ${deletePreview.expected_phrase}`,
+      });
+      return;
+    }
+    if (deletePreview.count === 0) {
+      setMessage({ type: 'error', text: 'Nothing to delete for this month.' });
+      return;
+    }
+
+    const { month, year, entries } = deletePreview;
+    const ids = entries.map((e) => e.id);
     setSaving(true);
     setMessage(null);
 
     try {
-      const response = await fetch(`/api/monthly-account-balances?month=${encodeURIComponent(month)}&year=${selectedYear}`, {
+      const response = await fetch('/api/monthly-account-balances', {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
       });
 
       const data = await response.json();
@@ -763,17 +1061,21 @@ export default function FinancesPage() {
       }
 
       setMessage({ type: 'success', text: data.message || 'Entries deleted successfully' });
+      closeDeletePreview();
       setExpandedEditRow(null);
       setExpandedEditValues(new Map());
+      setNewStatementMonths((prev) => {
+        const next = new Set(prev);
+        next.delete(statementMonthKey(month, year));
+        return next;
+      });
 
-      // Refresh data
       const dataResponse = await fetch(`/api/monthly-account-balances?year=${selectedYear}`);
       if (dataResponse.ok) {
         const responseData = await dataResponse.json();
         setMonthlyData(responseData.data || []);
       }
 
-      // Refresh years
       const yearsResponse = await fetch('/api/monthly-account-balances/years');
       if (yearsResponse.ok) {
         const yearsData = await yearsResponse.json();
@@ -781,9 +1083,10 @@ export default function FinancesPage() {
           setAvailableYears(yearsData.years);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const text = err instanceof Error ? err.message : 'Failed to delete entries';
       console.error('Error deleting entries:', err);
-      setMessage({ type: 'error', text: err.message || 'Failed to delete entries' });
+      setMessage({ type: 'error', text });
     } finally {
       setSaving(false);
     }
@@ -1003,7 +1306,7 @@ export default function FinancesPage() {
               <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-opacity duration-300 animate-in fade-in">
                 <div className="space-y-6">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white text-center">
-                    Edit {expandedEditRow} {selectedYear}
+                    {isExpandedAddMode ? 'Add' : 'Edit'} {expandedEditRow} {selectedYear}
                   </h3>
                   <div className="space-y-4">
                     {(() => {
@@ -1043,31 +1346,28 @@ export default function FinancesPage() {
                               const value = expandedEditValues.has(account.name)
                                 ? expandedEditValues.get(account.name)!
                                 : '0';
-                              const parsed = parseFloat(value.replace(/[£,]/g, ''));
-                              const numericValue = Number.isFinite(parsed) ? parsed : 0;
-                              const formattedValue = `£${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                               
+                              const priorBalance = priorMonthBalances.get(account.name);
+
                               return (
                                 <div key={account.id} className="space-y-1">
-                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 text-center">
-                                    {account.name}
+                                  <label className="flex items-center justify-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    <span>{account.name}</span>
+                                    {priorBalance !== undefined &&
+                                      isBalanceEmptyOrZero(value) && (
+                                      <BalanceHistoryHint
+                                        lastMonthLabel={priorMonthLabel}
+                                        lastBalance={priorBalance}
+                                        onApply={() =>
+                                          handleExpandedEditValueChange(account.name, priorBalance.toString())
+                                        }
+                                      />
+                                    )}
                                   </label>
-                                  <input
-                                    type="text"
-                                    value={formattedValue}
-                                    onChange={(e) => {
-                                      // Remove currency symbols and format
-                                      const rawValue = e.target.value.replace(/[£,]/g, '');
-                                      handleExpandedEditValueChange(account.name, rawValue);
-                                    }}
-                                    onBlur={(e) => {
-                                      // Format on blur
-                                      const rawValue = e.target.value.replace(/[£,]/g, '');
-                                      const numValue = parseFloat(rawValue) || 0;
-                                      handleExpandedEditValueChange(account.name, numValue.toString());
-                                    }}
+                                  <BalanceInput
+                                    value={value}
+                                    onChange={(v) => handleExpandedEditValueChange(account.name, v)}
                                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-center"
-                                    placeholder="£0.00"
                                   />
                                 </div>
                               );
@@ -1094,7 +1394,7 @@ export default function FinancesPage() {
                         Move
                       </button>
                       <button
-                        onClick={() => expandedEditRow && handleDeleteMonth(expandedEditRow)}
+                        onClick={() => expandedEditRow && requestDeleteMonth(expandedEditRow)}
                         disabled={saving || !expandedEditRow}
                         className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 font-medium text-sm shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
                       >
@@ -1295,21 +1595,20 @@ export default function FinancesPage() {
                             }`}
                           >
                             {isRowEditing ? (
-                              <input
-                                type="text"
+                              <BalanceInput
                                 value={rowEditValues.get(account.name) || '0'}
-                                onChange={(e) => handleRowValueChange(account.name, e.target.value)}
+                                onChange={(v) => handleRowValueChange(account.name, v)}
                                 className="w-32 px-2 py-1 border border-blue-500 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-center"
                                 onClick={(e) => e.stopPropagation()}
-                                placeholder="0.00"
                               />
                             ) : isCellEditing ? (
                               <div className="flex items-center justify-center gap-2">
-                                <input
-                                  type="text"
+                                <BalanceInput
                                   value={editingValue}
-                                  onChange={(e) => setEditingValue(e.target.value)}
-                                  onBlur={() => handleCellSave(month, account.name)}
+                                  onChange={setEditingValue}
+                                  autoFocus
+                                  className="w-32 px-2 py-1 border border-blue-500 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-center"
+                                  onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
                                       handleCellSave(month, account.name);
@@ -1318,10 +1617,6 @@ export default function FinancesPage() {
                                       setEditingValue('');
                                     }
                                   }}
-                                  autoFocus
-                                  className="w-32 px-2 py-1 border border-blue-500 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-center"
-                                  onClick={(e) => e.stopPropagation()}
-                                  placeholder="0.00"
                                 />
                                 <button
                                   onClick={(e) => {
@@ -1349,11 +1644,7 @@ export default function FinancesPage() {
                             ) : (
                               <span className={canEdit ? 'underline decoration-dotted' : ''}>
                                 {balance !== undefined
-                                  ? (() => {
-                                      const absBalance = Math.abs(balance);
-                                      const formatted = `£${absBalance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                                      return isNegative ? `-${formatted}` : formatted;
-                                    })()
+                                  ? formatBalanceNumber(balance)
                                   : canEdit ? 'Click to add' : '-'}
                               </span>
                             )}
@@ -1385,6 +1676,123 @@ export default function FinancesPage() {
           </>
         )}
       </div>
+
+      {deletePreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-preview-title"
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 id="delete-preview-title" className="text-lg font-semibold text-red-700 dark:text-red-400">
+                Confirm delete — cannot be undone
+              </h2>
+              <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                You are about to permanently delete{' '}
+                <strong>
+                  {deletePreview.month} {deletePreview.year}
+                </strong>{' '}
+                ({deletePreview.timezone}). Only the database rows listed below (by{' '}
+                <strong>row id</strong>) will be removed — not other months.
+              </p>
+              <p className="mt-1 text-xs font-mono text-gray-600 dark:text-gray-400">
+                Statement date: {deletePreview.date_range.start}
+              </p>
+              {deletePreview.warnings.length > 0 && (
+                <ul className="mt-2 text-sm text-amber-700 dark:text-amber-400 list-disc list-inside">
+                  {deletePreview.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {deletePreview.count === 0 ? (
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  No database rows match this month. Nothing will be deleted.
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-600">
+                      <th className="pb-2 pr-2">ID</th>
+                      <th className="pb-2 pr-2">Account</th>
+                      <th className="pb-2 pr-2">Date (GMT)</th>
+                      <th className="pb-2 text-right">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deletePreview.entries.map((entry) => (
+                      <tr
+                        key={entry.id}
+                        className="border-b border-gray-100 dark:border-gray-700 text-gray-900 dark:text-gray-100"
+                      >
+                        <td className="py-2 pr-2 font-mono text-xs">{entry.id}</td>
+                        <td className="py-2 pr-2">{entry.account_name}</td>
+                        <td className="py-2 pr-2 font-mono text-xs">
+                          {entry.balance_date}
+                          {entry.calendar_month !== deletePreview.month && (
+                            <span className="block text-amber-600 dark:text-amber-400">
+                              ({entry.calendar_month})
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 text-right">{formatBalanceNumber(entry.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p className="mt-4 text-sm font-medium text-gray-800 dark:text-gray-200">
+                {deletePreview.count} row{deletePreview.count === 1 ? '' : 's'} will be deleted.
+              </p>
+            </div>
+
+            <div className="p-6 border-t border-gray-200 dark:border-gray-700 space-y-3">
+              <label className="block text-sm text-gray-700 dark:text-gray-300">
+                Type{' '}
+                <span className="font-mono font-semibold text-red-700 dark:text-red-400">
+                  {deletePreview.expected_phrase}
+                </span>{' '}
+                to confirm:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                placeholder={deletePreview.expected_phrase}
+                autoComplete="off"
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={closeDeletePreview}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteMonth}
+                  disabled={
+                    saving ||
+                    deletePreview.count === 0 ||
+                    deleteConfirmText !== deletePreview.expected_phrase
+                  }
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                >
+                  {saving ? 'Deleting…' : `Delete ${deletePreview.count} row${deletePreview.count === 1 ? '' : 's'}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
