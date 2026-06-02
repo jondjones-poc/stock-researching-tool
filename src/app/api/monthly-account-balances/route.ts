@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../utils/db';
-import { normalizeBalanceDate } from '@/lib/month-balance-date';
+import {
+  monthDateRange,
+  monthNameFromBalanceDate,
+  monthYearKey,
+  normalizeBalanceDate,
+} from '@/lib/month-balance-date';
+import { BALANCE_DATE_IN_MONTH_PREDICATE } from '@/lib/month-balance-date-sql';
 
 // GET - Fetch monthly account balances, optionally filtered by year
 export async function GET(request: NextRequest) {
@@ -83,11 +89,11 @@ interface AccountBalance {
   balance: number;
 }
 
-// POST - Create or update account balances for a month
+// POST - Create or update account balances (upsert). With createStatement: true, refuse if month already has rows.
 export async function POST(request: NextRequest) {
   try {
-    const body: { balances: AccountBalance[] } = await request.json();
-    const { balances } = body;
+    const body: { balances: AccountBalance[]; createStatement?: boolean } = await request.json();
+    const { balances, createStatement } = body;
 
     if (!balances || !Array.isArray(balances) || balances.length === 0) {
       return NextResponse.json(
@@ -96,7 +102,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use a transaction to insert/update all balances
+    if (createStatement) {
+      const firstDate = balances.find((b) => b.balance_date && /^\d{4}-\d{2}-\d{2}$/.test(b.balance_date))
+        ?.balance_date;
+      if (!firstDate) {
+        return NextResponse.json({ error: 'A valid balance_date is required' }, { status: 400 });
+      }
+
+      let monthName: string;
+      let year: number;
+      try {
+        monthName = monthNameFromBalanceDate(firstDate);
+        year = parseInt(normalizeBalanceDate(firstDate).slice(0, 4), 10);
+      } catch {
+        return NextResponse.json({ error: 'Invalid balance_date' }, { status: 400 });
+      }
+
+      const range = monthDateRange(year, monthName);
+      const monthKey = monthYearKey(year, monthName);
+      if (!range || !monthKey) {
+        return NextResponse.json({ error: 'Invalid statement month' }, { status: 400 });
+      }
+
+      const existing = await query(
+        `SELECT COUNT(*)::int AS count
+         FROM account_balances ab
+         WHERE ${BALANCE_DATE_IN_MONTH_PREDICATE}`,
+        [range.start, range.endExclusive, monthKey]
+      );
+      const existingCount = existing.rows[0]?.count ?? 0;
+      if (existingCount > 0) {
+        return NextResponse.json(
+          {
+            error: `A statement for ${monthName} ${year} already exists. Delete that month's statement first (trash icon on the row), then add again.`,
+            month: monthName,
+            year,
+            existingCount,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const results = [];
     for (const balance of balances) {
       const { account_id, balance_date, balance: balanceValue } = balance;
@@ -109,18 +156,31 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Use INSERT ... ON CONFLICT to upsert
-      const result = await query(
-        `INSERT INTO account_balances (account_id, balance_date, balance)
-         VALUES ($1, $2::date, $3)
-         ON CONFLICT (account_id, balance_date)
-         DO UPDATE SET balance = $3, updated_at = CURRENT_TIMESTAMP
-         RETURNING id, account_id, balance_date, balance`,
-        [account_id, balance_date, balanceValue]
-      );
+      const result = createStatement
+        ? await query(
+            `INSERT INTO account_balances (account_id, balance_date, balance)
+             VALUES ($1, $2::date, $3)
+             RETURNING id, account_id, balance_date, balance`,
+            [account_id, balance_date, balanceValue]
+          )
+        : await query(
+            `INSERT INTO account_balances (account_id, balance_date, balance)
+             VALUES ($1, $2::date, $3)
+             ON CONFLICT (account_id, balance_date)
+             DO UPDATE SET balance = $3, updated_at = CURRENT_TIMESTAMP
+             RETURNING id, account_id, balance_date, balance`,
+            [account_id, balance_date, balanceValue]
+          );
 
       if (result.rows.length > 0) {
         results.push(result.rows[0]);
+      } else if (createStatement) {
+        return NextResponse.json(
+          {
+            error: `A balance for this account and date already exists (${balance_date}). Delete that month's statement first, then add again.`,
+          },
+          { status: 409 }
+        );
       }
     }
 

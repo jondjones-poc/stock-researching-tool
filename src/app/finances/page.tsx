@@ -907,6 +907,23 @@ export default function FinancesPage() {
     try {
       const balanceDate = balanceDateForMonth(newMonthYear, newMonth);
 
+      const yearCheckResponse = await fetch(`/api/monthly-account-balances?year=${newMonthYear}`);
+      if (yearCheckResponse.ok) {
+        const yearCheckData = await yearCheckResponse.json();
+        const alreadyExists = (yearCheckData.data || []).some(
+          (item: MonthlyAccountBalance) =>
+            monthNameFromBalanceDate(item.balance_date) === newMonth
+        );
+        if (alreadyExists) {
+          setMessage({
+            type: 'error',
+            text: `A statement for ${newMonth} ${newMonthYear} already exists. Delete that month's statement first (trash icon on the row), then add again.`,
+          });
+          setSaving(false);
+          return;
+        }
+      }
+
       // Create a row per account; API returns database id for each insert
       const balances = accounts.map((account) => ({
         account_id: account.id,
@@ -917,7 +934,7 @@ export default function FinancesPage() {
       const response = await fetch('/api/monthly-account-balances', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ balances }),
+        body: JSON.stringify({ balances, createStatement: true }),
       });
 
       const postResult = await response.json();

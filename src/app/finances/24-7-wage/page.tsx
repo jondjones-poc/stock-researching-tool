@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 
 interface IncomeType {
   id: number;
@@ -55,6 +55,49 @@ export default function Wage247Page() {
   } | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [tooltipCopied, setTooltipCopied] = useState(false);
+  const tooltipHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTooltipHideTimer = useCallback(() => {
+    if (tooltipHideRef.current) {
+      clearTimeout(tooltipHideRef.current);
+      tooltipHideRef.current = null;
+    }
+  }, []);
+
+  const hideTooltipSoon = useCallback(() => {
+    clearTooltipHideTimer();
+    tooltipHideRef.current = setTimeout(() => {
+      setTooltip(null);
+      setTooltipCopied(false);
+    }, 250);
+  }, [clearTooltipHideTimer]);
+
+  const keepTooltipOpen = useCallback(() => {
+    clearTooltipHideTimer();
+  }, [clearTooltipHideTimer]);
+
+  const copyTooltipContent = useCallback(async () => {
+    if (!tooltip?.text) return;
+    try {
+      await navigator.clipboard.writeText(tooltip.text);
+      setTooltipCopied(true);
+      setTimeout(() => setTooltipCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy tooltip:', err);
+    }
+  }, [tooltip?.text]);
+
+  const showTooltip = useCallback(
+    (x: number, y: number, text: string) => {
+      clearTooltipHideTimer();
+      setTooltipCopied(false);
+      setTooltip({ x, y, text });
+    },
+    [clearTooltipHideTimer]
+  );
+
+  useEffect(() => () => clearTooltipHideTimer(), [clearTooltipHideTimer]);
 
   // Fetch available years
   useEffect(() => {
@@ -491,18 +534,46 @@ export default function Wage247Page() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-2 sm:px-4 lg:px-6">
-      {/* Tooltip */}
+      {/* Calculation tooltip with copy */}
       {tooltip && (
         <div
-          className="fixed z-50 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded shadow-lg pointer-events-none whitespace-pre-line"
+          className="fixed z-50 max-w-sm pointer-events-auto"
           style={{
             left: `${tooltip.x}px`,
             top: `${tooltip.y}px`,
-            transform: 'translate(-50%, -100%)'
+            transform: 'translate(-50%, calc(-100% - 8px))',
           }}
+          onMouseEnter={keepTooltipOpen}
+          onMouseLeave={hideTooltipSoon}
         >
-          {tooltip.text}
-          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"></div>
+          <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded shadow-lg overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-700 dark:border-gray-600">
+              <span className="text-[10px] uppercase tracking-wide text-gray-400">Details</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void copyTooltipContent();
+                }}
+                className="p-1 rounded hover:bg-gray-600 dark:hover:bg-gray-600 transition-colors"
+                title={tooltipCopied ? 'Copied!' : 'Copy'}
+                aria-label={tooltipCopied ? 'Copied' : 'Copy calculation to clipboard'}
+              >
+                {tooltipCopied ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-400" aria-hidden>
+                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4" aria-hidden>
+                    <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z" />
+                    <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-1h-3.379a3 3 0 01-2.121-.879L5.939 11.44A3 3 0 015.5 10H4.5V6z" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            <p className="px-3 py-2 whitespace-pre-line m-0 leading-relaxed">{tooltip.text}</p>
+          </div>
+          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700 pointer-events-none" />
         </div>
       )}
       <div className="w-full">
@@ -764,20 +835,20 @@ export default function Wage247Page() {
                                         const previousBalance = entry.previous_month_balance !== null && entry.previous_month_balance !== undefined ? parseFloat(entry.previous_month_balance.toString()) : 0;
                                         
                                         const tooltipText = `Account Balance Calculation:\n${currentMonthStr}/${currentYearStr} Balance: £${currentBalance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n${prevMonthStr}/${prevYearStr} Balance: £${previousBalance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nDifference: ${accountBalanceDiff >= 0 ? '+' : ''}£${accountBalanceDiff.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                                        setTooltip({
-                                          x: e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
-                                          y: e.currentTarget.getBoundingClientRect().top - 10,
-                                          text: tooltipText
-                                        });
+                                        showTooltip(
+                                          e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
+                                          e.currentTarget.getBoundingClientRect().top - 10,
+                                          tooltipText
+                                        );
                                       } else if (entry.account_id) {
-                                        setTooltip({
-                                          x: e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
-                                          y: e.currentTarget.getBoundingClientRect().top - 10,
-                                          text: 'Account linked but no balance data available for this month'
-                                        });
+                                        showTooltip(
+                                          e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
+                                          e.currentTarget.getBoundingClientRect().top - 10,
+                                          'Account linked but no balance data available for this month'
+                                        );
                                       }
                                     }}
-                                    onMouseLeave={() => setTooltip(null)}
+                                    onMouseLeave={hideTooltipSoon}
                                   >
                                     {hasAccountBalance && accountBalanceDiff !== null
                                       ? `${accountBalanceDiff >= 0 ? '+' : ''}£${accountBalanceDiff.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -865,14 +936,14 @@ export default function Wage247Page() {
                               `${item.name}: £${item.value.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                             ).join('\n');
                             const tooltipText = `24/7 Wage Calculation (${monthNames[monthIndex]}):\n${breakdownText}\n\nTotal: £${total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nHourly Rate (÷730): £${wage247.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                            setTooltip({
-                              x: e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
-                              y: e.currentTarget.getBoundingClientRect().top - 10,
-                              text: tooltipText
-                            });
+                            showTooltip(
+                              e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
+                              e.currentTarget.getBoundingClientRect().top - 10,
+                              tooltipText
+                            );
                           }
                         }}
-                        onMouseLeave={() => setTooltip(null)}
+                        onMouseLeave={hideTooltipSoon}
                       >
                         £{wage247.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
@@ -918,14 +989,14 @@ export default function Wage247Page() {
                               `${item.name}: £${item.value.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                             ).join('\n');
                             const tooltipText = `Not Working Income Calculation (${monthNames[monthIndex]}):\n${breakdownText}\n\nTotal: £${incomeNotWorking.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                            setTooltip({
-                              x: e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
-                              y: e.currentTarget.getBoundingClientRect().top - 10,
-                              text: tooltipText
-                            });
+                            showTooltip(
+                              e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
+                              e.currentTarget.getBoundingClientRect().top - 10,
+                              tooltipText
+                            );
                           }
                         }}
-                        onMouseLeave={() => setTooltip(null)}
+                        onMouseLeave={hideTooltipSoon}
                       >
                         £{incomeNotWorking.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
@@ -971,14 +1042,14 @@ export default function Wage247Page() {
                               `${item.name}: £${item.value.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                             ).join('\n');
                             const tooltipText = `Totals Calculation (${monthNames[monthIndex]}):\n${breakdownText}\n\nTotal: £${total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                            setTooltip({
-                              x: e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
-                              y: e.currentTarget.getBoundingClientRect().top - 10,
-                              text: tooltipText
-                            });
+                            showTooltip(
+                              e.currentTarget.getBoundingClientRect().left + e.currentTarget.offsetWidth / 2,
+                              e.currentTarget.getBoundingClientRect().top - 10,
+                              tooltipText
+                            );
                           }
                         }}
-                        onMouseLeave={() => setTooltip(null)}
+                        onMouseLeave={hideTooltipSoon}
                       >
                         £{total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>

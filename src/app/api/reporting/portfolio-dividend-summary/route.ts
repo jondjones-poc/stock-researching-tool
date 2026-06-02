@@ -19,6 +19,7 @@ async function fetchUsdToGbpRate(): Promise<number | null> {
 /**
  * Projected dividend from portfolio_data (saved eToro portfolio).
  * Uses annual_dividend when set, else dividend_per_share * shares_owned.
+ * Dividend per share matches /api/etoro/portfolio/load: COALESCE from stock_ticker_cache then portfolio_data.
  * Returns yearly/monthly in GBP and portfolio dividend yield %.
  */
 export async function GET() {
@@ -29,7 +30,15 @@ export async function GET() {
           CASE
             WHEN pd.annual_dividend IS NOT NULL AND pd.annual_dividend::numeric > 0
               THEN pd.annual_dividend::numeric
-            ELSE (pd.shares_owned::numeric * COALESCE(pd.dividend_per_share::numeric, 0))
+            ELSE (
+              pd.shares_owned::numeric * COALESCE(
+                NULLIF(stc.dividend_per_share::numeric, 0),
+                NULLIF(pd.dividend_per_share::numeric, 0),
+                stc.dividend_per_share::numeric,
+                pd.dividend_per_share::numeric,
+                0
+              )
+            )
           END
         )::numeric AS total_annual_dividend_usd,
         SUM(
@@ -42,6 +51,7 @@ export async function GET() {
           END
         )::numeric AS total_value_usd
       FROM portfolio_data pd
+      LEFT JOIN stock_ticker_cache stc ON stc.instrument_id = pd.instrument_id
       WHERE (pd.is_settled IS NULL OR pd.is_settled = true)
         AND pd.shares_owned > 0
     `;

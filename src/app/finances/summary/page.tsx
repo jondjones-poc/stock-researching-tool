@@ -161,14 +161,29 @@ export default function SummaryPage() {
     fetchRetirementValue();
   }, []);
 
-  // Fetch income entries for current year
+  // Fetch income entries for years needed (current year + last 6 months for 24/7 median)
   useEffect(() => {
     const fetchIncomeEntries = async () => {
       try {
-        const response = await fetch(`/api/income-entries?year=${currentYear}`);
-        if (!response.ok) throw new Error('Failed to fetch income entries');
-        const data = await response.json();
-        setIncomeEntries(data.data || []);
+        const yearsNeeded = new Set<number>([currentYear]);
+        let m = previousMonth;
+        let y = previousYear;
+        for (let i = 0; i < 6; i++) {
+          yearsNeeded.add(y);
+          m -= 1;
+          if (m < 1) {
+            m = 12;
+            y -= 1;
+          }
+        }
+        const merged: IncomeEntry[] = [];
+        for (const year of [...yearsNeeded].sort()) {
+          const response = await fetch(`/api/income-entries?year=${year}`);
+          if (!response.ok) continue;
+          const data = await response.json();
+          if (Array.isArray(data.data)) merged.push(...data.data);
+        }
+        setIncomeEntries(merged);
       } catch (err: any) {
         console.error('Error fetching income entries:', err);
       } finally {
@@ -176,7 +191,7 @@ export default function SummaryPage() {
       }
     };
     fetchIncomeEntries();
-  }, [currentYear]);
+  }, [currentYear, previousMonth, previousYear]);
 
   // Fetch dividend summary: income entries first; if yearly is 0, use projected from saved portfolio
   useEffect(() => {
@@ -586,76 +601,117 @@ export default function SummaryPage() {
     fetchRetirementSettings();
   }, []);
 
-  // Get entry for a specific income source and month
-  const getEntry = (sourceId: number, month: number) => {
+  // Get entry for a specific income source, month, and year
+  const getEntryForYear = (sourceId: number, month: number, year: number) => {
     return incomeEntries.find(
-      entry => entry.income_source_id === sourceId && 
-               parseInt(entry.month.toString()) === month &&
-               parseInt(entry.year.toString()) === currentYear
+      (entry) =>
+        entry.income_source_id === sourceId &&
+        parseInt(entry.month.toString(), 10) === month &&
+        parseInt(entry.year.toString(), 10) === year
     );
   };
 
+  const getEntry = (sourceId: number, month: number) => getEntryForYear(sourceId, month, currentYear);
+
   // Get total for an income type and month (sum of all sources for that type)
-  const getTypeTotal = (incomeTypeId: number, month: number) => {
-    const sources = incomeSources.filter(source => source.income_type_id === incomeTypeId);
-    
+  const getTypeTotalForYear = (incomeTypeId: number, month: number, year: number) => {
+    const sources = incomeSources.filter((source) => source.income_type_id === incomeTypeId);
+
     if (sources.length === 0) return 0;
-    
+
     let total = 0;
-    
-    sources.forEach(source => {
-      const entry = getEntry(source.id, month);
+
+    sources.forEach((source) => {
+      const entry = getEntryForYear(source.id, month, year);
       if (entry) {
-        // If entry has account_id and balance data, use account balance difference
-        if (entry.account_id && entry.current_month_balance !== null && entry.current_month_balance !== undefined && entry.previous_month_balance !== null && entry.previous_month_balance !== undefined) {
+        if (
+          entry.account_id &&
+          entry.current_month_balance !== null &&
+          entry.current_month_balance !== undefined &&
+          entry.previous_month_balance !== null &&
+          entry.previous_month_balance !== undefined
+        ) {
           const current = parseFloat(entry.current_month_balance.toString());
           const previous = parseFloat(entry.previous_month_balance.toString());
-          total += (current - previous);
+          total += current - previous;
         } else {
-          // Otherwise, use the price value
           total += parseFloat(entry.price.toString());
         }
       }
     });
-    
+
     return total;
   };
+
+  const getTypeTotal = (incomeTypeId: number, month: number) =>
+    getTypeTotalForYear(incomeTypeId, month, currentYear);
 
   // Get monthly total (sum of all business income types for that month)
-  const getMonthlyTotal = (month: number) => {
-    const businessIncomeTypes = incomeTypes.filter(type => type.isbusinessincome === true);
+  const getMonthlyTotalForYear = (month: number, year: number) => {
+    const businessIncomeTypes = incomeTypes.filter((type) => type.isbusinessincome === true);
     let total = 0;
-    businessIncomeTypes.forEach(type => {
-      total += getTypeTotal(type.id, month);
+    businessIncomeTypes.forEach((type) => {
+      total += getTypeTotalForYear(type.id, month, year);
     });
     return total;
   };
 
-  // Calculate 24/7 Wage hourly rate for a month (sum of all types with Is247wage = true, divided by 730)
-  const get247WageHourly = (month: number) => {
+  const getMonthlyTotal = (month: number) => getMonthlyTotalForYear(month, currentYear);
+
+  const HOURS_PER_MONTH = 730;
+
+  // 24/7 hourly wage for a calendar month: sum(Is247wage types) ÷ 730 (same as /finances/24-7-wage)
+  const get247WageHourlyFor = (month: number, year: number) => {
     let sum = 0;
-    incomeTypes.forEach(type => {
-      // Only include types where Is247wage is explicitly true
+    incomeTypes.forEach((type) => {
       if (type.Is247wage === true) {
-        sum += getTypeTotal(type.id, month);
+        sum += getTypeTotalForYear(type.id, month, year);
       }
     });
-    return sum / 730;
+    return sum / HOURS_PER_MONTH;
+  };
+
+  /** Last N calendar months ending at (endYear, endMonth), inclusive */
+  const getTrailingMonths = (endYear: number, endMonth: number, count: number) => {
+    const out: { month: number; year: number }[] = [];
+    let m = endMonth;
+    let y = endYear;
+    for (let i = 0; i < count; i++) {
+      out.push({ month: m, year: y });
+      m -= 1;
+      if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+    }
+    return out;
+  };
+
+  const median = (values: number[]) => {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+      return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    return sorted[mid];
   };
 
   // Get business income total for previous month
-  const businessIncomeTotal = getMonthlyTotal(previousMonth);
-  
-  // Get 24/7 wage hourly rate for previous month
-  const wage247Hourly = get247WageHourly(previousMonth);
-  
-  // Average end 24/7 wage (currently not implemented, show £0.00)
-  const averageEnd247Wage = 0;
-  
-  // Calculate percentage difference
-  const percentageDifference = averageEnd247Wage > 0 
-    ? ((wage247Hourly - averageEnd247Wage) / averageEnd247Wage) * 100 
-    : 0;
+  const businessIncomeTotal = getMonthlyTotalForYear(previousMonth, previousYear);
+
+  // Last completed calendar month (not the current month)
+  const wage247Hourly = get247WageHourlyFor(previousMonth, previousYear);
+
+  const lastSix247Hourly = getTrailingMonths(previousYear, previousMonth, 6).map(({ month, year }) =>
+    get247WageHourlyFor(month, year)
+  );
+  const median247WageLast6Months = median(lastSix247Hourly);
+
+  const percentageDifference =
+    median247WageLast6Months > 0
+      ? ((wage247Hourly - median247WageLast6Months) / median247WageLast6Months) * 100
+      : 0;
 
   // Check hit target
   const hitTarget = monthlyRetirementValue !== null && businessIncomeTotal >= monthlyRetirementValue;
@@ -1026,25 +1082,35 @@ export default function SummaryPage() {
                 24/7 status
               </h2>
               <div className="space-y-4">
-                {/* 24/7 Hourly Wage */}
+                {/* 24/7 Hourly Wage — previous calendar month */}
                 <div className="flex justify-between items-center py-3 border-b border-gray-200 dark:border-gray-700">
-                  <span className="text-gray-700 dark:text-gray-300 font-medium">24/7 Hour Wage</span>
+                  <div>
+                    <span className="text-gray-700 dark:text-gray-300 font-medium">24/7 Hour Wage</span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {monthNames[previousMonth - 1]} {previousYear} (last month)
+                    </p>
+                  </div>
                   <span className="text-lg font-semibold text-gray-900 dark:text-white">
                     £{wage247Hourly.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
-                
-                {/* Last Years 24/7 wage */}
+
+                {/* Median 24/7 wage over trailing 6 months */}
                 <div className="flex justify-between items-center py-3 border-b border-gray-200 dark:border-gray-700">
-                  <span className="text-gray-700 dark:text-gray-300 font-medium">Last Years 24/7 wage</span>
+                  <div>
+                    <span className="text-gray-700 dark:text-gray-300 font-medium">Median 24/7 wage</span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Last 6 months (hourly)
+                    </p>
+                  </div>
                   <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                    £{averageEnd247Wage.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    £{median247WageLast6Months.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 
-                {/* Percentage Difference */}
+                {/* vs median */}
                 <div className="flex justify-between items-center py-3">
-                  <span className="text-gray-700 dark:text-gray-300 font-medium">Percentage Difference</span>
+                  <span className="text-gray-700 dark:text-gray-300 font-medium">vs median (last month)</span>
                   <span className={`text-lg font-semibold ${
                     percentageDifference > 0 
                       ? 'text-green-600 dark:text-green-400' 

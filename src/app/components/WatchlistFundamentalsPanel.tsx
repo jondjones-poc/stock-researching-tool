@@ -131,16 +131,18 @@ export default function WatchlistFundamentalsPanel({ symbol }: { symbol: string 
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!symbol?.trim()) {
-      setData(null);
-      return;
-    }
+    const trimmed = symbol?.trim();
+    if (!trimmed) return;
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
-    fetch(`/api/watchlist-fundamentals?symbol=${encodeURIComponent(symbol.trim())}`)
-      .then((r) => r.json())
-      .then((j) => {
+
+    void (async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const r = await fetch(
+          `/api/watchlist-fundamentals?symbol=${encodeURIComponent(trimmed)}`
+        );
+        const j = await r.json();
         if (cancelled) return;
         if (j.error && !j.quality) {
           setErr(j.error);
@@ -148,13 +150,15 @@ export default function WatchlistFundamentalsPanel({ symbol }: { symbol: string 
           return;
         }
         setData(j);
-      })
-      .catch((e) => {
-        if (!cancelled) setErr(e?.message || 'Failed to load fundamentals');
-      })
-      .finally(() => {
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : 'Failed to load fundamentals');
+        }
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
