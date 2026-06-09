@@ -41,10 +41,29 @@ export function getEnvAllowedEmails(): string[] {
   return parseEmailList(process.env.ALLOWED_AUTH_EMAILS);
 }
 
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/$/, '');
+}
+
+function platformOrigins(): string[] {
+  const out: string[] = [];
+  for (const raw of [
+    process.env.URL,
+    process.env.DEPLOY_PRIME_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+  ]) {
+    if (raw?.trim()) out.push(normalizeOrigin(raw));
+  }
+  return out;
+}
+
 export function getAuthAllowedOrigins(): string[] {
-  const origins = process.env.AUTH_ALLOWED_ORIGINS
-    ? process.env.AUTH_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  const fromList = process.env.AUTH_ALLOWED_ORIGINS
+    ? process.env.AUTH_ALLOWED_ORIGINS.split(',').map(normalizeOrigin).filter(Boolean)
     : [];
+
+  const single =
+    process.env.FRONTEND_ORIGIN?.trim() || process.env.FRONTEND_DEV_ORIGIN?.trim() || '';
 
   const devOrigins = [
     'http://localhost:3000',
@@ -54,27 +73,31 @@ export function getAuthAllowedOrigins(): string[] {
 
   if (process.env.NODE_ENV !== 'production') {
     const frontendDev = process.env.FRONTEND_DEV_ORIGIN?.trim();
-    if (frontendDev) devOrigins.push(frontendDev.replace(/\/$/, ''));
-    return [...new Set([...origins, ...devOrigins])];
+    if (frontendDev) devOrigins.push(normalizeOrigin(frontendDev));
+    return [...new Set([...fromList, ...(single ? [normalizeOrigin(single)] : []), ...platformOrigins(), ...devOrigins])];
   }
 
-  return [...new Set(origins)];
+  return [...new Set([...fromList, ...(single ? [normalizeOrigin(single)] : []), ...platformOrigins()])];
 }
 
 export function getFrontendOrigin(requestOrigin?: string | null): string {
   if (process.env.NODE_ENV !== 'production') {
     const dev = process.env.FRONTEND_DEV_ORIGIN?.trim();
-    if (dev) return dev.replace(/\/$/, '');
-    if (requestOrigin) return requestOrigin.replace(/\/$/, '');
+    if (dev) return normalizeOrigin(dev);
+    if (requestOrigin) return normalizeOrigin(requestOrigin);
     return 'http://localhost:3000';
   }
 
   const allowed = getAuthAllowedOrigins();
-  if (requestOrigin && allowed.includes(requestOrigin.replace(/\/$/, ''))) {
-    return requestOrigin.replace(/\/$/, '');
+  const normalizedRequest = requestOrigin ? normalizeOrigin(requestOrigin) : null;
+
+  if (normalizedRequest && allowed.includes(normalizedRequest)) {
+    return normalizedRequest;
   }
-  if (allowed.length > 0) return allowed[0].replace(/\/$/, '');
-  throw new Error('AUTH_ALLOWED_ORIGINS must be set in production');
+  if (allowed.length > 0) return allowed[0];
+  throw new Error(
+    'Set AUTH_ALLOWED_ORIGINS (or FRONTEND_ORIGIN) on Render, e.g. https://stock-researching-tool.netlify.app'
+  );
 }
 
 export function isProduction(): boolean {
