@@ -17,11 +17,54 @@ export function getSupabaseUrl(): string {
   return url.replace(/\/$/, '');
 }
 
+function supabaseProjectRef(url: string): string | null {
+  return url.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] ?? null;
+}
+
+function decodeJwtPayload(token: string): { ref?: string; role?: string } | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const json = Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString(
+      'utf8'
+    );
+    return JSON.parse(json) as { ref?: string; role?: string };
+  } catch {
+    return null;
+  }
+}
+
+/** Catch common Netlify/Render misconfig before Supabase returns "Invalid API key". */
+export function validateSupabaseKeyPair(url: string, key: string): void {
+  const ref = supabaseProjectRef(url);
+
+  if (key.startsWith('sb_secret_') || key.startsWith('sb_publishable_')) {
+    throw new Error(
+      'SUPABASE_SERVICE_ROLE_KEY must be the legacy service_role JWT (starts with eyJ), not sb_secret_. In Supabase: Project Settings → API → Legacy API Keys → service_role → Reveal.'
+    );
+  }
+
+  if (key.startsWith('eyJ')) {
+    const payload = decodeJwtPayload(key);
+    if (payload?.role === 'anon') {
+      throw new Error(
+        'SUPABASE_SERVICE_ROLE_KEY is the anon key. Use service_role from Legacy API Keys instead.'
+      );
+    }
+    if (payload?.ref && ref && payload.ref !== ref) {
+      throw new Error(
+        `SUPABASE_SERVICE_ROLE_KEY is for project "${payload.ref}" but SUPABASE_URL is "${ref}". Both must match.`
+      );
+    }
+  }
+}
+
 export function getSupabaseServiceRoleKey(): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim().replace(/^["']|["']$/g, '');
   if (!key) {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
   }
+  validateSupabaseKeyPair(getSupabaseUrl(), key);
   return key;
 }
 

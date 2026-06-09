@@ -27,10 +27,12 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.auth.getUser(accessToken);
 
     if (error || !data.user?.email) {
-      const res = NextResponse.json(
-        { error: error?.message || 'Invalid access token' },
-        { status: 401, headers: noStoreHeaders() }
-      );
+      const msg = error?.message || 'Invalid access token';
+      const friendly =
+        msg.toLowerCase().includes('invalid api key')
+          ? 'Invalid Supabase API key on the server. On Netlify set SUPABASE_SERVICE_ROLE_KEY to the legacy service_role JWT (eyJ...) from project wnazcizhbqjxvbyffyhp — not sb_secret_ and not from another project.'
+          : msg;
+      const res = NextResponse.json({ error: friendly }, { status: 401, headers: noStoreHeaders() });
       return applyCorsHeaders(request, res);
     }
 
