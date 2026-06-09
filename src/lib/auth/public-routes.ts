@@ -7,6 +7,7 @@ const PUBLIC_API_ROUTES: Array<{ method: string | '*'; path: string }> = [
   { method: 'GET', path: '/api/db-ping' },
   { method: 'GET', path: '/api/db-keepalive' },
   { method: 'GET', path: '/api/health' },
+  { method: 'GET', path: '/api/auth/config-check' },
 ];
 
 export function isPublicApiRoute(pathname: string, method: string): boolean {

@@ -146,3 +146,15 @@ export function getFrontendOrigin(requestOrigin?: string | null): string {
 export function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
 }
+
+/** Same-origin Netlify deploy uses Lax; set AUTH_CROSS_SITE_COOKIES=true for Netlify UI + Render API. */
+export function getCookieSameSite(): 'lax' | 'none' | 'strict' {
+  const explicit = process.env.AUTH_COOKIE_SAMESITE?.trim().toLowerCase();
+  if (explicit === 'none' || explicit === 'lax' || explicit === 'strict') {
+    return explicit;
+  }
+  if (process.env.AUTH_CROSS_SITE_COOKIES === 'true') {
+    return 'none';
+  }
+  return 'lax';
+}

@@ -1,5 +1,5 @@
 import type { NextRequest, NextResponse } from 'next/server';
-import { AUTH_COOKIE_NAME, getSessionMaxAgeSeconds, isProduction } from './config';
+import { AUTH_COOKIE_NAME, getCookieSameSite, getSessionMaxAgeSeconds, isProduction } from './config';
 
 export interface AuthCookiePayload {
   a: string;
@@ -31,7 +31,7 @@ export function applyAuthCookie(response: NextResponse, payload: AuthCookiePaylo
     httpOnly: true,
     path: '/',
     maxAge,
-    sameSite: isProduction() ? 'none' : 'lax',
+    sameSite: getCookieSameSite(),
     secure: isProduction(),
   });
   response.headers.set('Cache-Control', 'no-store');
@@ -42,7 +42,7 @@ export function clearAuthCookie(response: NextResponse): void {
     httpOnly: true,
     path: '/',
     maxAge: 0,
-    sameSite: isProduction() ? 'none' : 'lax',
+    sameSite: getCookieSameSite(),
     secure: isProduction(),
   });
   response.headers.set('Cache-Control', 'no-store');
