@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import AllowedEmailsAdmin from '../components/AllowedEmailsAdmin';
 
 interface Setting {
   id: number;
@@ -13,6 +15,7 @@ interface Setting {
 
 export default function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
+  const { isAdmin, userEmail } = useAuth();
   const [settings, setSettings] = useState<Setting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -194,7 +197,15 @@ export default function SettingsPage() {
         <div className="flex-1 p-8">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Settings</h1>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Settings</h1>
+                {userEmail && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Signed in as {userEmail}
+                    {isAdmin ? ' (admin)' : ''}
+                  </p>
+                )}
+              </div>
               
               {/* Theme Toggle */}
               <button
@@ -409,6 +420,8 @@ export default function SettingsPage() {
                 </table>
               </div>
             )}
+
+            {isAdmin && <AllowedEmailsAdmin />}
           </div>
         </div>
       </div>

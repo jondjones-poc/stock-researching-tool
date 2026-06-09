@@ -5,13 +5,15 @@
 [build.environment]
   NODE_VERSION = "20"
 
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
 
-[functions]
-  node_bundler = "esbuild"
+# When API runs on Render and frontend on Netlify, uncomment and set your Render URL:
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://YOUR-API.onrender.com/api/:splat"
+#   status = 200
+#   force = true
 
 [[headers]]
   for = "/*"
