@@ -80,7 +80,10 @@ export default function MonthlyWatchList() {
       const result = await response.json();
 
       if (response.ok && result.data) {
-        setStockValuations(result.data);
+        const sorted = [...result.data].sort((a: StockValuation, b: StockValuation) =>
+          a.stock.localeCompare(b.stock, undefined, { sensitivity: 'base' })
+        );
+        setStockValuations(sorted);
       } else {
         console.error('Failed to load stock valuations:', result.error);
       }
