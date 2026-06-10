@@ -9,6 +9,10 @@ import {
 import { buildMarketSuggestionsPrompt } from '../../utils/buildMarketSuggestionsPrompt';
 import { buildMarketStockValidationPrompt } from '../../utils/buildMarketStockValidationPrompt';
 import { buildMarketTrendAnalysisPrompt } from '../../utils/buildMarketTrendAnalysisPrompt';
+import {
+  MARKET_PERIOD_OPTIONS,
+  type MarketHeatmapPeriod,
+} from '../../utils/marketPeriods';
 
 interface MarketStock {
   symbol: string;
@@ -85,13 +89,17 @@ export default function MarketsHeatmapPage() {
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [marketAskAiCopiedId, setMarketAskAiCopiedId] = useState<number | null>(null);
   const [heatmapAskAiCopiedId, setHeatmapAskAiCopiedId] = useState<number | null>(null);
+  const [period, setPeriod] = useState<MarketHeatmapPeriod>('today');
 
-  const loadHeatmap = useCallback(async () => {
+  const loadHeatmap = useCallback(async (opts?: { force?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
+      const params = new URLSearchParams({ period });
+      if (opts?.force) params.set('force', 'true');
+
       const [heatmapRes, marketsRes] = await Promise.all([
-        fetch('/api/markets/heatmap'),
+        fetch(`/api/markets/heatmap?${params}`),
         fetch('/api/markets'),
       ]);
 
@@ -114,7 +122,7 @@ export default function MarketsHeatmapPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [period]);
 
   useEffect(() => {
     void loadHeatmap();
@@ -267,6 +275,23 @@ export default function MarketsHeatmapPage() {
     <div className="h-[calc(100vh-120px)] min-h-0 bg-white dark:bg-gray-900 text-gray-900 dark:text-white overflow-hidden">
       <div className="flex flex-col lg:flex-row h-full min-h-0">
         <main className="flex-1 flex flex-col min-h-0 min-w-0 p-4 lg:p-6">
+          <div className="flex flex-wrap items-center justify-center gap-2 mb-3 shrink-0">
+            {MARKET_PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setPeriod(opt.id)}
+                disabled={loading}
+                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  period === opt.id
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <div className="flex-1 min-h-0 overflow-y-auto">
           {loading && heatmap.length === 0 ? (
             <div className="flex items-center justify-center h-64 text-gray-500">Loading heatmap…</div>
@@ -384,7 +409,7 @@ export default function MarketsHeatmapPage() {
               )}
               <button
                 type="button"
-                onClick={() => void loadHeatmap()}
+                onClick={() => void loadHeatmap({ force: true })}
                 disabled={loading}
                 className="px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >

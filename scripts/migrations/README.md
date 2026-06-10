@@ -41,6 +41,10 @@ Run against your Postgres/Supabase database in order when needed.
    Caches live quote snapshots for the market heatmap (`market_stock_quotes`).  
    - Used when FMP is rate-limited; Finnhub is tried first for live data.
 
+8. **014_market_stock_eod_cache.sql**  
+   Caches daily EOD closes for period returns (`market_stock_eod`, `market_stock_eod_meta`).  
+   - Powers 1M / YTD / 1Y / 2Y heatmap views; refreshed at most once per symbol per 24h.
+
 - `portfolio_data.instrument_id` references `stock_ticker_cache.instrument_id`.
 - `stock_ticker_cache` is filled by "Get Stock Symbols" (eToro market-data API); then portfolio rows can reference it by `instrument_id`.
 
