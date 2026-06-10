@@ -19,6 +19,10 @@ export async function GET(request: Request) {
   try {
     // Use FRED API if specified
     if (dataSource === 'FRED' && fredSeriesId) {
+      if (!FRED_API_KEY) {
+        return NextResponse.json({ error: 'FRED_API_KEY is not configured' }, { status: 500 });
+      }
+
       let fredUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${fredSeriesId}&api_key=${FRED_API_KEY}&file_type=json`;
       
       if (from) {

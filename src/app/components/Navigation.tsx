@@ -13,7 +13,7 @@ export default function Navigation() {
   const isResearchTab = pathname?.startsWith('/research') && pathname !== '/research/dividend-fcf-analysis' || false;
   const isReportingTab = pathname?.startsWith('/reporting') || false;
   const isStocksTab = !isFinancesTab && !isReportingTab && (
-    pathname === '/watchlist' ||
+    pathname === '/companies' ||
     pathname === '/compare' ||
     pathname === '/dcf' ||
     pathname === '/ddm' ||
@@ -260,9 +260,9 @@ export default function Navigation() {
                   📅 Watchlist
                 </Link>
                 <Link 
-                  href="/watchlist" 
+                  href="/companies" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/watchlist' 
+                    pathname === '/companies' 
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}

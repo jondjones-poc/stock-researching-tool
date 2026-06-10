@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { dashboardConfig, WatchlistSymbol } from './config/dashboard';
 import { FearGreedGauge } from './components/FearGreedGauge';
+import { ConsumerSentimentGauge, getConsumerSentimentLabel, UMCSENT_MIN, UMCSENT_MAX } from './components/ConsumerSentimentGauge';
 import { VixVolatilityGauge } from './components/VixVolatilityGauge';
 import { WtiOilGauge } from './components/WtiOilGauge';
 import Link from 'next/link';
@@ -182,12 +183,26 @@ function DashboardContent() {
           }
         }
 
+        // Merge any MARKETS symbols from config not yet in the database (e.g. UMCSENT)
+        const configMarkets = dashboardConfig.watchlist.MARKETS ?? [];
+        if (!data.MARKETS) data.MARKETS = [];
+        const missingConfigSymbols: WatchlistSymbol[] = [];
+        for (const cfg of configMarkets) {
+          if (!data.MARKETS.some((s: WatchlistSymbol) => s.symbol === cfg.symbol)) {
+            data.MARKETS = [...data.MARKETS, cfg];
+          }
+          if (!symbols.some((s: WatchlistSymbol) => s.symbol === cfg.symbol)) {
+            missingConfigSymbols.push(cfg);
+          }
+        }
+        const mergedSymbols = [...symbols, ...missingConfigSymbols];
+
         setWatchlistSymbols(data);
         setAllWatchlistSymbols(Object.values(data).flat());
         
         // Fetch stock_valuations IDs for these symbols
-        if (symbols.length > 0) {
-          const symbolList = symbols.map((s: WatchlistSymbol) => s.symbol.toUpperCase()).join(',');
+        if (mergedSymbols.length > 0) {
+          const symbolList = mergedSymbols.map((s: WatchlistSymbol) => s.symbol.toUpperCase()).join(',');
           try {
             const valuationsResponse = await fetch(`/api/stock-valuations/by-symbols?symbols=${symbolList}`);
             if (valuationsResponse.ok) {
@@ -755,7 +770,7 @@ function DashboardContent() {
     router.push(`/?symbol=${symbol}`);
     
     // Skip for market indicators - they have their own info panels
-    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI', 'AII', 'GREED'];
+    const marketIndicators = ['VIX', 'US10Y', 'DXY', 'GLD', 'BTC', 'MORTGAGE30Y', 'SPX', 'WTI', 'AII', 'GREED', 'UMCSENT'];
     if (marketIndicators.includes(symbol)) {
       setSelectedSymbol(symbol);
       setShowEarnings(false);
@@ -863,6 +878,7 @@ function DashboardContent() {
               (selectedSymbol === 'GREED' && fearGreedData.length > 0 && !fearGreedLoading) ||
               (selectedSymbol === 'VIX' && chartData.length > 0 && !loading) ||
               (selectedSymbol === 'WTI' && chartData.length > 0 && !loading) ||
+              (selectedSymbol === 'UMCSENT' && chartData.length > 0 && !loading) ||
               (selectedSymbol === 'AII' && aaiiSentimentData.length > 0 && !aaiiSentimentLoading)
                 ? ''
                 : 'h-96'
@@ -879,6 +895,14 @@ function DashboardContent() {
                 </div>
               ) : fearGreedData.length > 0 ? (
                 <div className="flex flex-col gap-6">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8 shrink-0">
+                    {(() => {
+                      const latest = fearGreedData.reduce((a, p) =>
+                        new Date(p.date) >= new Date(a.date) ? p : a
+                      );
+                      return <FearGreedGauge value={latest.value} asOfDate={latest.date} />;
+                    })()}
+                  </div>
                   <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
                     <div className="h-full">
                       <ResponsiveContainer width="100%" height="100%">
@@ -929,14 +953,6 @@ function DashboardContent() {
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
-                    {(() => {
-                      const latest = fearGreedData.reduce((a, p) =>
-                        new Date(p.date) >= new Date(a.date) ? p : a
-                      );
-                      return <FearGreedGauge value={latest.value} asOfDate={latest.date} />;
-                    })()}
                   </div>
                 </div>
               ) : (
@@ -1052,6 +1068,19 @@ function DashboardContent() {
             ) : chartData.length > 0 ? (
               selectedSymbol === 'VIX' ? (
                 <div className="flex flex-col gap-6">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8 shrink-0">
+                    {(() => {
+                      const latest = chartData.reduce((a, p) =>
+                        new Date(p.date) >= new Date(a.date) ? p : a
+                      );
+                      return (
+                        <VixVolatilityGauge
+                          value={typeof latest.price === 'number' ? latest.price : Number(latest.price)}
+                          asOfDate={latest.date}
+                        />
+                      );
+                    })()}
+                  </div>
                   <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
                     <div className="h-full">
                       <ResponsiveContainer width="100%" height="100%">
@@ -1098,19 +1127,6 @@ function DashboardContent() {
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
-                    {(() => {
-                      const latest = chartData.reduce((a, p) =>
-                        new Date(p.date) >= new Date(a.date) ? p : a
-                      );
-                      return (
-                        <VixVolatilityGauge
-                          value={typeof latest.price === 'number' ? latest.price : Number(latest.price)}
-                          asOfDate={latest.date}
-                        />
-                      );
-                    })()}
                   </div>
                 </div>
               ) : selectedSymbol === 'WTI' ? (
@@ -1176,56 +1192,116 @@ function DashboardContent() {
                     })()}
                   </div>
                 </div>
+              ) : selectedSymbol === 'UMCSENT' ? (
+                (() => {
+                  const latest = chartData.reduce((a, p) =>
+                    new Date(p.date) >= new Date(a.date) ? p : a
+                  );
+                  const latestValue =
+                    typeof latest.price === 'number' ? latest.price : Number(latest.price);
+                  return (
+                    <div className="flex flex-col gap-6">
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-6 sm:p-8 shrink-0">
+                        <ConsumerSentimentGauge value={latestValue} asOfDate={latest.date} />
+                      </div>
+                      <div className="h-96 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 shrink-0">
+                        <div className="h-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                              <XAxis
+                                dataKey="date"
+                                stroke="#9CA3AF"
+                                fontSize={12}
+                                tickFormatter={(value) => {
+                                  const date = new Date(value);
+                                  if (selectedPeriod === '5D' || selectedPeriod === '1M' || selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
+                                    return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                                  }
+                                  return date.getFullYear().toString();
+                                }}
+                              />
+                              <YAxis
+                                stroke="#9CA3AF"
+                                fontSize={12}
+                                tickFormatter={(value) => Number(value).toFixed(0)}
+                                domain={[UMCSENT_MIN, UMCSENT_MAX]}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: '#1F2937',
+                                  border: '1px solid #374151',
+                                  borderRadius: '6px',
+                                  color: '#F9FAFB',
+                                }}
+                                formatter={(value: number) => [
+                                  `${Number(value).toFixed(2)} (${getConsumerSentimentLabel(value)})`,
+                                  'Consumer Sentiment',
+                                ]}
+                                labelFormatter={(label) => {
+                                  const date = new Date(label);
+                                  return date.toLocaleDateString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                  });
+                                }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="price"
+                                stroke="#0369a1"
+                                strokeWidth={2}
+                                dot={false}
+                                activeDot={{ r: 6, stroke: '#0369a1', strokeWidth: 2 }}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
               <div className="h-full bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
-                {/* Price Chart */}
                 <div className="h-3/4 mb-2">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis 
-                        dataKey="date" 
+                      <XAxis
+                        dataKey="date"
                         stroke="#9CA3AF"
                         fontSize={12}
                         tickFormatter={(value) => {
                           const date = new Date(value);
-                          if (selectedPeriod === '5D') {
+                          if (selectedPeriod === '5D' || selectedPeriod === '1M' || selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
                             return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-                          } else if (selectedPeriod === '1M') {
-                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-                          } else if (selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
-                            return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-                          } else {
-                            return date.getFullYear().toString();
                           }
+                          return date.getFullYear().toString();
                         }}
                       />
-                      <YAxis 
-                        stroke="#9CA3AF"
-                        fontSize={12}
-                        tickFormatter={(value) => `$${value.toFixed(0)}`}
-                      />
-                      <Tooltip 
+                      <YAxis stroke="#9CA3AF" fontSize={12} tickFormatter={(value) => `$${value.toFixed(0)}`} />
+                      <Tooltip
                         contentStyle={{
                           backgroundColor: '#1F2937',
                           border: '1px solid #374151',
                           borderRadius: '6px',
-                          color: '#F9FAFB'
+                          color: '#F9FAFB',
                         }}
                         formatter={(value: number) => [`$${value.toFixed(2)}`, 'Price']}
                         labelFormatter={(label) => {
                           const date = new Date(label);
-                          return date.toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'short', 
-                            day: 'numeric' 
+                          return date.toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
                           });
                         }}
                       />
-                      <Line 
-                        type="monotone" 
-                        dataKey="price" 
-                        stroke="#3B82F6" 
+                      <Line
+                        type="monotone"
+                        dataKey="price"
+                        stroke="#3B82F6"
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2 }}
@@ -1233,60 +1309,43 @@ function DashboardContent() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                {/* Volume Chart */}
                 <div className="h-1/4">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis 
-                        dataKey="date" 
-                        stroke="#9CA3AF"
-                        fontSize={10}
-                        hide={true}
-                      />
-                      <YAxis 
+                      <XAxis dataKey="date" stroke="#9CA3AF" fontSize={10} hide />
+                      <YAxis
                         stroke="#9CA3AF"
                         fontSize={10}
                         tickFormatter={(value) => {
-                          if (value >= 1000000000) {
-                            return `${(value / 1000000000).toFixed(1)}B`;
-                          } else if (value >= 1000000) {
-                            return `${(value / 1000000).toFixed(1)}M`;
-                          } else if (value >= 1000) {
-                            return `${(value / 1000).toFixed(1)}K`;
-                          }
+                          if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
+                          if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                          if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
                           return value.toString();
                         }}
                       />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{
                           backgroundColor: '#1F2937',
                           border: '1px solid #374151',
                           borderRadius: '6px',
-                          color: '#F9FAFB'
+                          color: '#F9FAFB',
                         }}
                         formatter={(value: number) => {
-                          if (value >= 1000000000) {
-                            return [`${(value / 1000000000).toFixed(2)}B`, 'Volume'];
-                          } else if (value >= 1000000) {
-                            return [`${(value / 1000000).toFixed(2)}M`, 'Volume'];
-                          }
+                          if (value >= 1000000000) return [`${(value / 1000000000).toFixed(2)}B`, 'Volume'];
+                          if (value >= 1000000) return [`${(value / 1000000).toFixed(2)}M`, 'Volume'];
                           return [value.toLocaleString(), 'Volume'];
                         }}
                         labelFormatter={(label) => {
                           const date = new Date(label);
-                          return date.toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'short', 
-                            day: 'numeric' 
+                          return date.toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
                           });
                         }}
                       />
-                      <Bar 
-                        dataKey="volume" 
-                        fill="#6B7280"
-                        opacity={0.6}
-                      />
+                      <Bar dataKey="volume" fill="#6B7280" opacity={0.6} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1573,7 +1632,7 @@ function DashboardContent() {
           )}
 
           {/* News Section */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && selectedSymbol !== 'AII' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && selectedSymbol !== 'AII' && selectedSymbol !== 'UMCSENT' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Latest News - {selectedSymbol}</h4>
               {newsLoading ? (
@@ -1656,7 +1715,7 @@ function DashboardContent() {
           )}
 
           {/* Earnings Information Panel */}
-          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && selectedSymbol !== 'AII' && (
+          {showEarnings && selectedSymbol !== 'VIX' && selectedSymbol !== 'US10Y' && selectedSymbol !== 'DXY' && selectedSymbol !== 'GLD' && selectedSymbol !== 'BTC' && selectedSymbol !== 'MORTGAGE30Y' && selectedSymbol !== 'SPX' && selectedSymbol !== 'WTI' && selectedSymbol !== 'AII' && selectedSymbol !== 'UMCSENT' && (
             <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
               <h4 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Earnings Information - {selectedSymbol}</h4>
               {earningsLoading ? (
@@ -1900,7 +1959,7 @@ function DashboardContent() {
                                       <span className="text-lg mr-2 flex-shrink-0 opacity-0 pointer-events-none">{symbol.icon || '📌'}</span>
                                       <div className="flex-1">
                                         <Link
-                                          href={`/watchlist?stock_id=${stockValuationId}`}
+                                          href={`/companies?stock_id=${stockValuationId}`}
                                           onClick={(e) => e.stopPropagation()}
                                           className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline transition-colors"
                                           title="View company data"

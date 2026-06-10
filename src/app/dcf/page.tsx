@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { getDCFData, DCFData, hasDCFData, storeDCFData } from '../utils/dcfData';
+import {
+  fetchDcfSnapshotForSymbol,
+  getMissingDcfRequiredFields,
+  mergeDcfBaseFields,
+} from '../utils/storeResearchSnapshotForDcf';
 import Decimal from 'decimal.js';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -40,6 +45,7 @@ export default function DCFCalculator() {
   const [bearPromptLoading, setBearPromptLoading] = useState(false);
   const [basePromptLoading, setBasePromptLoading] = useState(false);
   const [bullPromptLoading, setBullPromptLoading] = useState(false);
+  const [validateFinancialLoading, setValidateFinancialLoading] = useState(false);
   const [bearCopyLoading, setBearCopyLoading] = useState(false);
   const [baseCopyLoading, setBaseCopyLoading] = useState(false);
   const [bullCopyLoading, setBullCopyLoading] = useState(false);
@@ -47,6 +53,7 @@ export default function DCFCalculator() {
   const [baseCopyCopied, setBaseCopyCopied] = useState(false);
   const [bullCopyCopied, setBullCopyCopied] = useState(false);
   const [symbolCopyCopied, setSymbolCopyCopied] = useState(false);
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
 
   const searchParams = useSearchParams();
   const idFromUrl = searchParams.get('id');
@@ -72,7 +79,7 @@ export default function DCFCalculator() {
         window.scrollTo(0, 0);
         loadDcfBySymbol(symbolFromUrl);
       } else {
-        loadData();
+        await loadData();
       }
     };
 
@@ -147,9 +154,6 @@ export default function DCFCalculator() {
       
       if (response.ok && result.data) {
         setDcfList(result.data);
-        if (result.data.length === 0) {
-          setDbMessage({ type: 'error', text: 'No DCF entries found in database' });
-        }
       } else {
         const errorMsg = result.details || result.error || 'Failed to load DCF list';
         console.error('Failed to load DCF list:', errorMsg, result);
@@ -191,44 +195,44 @@ export default function DCFCalculator() {
       const data = result.data;
       setDcfDbId(result.id);
 
+      const refreshed = await refreshBaseFieldsFromMarket(data);
+      setDataWarnings(getMissingDcfRequiredFields(refreshed));
+
       // Update dcfData state
-      setDcfData(data);
+      setDcfData(refreshed);
 
       // Update formData state
       setFormData({
         revenueGrowth: {
-          bear: (data.revenueGrowth.bear || 0) * 100,
-          base: (data.revenueGrowth.base || 0) * 100,
-          bull: (data.revenueGrowth.bull || 0) * 100
+          bear: (refreshed.revenueGrowth.bear || 0) * 100,
+          base: (refreshed.revenueGrowth.base || 0) * 100,
+          bull: (refreshed.revenueGrowth.bull || 0) * 100
         },
         netIncomeGrowth: {
-          bear: Math.round((data.netIncomeGrowth.bear || 0) * 1000) / 10,
-          base: Math.round((data.netIncomeGrowth.base || 0) * 1000) / 10,
-          bull: Math.round((data.netIncomeGrowth.bull || 0) * 1000) / 10
+          bear: Math.round((refreshed.netIncomeGrowth.bear || 0) * 1000) / 10,
+          base: Math.round((refreshed.netIncomeGrowth.base || 0) * 1000) / 10,
+          bull: Math.round((refreshed.netIncomeGrowth.bull || 0) * 1000) / 10
         },
         peLow: {
-          bear: Math.round(data.peLow.bear || 0),
-          base: Math.round(data.peLow.base || 0),
-          bull: Math.round(data.peLow.bull || 0)
+          bear: Math.round(refreshed.peLow.bear || 0),
+          base: Math.round(refreshed.peLow.base || 0),
+          bull: Math.round(refreshed.peLow.bull || 0)
         },
         peHigh: {
-          bear: Math.round(data.peHigh.bear || 0),
-          base: Math.round(data.peHigh.base || 0),
-          bull: Math.round(data.peHigh.bull || 0)
+          bear: Math.round(refreshed.peHigh.bear || 0),
+          base: Math.round(refreshed.peHigh.base || 0),
+          bull: Math.round(refreshed.peHigh.bull || 0)
         },
-        stockPrice: data.stockPrice || 0
+        stockPrice: refreshed.stockPrice || 0
       });
 
-      // Store in localStorage as well
-      storeDCFData(data);
-
-      // Calculate projections
-      calculateProjections(data);
+      storeDCFData(refreshed);
+      calculateProjections(refreshed);
 
       // Scroll to top after loading data
       window.scrollTo(0, 0);
 
-      setDbMessage({ type: 'success', text: `Loaded DCF data for ${data.symbol} from database` });
+      setDbMessage({ type: 'success', text: `Loaded DCF data for ${refreshed.symbol} from database` });
     } catch (error: any) {
       console.error('Error loading from database:', error);
       setDbMessage({ type: 'error', text: error.message || 'Failed to load from database' });
@@ -264,13 +268,21 @@ export default function DCFCalculator() {
       if (!listResponse.ok || !listResult.data || listResult.data.length === 0) {
         setDbSymbol(symbol.toUpperCase());
         setSelectedDcfId('');
-        if (tryHydrateFromResearchLocalStorage(symbol.toUpperCase())) {
+        setDcfDbId(null);
+
+        const draft = await fetchDcfSnapshotForSymbol(symbol.toUpperCase());
+        if (draft && isValidDcfPayload(draft)) {
+          syncFormFromDcfPayload(draft);
+          storeDCFData(draft);
+          setDbSymbol(symbol.toUpperCase());
+          setDbMessage(null);
           setDbLoading(false);
           return;
         }
+
         setDbMessage({
           type: 'error',
-          text: `No DCF entry found for ${symbol.toUpperCase()}, and no matching Company Research data in this browser. Load the symbol on Company Research first, then open DCF again.`,
+          text: `Could not load market data for ${symbol.toUpperCase()}. Check the symbol and try again.`,
         });
         setDbLoading(false);
         return;
@@ -302,9 +314,10 @@ export default function DCFCalculator() {
     console.log('DCF data state changed:', dcfData);
   }, [dcfData]);
 
-  /** Apply DCF payload (from DB or Company Research localStorage) to form + projections */
+  /** Apply DCF payload (from DB or API snapshot) to form + projections */
   const syncFormFromDcfPayload = (data: DCFData) => {
     setDcfData(data);
+    setDataWarnings(getMissingDcfRequiredFields(data));
     setFormData({
       revenueGrowth: {
         bear: (data.revenueGrowth.bear || 0) * 100,
@@ -338,24 +351,20 @@ export default function DCFCalculator() {
     !!data.peLow &&
     !!data.peHigh;
 
-  /** Company Research stores dcfData with matching symbol — use when DB has no row yet */
-  const tryHydrateFromResearchLocalStorage = (symbol: string): boolean => {
-    const data = getDCFData();
-    if (!isValidDcfPayload(data)) return false;
-    if (data.symbol?.toUpperCase() !== symbol.toUpperCase()) return false;
-    console.log('[DCF] Hydrating from Company Research localStorage for', symbol);
-    syncFormFromDcfPayload(data);
-    setDbSymbol(symbol.toUpperCase());
-    setSelectedDcfId('');
-    setDcfDbId(null);
-    setDbMessage({
-      type: 'success',
-      text: `Loaded ${symbol.toUpperCase()} from Company Research (draft — not in DCF database yet). Adjust assumptions and save when ready.`,
-    });
-    return true;
+  /** Refresh revenue, EPS, etc. from Companies / market APIs; keep saved growth assumptions */
+  const refreshBaseFieldsFromMarket = async (data: DCFData): Promise<DCFData> => {
+    if (!data.symbol) return data;
+    const fresh = await fetchDcfSnapshotForSymbol(data.symbol);
+    if (!fresh) return data;
+    return mergeDcfBaseFields(data, fresh);
   };
 
-  const loadData = () => {
+  const applyDcfPayload = (data: DCFData) => {
+    syncFormFromDcfPayload(data);
+    storeDCFData(data);
+  };
+
+  const loadData = async () => {
     try {
       if (idFromUrl || symbolFromUrl) {
         console.log('[DCF] Skipping localStorage load - URL parameters present:', {
@@ -370,8 +379,9 @@ export default function DCFCalculator() {
         const data = getDCFData();
         console.log('DCF data loaded from localStorage:', data);
         if (isValidDcfPayload(data)) {
-          console.log('Data validation passed, setting dcfData and formData');
-          syncFormFromDcfPayload(data);
+          console.log('Data validation passed, refreshing base fields from market');
+          const refreshed = await refreshBaseFieldsFromMarket(data);
+          applyDcfPayload(refreshed);
         } else {
           setDcfData(null);
           setProjections(null);
@@ -607,6 +617,50 @@ export default function DCFCalculator() {
     return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const dcfHalfBtn =
+    'w-1/2 px-3 py-2 rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed';
+  const dcfAdviceBtn = `${dcfHalfBtn} bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300`;
+  const dcfValidateBtn = `${dcfHalfBtn} bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300`;
+  const dcfRefreshBtn = `${dcfHalfBtn} bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:bg-gray-100 flex items-center justify-center`;
+
+  const copyPromptToClipboard = async (prompt: string, successText: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      await navigator.clipboard.writeText(prompt);
+      setDbMessage({ type: 'success', text: successText });
+    } else {
+      setDbMessage({
+        type: 'error',
+        text: 'Could not access clipboard. Please copy the prompt manually.',
+      });
+    }
+  };
+
+  const buildFinancialValidationPrompt = (): string => {
+    const lines: string[] = [
+      'You are a financial analyst. Please validate the following base financial data for a DCF model.',
+    ];
+    if (dcfData?.symbol) {
+      lines.push(`\nStock symbol: ${dcfData.symbol}`);
+    }
+    lines.push('\nData to validate:');
+    lines.push(
+      `- Revenue (base year): ${formatCurrency(dcfData?.revenue ?? 0)}`,
+      `- Net income (base year): ${formatCurrency(dcfData?.netIncome ?? 0)}`,
+      `- Stock price: ${formatCurrency(formData.stockPrice)}`,
+      `- Shares outstanding: ${(dcfData?.sharesOutstanding ?? 0).toLocaleString('en-US')}`,
+      `- Current EPS: ${dcfData?.currentEps != null ? formatCurrency(dcfData.currentEps) : 'N/A'}`
+    );
+    lines.push(
+      '\nInstructions:',
+      '1. Verify each figure against the most recent public financials (10-K, 10-Q, or reliable market data).',
+      '2. Flag any value that looks incorrect, outdated, or inconsistent with the other fields.',
+      '3. Check whether shares outstanding, EPS, and net income are internally consistent (TTM where applicable).',
+      '4. Provide corrected values where applicable, with brief reasoning.',
+      '5. Confirm whether this data set is suitable to use as DCF base inputs.'
+    );
+    return lines.join('\n');
+  };
+
   const formatPercentage = (value: number) => {
     return `${(value * 100).toFixed(2)}%`;
   };
@@ -750,6 +804,9 @@ export default function DCFCalculator() {
 
       if (result.id && !isUpdate) {
         setDcfDbId(result.id);
+        setSelectedDcfId(result.id);
+      } else if (isUpdate && checkResult.id) {
+        setSelectedDcfId(checkResult.id);
       }
 
       // Calculate DCF price from projections (use base case share price high from final year)
@@ -1032,6 +1089,22 @@ export default function DCFCalculator() {
     }
   };
 
+  const isUnsavedDcfProject = Boolean(dcfData?.symbol && !dcfDbId);
+  const displaySymbol = dcfData?.symbol?.toUpperCase() || symbolFromUrl?.toUpperCase() || '';
+  const hasProjectionWarnings = dataWarnings.length > 0;
+
+  if (dbLoading && !dcfData) {
+    return (
+      <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
+        <div className="max-w-4xl mx-auto text-center py-24">
+          <p className="text-lg text-gray-600 dark:text-gray-300">
+            Loading {displaySymbol || 'DCF'} data…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!dcfData) {
     return (
       <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
@@ -1039,48 +1112,52 @@ export default function DCFCalculator() {
           <div className="text-center">
             <div className="bg-yellow-50 dark:bg-yellow-900/20 p-8 rounded-xl border border-yellow-200 dark:border-yellow-800">
               <h2 className="text-2xl font-bold text-yellow-800 dark:text-yellow-200 mb-4">
-                No DCF Data Available
+                {symbolFromUrl ? `Unable to Load ${displaySymbol}` : 'No DCF Data Available'}
               </h2>
               <p className="text-yellow-700 dark:text-yellow-300 mb-6 text-lg">
-                Load existing DCF data from the database or search for a stock symbol on the Company Research page
+                {symbolFromUrl
+                  ? `Could not fetch market data for ${displaySymbol}. Verify the symbol or try again shortly.`
+                  : 'Select an existing DCF project from the dropdown or open DCF from the Companies page.'}
               </p>
               
-              {/* DCF Dropdown Section */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 mb-6 border border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-4 mb-4">
-                  <select
-                    value={selectedDcfId}
-                    onChange={(e) => handleDcfSelect(e.target.value)}
-                    disabled={loadingList || dbLoading}
-                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
-                  >
-                    <option value="">-- Select a DCF entry --</option>
-                    {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.symbol}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {loadingList && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Loading DCF entries...</p>
-                )}
-                {dbMessage && (
-                  <div className={`mt-4 p-3 rounded-lg text-sm ${
-                    dbMessage.type === 'success' 
-                      ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' 
-                      : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
-                  }`}>
-                    {dbMessage.text}
+              {!symbolFromUrl && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 mb-6 border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center gap-4 mb-4">
+                    <select
+                      value={selectedDcfId}
+                      onChange={(e) => handleDcfSelect(e.target.value)}
+                      disabled={loadingList || dbLoading}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+                    >
+                      <option value="">-- Select a DCF entry --</option>
+                      {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.symbol}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                )}
-              </div>
+                  {loadingList && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Loading DCF entries...</p>
+                  )}
+                </div>
+              )}
+
+              {dbMessage && (
+                <div className={`mb-6 p-3 rounded-lg text-sm ${
+                  dbMessage.type === 'success' 
+                    ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' 
+                    : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
+                }`}>
+                  {dbMessage.text}
+                </div>
+              )}
 
               <Link
-                href="/research"
+                href={symbolFromUrl ? `/companies?symbol=${encodeURIComponent(displaySymbol)}` : '/companies'}
                 className="inline-block px-8 py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-300 font-bold text-lg shadow-lg hover:shadow-xl transform hover:scale-105"
               >
-                Go to Company Research
+                {symbolFromUrl ? `Go to ${displaySymbol} on Companies` : 'Go to Companies'}
               </Link>
             </div>
           </div>
@@ -1093,39 +1170,59 @@ export default function DCFCalculator() {
     <div className="min-h-screen p-8 bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="max-w-6xl mx-auto">
 
-        {/* DCF Dropdown Section */}
+        {/* DCF project selector or unsaved draft banner */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 mb-8 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-4">
-            <select
-              value={selectedDcfId}
-              onChange={(e) => handleDcfSelect(e.target.value)}
-              disabled={loadingList || dbLoading}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
-            >
-              <option value="">-- Select a DCF entry --</option>
-              {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.symbol}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={handleSaveDcf}
-              disabled={dbSaving || !dcfData || !dcfData.symbol}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm"
-            >
-              {dbSaving ? 'Saving...' : (
-                <>
-                  <span className="mr-1">💾</span>
-                  Save
-                </>
-              )}
-            </button>
-          </div>
+          {isUnsavedDcfProject ? (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-gray-700 dark:text-gray-300">
+                No DCF project exists for <span className="font-semibold">{displaySymbol}</span>.
+              </p>
+              <button
+                onClick={handleSaveDcf}
+                disabled={dbSaving || !dcfData || !dcfData.symbol}
+                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm shrink-0"
+              >
+                {dbSaving ? 'Saving...' : (
+                  <>
+                    <span className="mr-1">💾</span>
+                    Save
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <select
+                value={selectedDcfId}
+                onChange={(e) => handleDcfSelect(e.target.value)}
+                disabled={loadingList || dbLoading}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+              >
+                <option value="">-- Select a DCF entry --</option>
+                {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.symbol}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleSaveDcf}
+                disabled={dbSaving || !dcfData || !dcfData.symbol}
+                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-sm"
+              >
+                {dbSaving ? 'Saving...' : (
+                  <>
+                    <span className="mr-1">💾</span>
+                    Save
+                  </>
+                )}
+              </button>
+            </div>
+          )}
           {loadingList && (
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading DCF entries...</p>
           )}
-          {dbMessage && dbMessage.text.includes('DCF list') && (
+          {dbMessage && (
             <div className={`mt-4 p-3 rounded-lg text-sm ${
               dbMessage.type === 'success' 
                 ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' 
@@ -1135,6 +1232,22 @@ export default function DCFCalculator() {
             </div>
           )}
         </div>
+
+        {hasProjectionWarnings && (
+          <div className="mb-8 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/20">
+            <p className="font-semibold text-amber-900 dark:text-amber-100">
+              Missing data — add before relying on projections
+            </p>
+            <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">
+              {dataWarnings.join(', ')} {dataWarnings.length === 1 ? 'is' : 'are'} missing or zero.
+              Enter values below or update the company on the{' '}
+              <Link href={`/companies?symbol=${encodeURIComponent(displaySymbol)}`} className="underline font-medium">
+                Companies page
+              </Link>
+              .
+            </p>
+          </div>
+        )}
 
         {/* Input Forms */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl">
@@ -1389,12 +1502,14 @@ export default function DCFCalculator() {
                 <input
                   type="number"
                   step="1"
-                  value={dcfData ? (dcfData.sharesOutstanding || 50000000) : 50000000}
+                  value={dcfData?.sharesOutstanding ?? 0}
                   onChange={(e) => {
                     if (dcfData) {
-                      const updatedData = { ...dcfData, sharesOutstanding: parseFloat(e.target.value) || 50000000 };
+                      const updatedData = { ...dcfData, sharesOutstanding: parseFloat(e.target.value) || 0 };
                       setDcfData(updatedData);
+                      setDataWarnings(getMissingDcfRequiredFields(updatedData));
                       storeDCFData(updatedData);
+                      calculateProjections(updatedData);
                     }
                   }}
                   className="flex-1 min-w-0 px-2 py-1 border border-purple-200 dark:border-purple-800 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 dark:bg-gray-800 dark:text-white text-sm font-medium text-center"
@@ -1402,7 +1517,9 @@ export default function DCFCalculator() {
                 />
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
-                {dcfData && dcfData.sharesOutstanding === 0 ? '⚠️ Not loaded from Company Research' : '✓ Loaded from Company Research'}
+                {!dcfData?.sharesOutstanding || dcfData.sharesOutstanding <= 0
+                  ? '⚠️ Required for EPS projections'
+                  : '✓ Loaded'}
               </div>
             </div>
           </div>
@@ -1426,7 +1543,7 @@ export default function DCFCalculator() {
                 />
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {dcfData?.symbol ? `✓ Loaded from database` : dbSymbol ? `Symbol: ${dbSymbol} (no entry found)` : 'No symbol loaded'}
+                {dcfDbId ? '✓ Saved DCF project' : dcfData?.symbol ? 'Draft — not saved yet' : 'No symbol loaded'}
               </div>
             </div>
 
@@ -1454,13 +1571,16 @@ export default function DCFCalculator() {
                 />
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
-                {dcfData && dcfData.currentEps === 0 ? '⚠️ Not loaded from Company Research' : '✓ Loaded from Company Research'}
+                {!dcfData?.currentEps || dcfData.currentEps <= 0
+                  ? '⚠️ Enter EPS manually'
+                  : '✓ Same source as Companies stock details'}
               </div>
             </div>
 
-            <div className="flex flex-col justify-center items-center h-full gap-3">
-              {/* AI Advice Buttons - Bear/Base/Bull for DCF */}
+            <div className="flex flex-col justify-center items-stretch h-full gap-2 w-full">
+              {/* AI Advice + validation buttons — each btn is half the former full width */}
               <div className="flex flex-col gap-2 w-full">
+                <div className="flex gap-2 w-full">
                 <button
                   type="button"
                   disabled={!dcfData?.symbol || bearPromptLoading}
@@ -1531,7 +1651,7 @@ export default function DCFCalculator() {
                         setBearPromptLoading(false);
                       }
                   }}
-                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                  className={dcfAdviceBtn}
                 >
                   {bearPromptLoading ? 'Bear Prompt...' : 'Bear Advice Prompt'}
                 </button>
@@ -1606,11 +1726,13 @@ export default function DCFCalculator() {
                         setBasePromptLoading(false);
                       }
                   }}
-                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                  className={dcfAdviceBtn}
                 >
                   {basePromptLoading ? 'Base Prompt...' : 'Base Advice Prompt'}
                 </button>
+                </div>
 
+                <div className="flex gap-2 w-full">
                 <button
                   type="button"
                   disabled={!dcfData?.symbol || bullPromptLoading}
@@ -1681,16 +1803,42 @@ export default function DCFCalculator() {
                         setBullPromptLoading(false);
                       }
                   }}
-                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors text-xs font-medium"
+                  className={dcfAdviceBtn}
                 >
                   {bullPromptLoading ? 'Bull Prompt...' : 'Bull Advice Prompt'}
                 </button>
-              </div>
 
+                <button
+                  type="button"
+                  disabled={!dcfData?.symbol || validateFinancialLoading}
+                  onClick={async () => {
+                    try {
+                      setValidateFinancialLoading(true);
+                      await copyPromptToClipboard(
+                        buildFinancialValidationPrompt(),
+                        'Financial validation prompt copied. Paste into ChatGPT to verify revenue, shares, price, and EPS.'
+                      );
+                    } catch (error: any) {
+                      console.error('Error creating financial validation prompt:', error);
+                      setDbMessage({
+                        type: 'error',
+                        text: error?.message || 'Failed to create financial validation prompt.',
+                      });
+                    } finally {
+                      setValidateFinancialLoading(false);
+                    }
+                  }}
+                  className={dcfValidateBtn}
+                >
+                  {validateFinancialLoading ? 'Validating...' : 'Validate Financially'}
+                </button>
+                </div>
+
+                <div className="flex w-full justify-center">
               <button
                 onClick={loadDcfList}
                 disabled={loadingList}
-                className="w-full px-3 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-xs flex items-center justify-center"
+                className={dcfRefreshBtn}
               >
                 {loadingList ? 'Loading...' : (
                   <>
@@ -1699,6 +1847,8 @@ export default function DCFCalculator() {
                   </>
                 )}
               </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

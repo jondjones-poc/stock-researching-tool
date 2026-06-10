@@ -281,7 +281,7 @@ export default function MonthlyWatchList() {
                 <div className="mb-4">
                   <div className="flex justify-between items-center mb-3">
                     <Link
-                      href={`/watchlist?stock_id=${stock.stock_id}`}
+                      href={`/companies?stock_id=${stock.stock_id}`}
                       className="text-xl font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
                     >
                       {stock.stock_symbol}

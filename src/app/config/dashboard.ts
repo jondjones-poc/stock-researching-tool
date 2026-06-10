@@ -246,6 +246,15 @@ export const dashboardConfig: DashboardConfig = {
         category: 'MARKETS',
         icon: '📊',
         color: 'blue'
+      },
+      {
+        symbol: 'UMCSENT',
+        name: 'University of Michigan Consumer Sentiment',
+        category: 'MARKETS',
+        icon: '🎓',
+        color: 'blue',
+        dataSource: 'FRED',
+        fredSeriesId: 'UMCSENT'
       }
     ],
     WATCHLIST: [

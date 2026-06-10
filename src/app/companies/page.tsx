@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Decimal from 'decimal.js';
@@ -78,6 +78,27 @@ interface NewsItem {
   sentiment_label: string;
   sentiment_score: number;
   relevance_score: number;
+}
+
+function formatPromptNumber(value: unknown, decimals = 2, suffix = ''): string {
+  if (value === null || value === undefined || value === '') return 'N/A';
+  const n = Number(value);
+  if (Number.isNaN(n)) return 'N/A';
+  return `${n.toFixed(decimals)}${suffix}`;
+}
+
+function formatPromptCurrency(value: unknown): string {
+  if (value === null || value === undefined || value === '') return 'N/A';
+  const n = Number(value);
+  if (Number.isNaN(n)) return 'N/A';
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatPromptInteger(value: unknown): string {
+  if (value === null || value === undefined || value === '') return 'N/A';
+  const n = Number(value);
+  if (Number.isNaN(n)) return 'N/A';
+  return n.toLocaleString('en-US');
 }
 
 export default function CompanyWatchlistPage() {
@@ -191,6 +212,7 @@ export default function CompanyWatchlistPage() {
     yearlyFcfPayoutRatios: { year: number; payoutRatio: number }[];
   } | null>(null);
   const [dividendFcfLoading, setDividendFcfLoading] = useState<boolean>(false);
+  const stockInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState<StockValuation>({
     stock: '',
@@ -851,6 +873,55 @@ export default function CompanyWatchlistPage() {
     }
   };
 
+  const startNewStock = () => {
+    setShowSections(true);
+    setSelectedStockId('');
+    setStockValuationId(null);
+    setBuyReasons([]);
+    setAvoidReasons([]);
+    setFormData({
+      stock: '',
+      buy_price: null,
+      active_price: null,
+      dcf_price: null,
+      ddm_price: null,
+      reit_valuation: null,
+      average_valuations: null,
+      dividend_per_share: null,
+      gross_profit_pct: null,
+      roic: null,
+      long_term_earning_growth: null,
+      simplywall_valuation: null,
+      change_pct: null,
+      year_high: null,
+      year_low: null,
+      pe: null,
+      eps: null,
+      market_cap: null,
+      enterprise_value: null,
+      free_cash_flow: null,
+      bear_case_avg_price: null,
+      bear_case_low_price: null,
+      bear_case_high_price: null,
+      base_case_avg_price: null,
+      base_case_low_price: null,
+      base_case_high_price: null,
+      bull_case_avg_price: null,
+      bull_case_low_price: null,
+      bull_case_high_price: null,
+    });
+    setLinks([]);
+    setNewLink('');
+    setMessage(null);
+    setValueDriverClassification(null);
+    setDdmData(null);
+    setNewsData([]);
+    setEarningsCalendar(null);
+    setMatchingDcfEntries([]);
+    router.push('/companies');
+    setTimeout(() => stockInputRef.current?.focus(), 0);
+  };
+
   const handleStockSelect = async (id: string) => {
     if (!id) {
       // Reset form and hide sections
@@ -892,7 +963,7 @@ export default function CompanyWatchlistPage() {
       setNewsData([]);
       setValueDriverClassification(null);
       // Remove symbol from URL
-      router.push('/watchlist');
+      router.push('/companies');
       return;
     }
     
@@ -995,7 +1066,7 @@ export default function CompanyWatchlistPage() {
       if (data.stock) {
         const currentSymbol = searchParams.get('symbol');
         if (currentSymbol?.toUpperCase() !== data.stock.toUpperCase()) {
-          router.push(`/watchlist?symbol=${data.stock.toUpperCase()}`);
+          router.push(`/companies?symbol=${data.stock.toUpperCase()}`);
         }
         
         // Fetch news, DDM data, DCF projections, and value driver classification for the selected stock
@@ -1548,31 +1619,38 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
       setValidateAiClicked(true);
       
       // Calculate dividend yield if available
-      const dividendYield = formData.dividend_per_share && formData.active_price && formData.active_price > 0
-        ? ((formData.dividend_per_share / formData.active_price) * 100).toFixed(2)
-        : 'N/A';
+      const dividendYield =
+        formData.dividend_per_share != null &&
+        formData.active_price != null &&
+        Number(formData.active_price) > 0
+          ? ((Number(formData.dividend_per_share) / Number(formData.active_price)) * 100).toFixed(2)
+          : 'N/A';
 
-      // Build the prompt with all Stock Details data
+      // Build the prompt with all Stock Details data (always list every field)
       const lines: string[] = [];
       lines.push('You are a financial data validation expert. Please review the following stock data and validate that it is up to date and accurate.');
       lines.push(`\nStock Symbol: ${formData.stock.toUpperCase()}`);
       lines.push(`\nCurrent Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`);
       lines.push('\n--- STOCK DETAILS DATA ---');
-      lines.push(`\nPrice-to-Earnings (PE) Ratio: ${formData.pe !== null && formData.pe !== undefined ? formData.pe.toFixed(2) : 'N/A'}`);
-      lines.push(`Earnings Per Share (EPS): ${formData.eps !== null && formData.eps !== undefined ? `$${formData.eps.toFixed(2)}` : 'N/A'}`);
-      lines.push(`Change (%): ${formData.change_pct !== null && formData.change_pct !== undefined ? `${formData.change_pct.toFixed(2)}%` : 'N/A'}`);
-      lines.push(`Year Low: ${formData.year_low !== null && formData.year_low !== undefined ? `$${formData.year_low.toFixed(2)}` : 'N/A'}`);
-      lines.push(`Year High: ${formData.year_high !== null && formData.year_high !== undefined ? `$${formData.year_high.toFixed(2)}` : 'N/A'}`);
-      lines.push(`Gross Profit Margin (%): ${formData.gross_profit_pct !== null && formData.gross_profit_pct !== undefined ? `${formData.gross_profit_pct.toFixed(2)}%` : 'N/A'}`);
-      lines.push(`Long Term Earning Growth (%): ${formData.long_term_earning_growth !== null && formData.long_term_earning_growth !== undefined ? `${formData.long_term_earning_growth.toFixed(2)}%` : 'N/A'}`);
-      lines.push(`Return on Invested Capital - ROIC (%): ${formData.roic !== null && formData.roic !== undefined ? `${formData.roic.toFixed(2)}%` : 'N/A'}`);
-      lines.push(`Simplywall.st Valuation (%): ${formData.simplywall_valuation !== null && formData.simplywall_valuation !== undefined ? `${formData.simplywall_valuation.toFixed(2)}%` : 'N/A'}`);
-      lines.push(`Dividend Per Share: ${formData.dividend_per_share !== null && formData.dividend_per_share !== undefined ? `$${formData.dividend_per_share.toFixed(2)}` : 'N/A'}`);
-      lines.push(`Dividend Yield (%): ${dividendYield}%`);
-      lines.push(`Shares Outstanding (Now): ${valueDriverClassification?.sharesOutstandingNow !== null && valueDriverClassification?.sharesOutstandingNow !== undefined ? valueDriverClassification.sharesOutstandingNow.toLocaleString() : 'N/A'}`);
-      lines.push(`Shares Outstanding (5y ago): ${valueDriverClassification?.sharesOutstanding5yAgo !== null && valueDriverClassification?.sharesOutstanding5yAgo !== undefined ? valueDriverClassification.sharesOutstanding5yAgo.toLocaleString() : 'N/A'}`);
-      lines.push(`Share Change (5y): ${valueDriverClassification?.shareChange5yPercent !== null && valueDriverClassification?.shareChange5yPercent !== undefined ? `${valueDriverClassification.shareChange5yPercent.toFixed(2)}%` : 'N/A'}`);
-      lines.push(`Active Price: ${formData.active_price !== null && formData.active_price !== undefined ? `$${formData.active_price.toFixed(2)}` : 'N/A'}`);
+      lines.push(`\nPrice-to-Earnings (PE) Ratio: ${formatPromptNumber(formData.pe)}`);
+      lines.push(`Earnings Per Share (EPS): ${formatPromptCurrency(formData.eps)}`);
+      lines.push(`Change (%): ${formatPromptNumber(formData.change_pct, 2, '%')}`);
+      lines.push(`Year Low: ${formatPromptCurrency(formData.year_low)}`);
+      lines.push(`Year High: ${formatPromptCurrency(formData.year_high)}`);
+      lines.push(`Gross Profit Margin (%): ${formatPromptNumber(formData.gross_profit_pct, 2, '%')}`);
+      lines.push(`Long Term Earning Growth (%): ${formatPromptNumber(formData.long_term_earning_growth, 2, '%')}`);
+      lines.push(`Return on Invested Capital - ROIC (%): ${formatPromptNumber(formData.roic, 2, '%')}`);
+      lines.push(`Simplywall.st Valuation (%): ${formatPromptNumber(formData.simplywall_valuation, 2, '%')}`);
+      lines.push(`Dividend Per Share: ${formatPromptCurrency(formData.dividend_per_share)}`);
+      lines.push(`Dividend Yield (%): ${dividendYield === 'N/A' ? 'N/A' : `${dividendYield}%`}`);
+      lines.push(`Market Cap ($): ${formatPromptCurrency(formData.market_cap)}`);
+      lines.push(`Enterprise Value ($): ${formatPromptCurrency(formData.enterprise_value)}`);
+      lines.push(`Free Cash Flow ($): ${formatPromptCurrency(formData.free_cash_flow)}`);
+      lines.push(`Shares Outstanding (Now): ${formatPromptInteger(valueDriverClassification?.sharesOutstandingNow)}`);
+      lines.push(`Shares Outstanding (5y ago): ${formatPromptInteger(valueDriverClassification?.sharesOutstanding5yAgo)}`);
+      lines.push(`Share Change (5y): ${formatPromptNumber(valueDriverClassification?.shareChange5yPercent, 2, '%')}`);
+      lines.push(`Active Price: ${formatPromptCurrency(formData.active_price)}`);
+      lines.push(`My Buy Price: ${formatPromptCurrency(formData.buy_price)}`);
       
       lines.push('\n--- VALIDATION REQUEST ---');
       lines.push('\nPlease:');
@@ -1581,6 +1659,17 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
       lines.push('3. Suggest corrections or updates where necessary');
       lines.push('4. Note any missing critical data points that should be included');
       lines.push('5. Provide a summary of the overall data quality and reliability');
+      lines.push('\n--- SUGGESTED UPDATE FORMAT (IMPORTANT) ---');
+      lines.push(
+        'When you suggest corrected values, give the exact full number I can copy and paste into my form fields — not rounded abbreviations.'
+      );
+      lines.push('- Do NOT use shorthand like ~$7.32B, $1.2M, or 15.3K');
+      lines.push('- DO use full numbers with commas where helpful, e.g. Market Cap: 7,320,000,000 or Free Cash Flow: 1,245,678,900.00');
+      lines.push('- For dollar amounts, include decimals to 2 places when relevant (e.g. Active Price: 142.35)');
+      lines.push('- For percentages/ratios, use plain numbers matching the field (e.g. ROIC: 18.42, Simplywall.st Valuation: -12.50)');
+      lines.push(
+        'End with a "Suggested updates" section listing each field name and its recommended value on its own line, using this copy-paste-friendly format only.'
+      );
       
       const prompt = lines.join('\n');
 
@@ -2214,6 +2303,18 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
               ))}
             </select>
             <button
+              type="button"
+              onClick={startNewStock}
+              disabled={loadingList || loading}
+              className="w-8 h-8 shrink-0 rounded-full bg-green-600 dark:bg-green-700 text-white hover:bg-green-700 dark:hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+              title="Add new stock"
+              aria-label="Add new stock"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            <button
               onClick={async () => {
                 if (formData.stock) {
                   try {
@@ -2247,45 +2348,8 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
               )}
             </button>
             <button
-              onClick={() => {
-                setShowSections(true);
-                setSelectedStockId('');
-                setStockValuationId(null);
-                setBuyReasons([]);
-                setAvoidReasons([]);
-                setFormData({
-                  stock: '',
-                  buy_price: null,
-                  active_price: null,
-                  dcf_price: null,
-                  ddm_price: null,
-                  reit_valuation: null,
-                  average_valuations: null,
-                  dividend_per_share: null,
-                  gross_profit_pct: null,
-                  roic: null,
-                  long_term_earning_growth: null,
-                  simplywall_valuation: null,
-                  change_pct: null,
-                  year_high: null,
-                  year_low: null,
-                  pe: null,
-                  eps: null,
-                  bear_case_avg_price: null,
-                  bear_case_low_price: null,
-                  bear_case_high_price: null,
-                  base_case_avg_price: null,
-                  base_case_low_price: null,
-                  base_case_high_price: null,
-                  bull_case_avg_price: null,
-                  bull_case_low_price: null,
-                  bull_case_high_price: null,
-                });
-                setLinks([]);
-                setNewLink('');
-                setMessage(null);
-                setValueDriverClassification(null);
-              }}
+              type="button"
+              onClick={startNewStock}
               className="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Clear
@@ -2314,6 +2378,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
                 Stock *
               </label>
               <input
+                ref={stockInputRef}
                 type="text"
                 id="stock"
                 value={formData.stock}

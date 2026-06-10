@@ -3,12 +3,16 @@
 import React from 'react';
 import { GaugeNeedle } from './GaugeNeedle';
 
-function getFearGreedLabel(value: number): string {
-  if (value < 25) return 'Extreme Fear';
-  if (value < 45) return 'Fear';
-  if (value < 55) return 'Neutral';
-  if (value < 75) return 'Greed';
-  return 'Extreme Greed';
+/** Typical historical range for FRED UMCSENT */
+export const UMCSENT_MIN = 50;
+export const UMCSENT_MAX = 110;
+
+export function getConsumerSentimentLabel(value: number): string {
+  if (value < 60) return 'Very Pessimistic';
+  if (value < 70) return 'Pessimistic';
+  if (value < 85) return 'Cautious';
+  if (value < 95) return 'Optimistic';
+  return 'Very Optimistic';
 }
 
 function polar(cx: number, cy: number, rad: number, theta: number) {
@@ -18,31 +22,36 @@ function polar(cx: number, cy: number, rad: number, theta: number) {
   };
 }
 
-/** Five equal wedges: fear (red) left → greed (green) right. Needle 0–100. */
+function normalizeToNeedle(value: number): number {
+  const v = Math.max(UMCSENT_MIN, Math.min(UMCSENT_MAX, Number(value) || UMCSENT_MIN));
+  return ((v - UMCSENT_MIN) / (UMCSENT_MAX - UMCSENT_MIN)) * 100;
+}
+
 const SEGMENTS = [
-  { label: 'Extreme Fear', color: '#dc2626' },
-  { label: 'Fear', color: '#f97316' },
-  { label: 'Neutral', color: '#eab308' },
-  { label: 'Greed', color: '#86efac' },
-  { label: 'Extreme Greed', color: '#16a34a' },
+  { label: 'Very Pessimistic', color: '#dc2626' },
+  { label: 'Pessimistic', color: '#f97316' },
+  { label: 'Cautious', color: '#eab308' },
+  { label: 'Optimistic', color: '#86efac' },
+  { label: 'Very Optimistic', color: '#16a34a' },
 ] as const;
 
 const LEGEND = [
-  { range: '0–24', label: 'Extreme fear', color: '#dc2626' },
-  { range: '25–44', label: 'Fear', color: '#f97316' },
-  { range: '45–55', label: 'Neutral', color: '#eab308' },
-  { range: '56–75', label: 'Greed', color: '#86efac' },
-  { range: '76–100', label: 'Extreme greed', color: '#16a34a' },
+  { range: '< 60', label: 'Very pessimistic', color: '#dc2626' },
+  { range: '60–69', label: 'Pessimistic', color: '#f97316' },
+  { range: '70–84', label: 'Cautious', color: '#eab308' },
+  { range: '85–94', label: 'Optimistic', color: '#86efac' },
+  { range: '95+', label: 'Very optimistic', color: '#16a34a' },
 ] as const;
 
-export function FearGreedGauge({
+export function ConsumerSentimentGauge({
   value,
   asOfDate,
 }: {
   value: number;
   asOfDate?: string;
 }) {
-  const v = Math.max(0, Math.min(100, Number(value) || 0));
+  const raw = Number(value) || UMCSENT_MIN;
+  const needlePct = normalizeToNeedle(raw);
   const cx = 160;
   const cy = 168;
   const R = 118;
@@ -67,8 +76,8 @@ export function FearGreedGauge({
     paths.push({ d, color: SEGMENTS[k].color, key: `seg-${k}` });
   }
 
-  const needleAngle = Math.PI * (1 - v / 100);
-  const label = getFearGreedLabel(v);
+  const needleAngle = Math.PI * (1 - needlePct / 100);
+  const label = getConsumerSentimentLabel(raw);
 
   const dateStr = asOfDate
     ? new Date(asOfDate).toLocaleDateString('en-GB', {
@@ -82,15 +91,26 @@ export function FearGreedGauge({
   return (
     <div className="flex flex-col items-center w-full max-w-lg mx-auto">
       <h3 className="text-lg sm:text-xl font-bold tracking-wide text-gray-900 dark:text-white uppercase mb-2 text-center">
-        Fear &amp; Greed Index
+        Consumer Sentiment
       </h3>
       {dateStr && (
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Latest in range: {dateStr}</p>
       )}
-      <svg viewBox="0 0 320 200" className="w-full max-w-md h-auto" aria-hidden>
+      <svg
+        viewBox="0 0 320 200"
+        className="w-full max-w-md h-auto"
+        role="img"
+        aria-label={`Consumer sentiment ${raw.toFixed(1)}: ${label}`}
+      >
         {paths.map((p) => (
           <path key={p.key} d={p.d} fill={p.color} stroke="rgba(0,0,0,0.08)" strokeWidth="0.5" />
         ))}
+        <text x={cx - R + 4} y={cy + 18} textAnchor="middle" className="fill-gray-600 dark:fill-gray-400" style={{ fontSize: 11, fontWeight: 600 }}>
+          {UMCSENT_MIN}
+        </text>
+        <text x={cx + R - 4} y={cy + 18} textAnchor="middle" className="fill-gray-600 dark:fill-gray-400" style={{ fontSize: 11, fontWeight: 600 }}>
+          {UMCSENT_MAX}
+        </text>
         {SEGMENTS.map((seg, k) => {
           const mid = Math.PI * (1 - (k + 0.5) / n);
           const tr = (R + Ri) / 2;
@@ -122,7 +142,7 @@ export function FearGreedGauge({
         <GaugeNeedle cx={cx} cy={cy} angle={needleAngle} length={R - 8} />
       </svg>
       <div className="text-center -mt-2 mb-4">
-        <div className="text-4xl font-bold tabular-nums text-gray-900 dark:text-white">{v.toFixed(1)}</div>
+        <div className="text-4xl font-bold tabular-nums text-gray-900 dark:text-white">{raw.toFixed(1)}</div>
         <div className="text-lg font-semibold text-gray-700 dark:text-gray-300">{label}</div>
       </div>
       <div className="w-full flex flex-wrap justify-center gap-2 sm:gap-3 text-[10px] sm:text-xs">

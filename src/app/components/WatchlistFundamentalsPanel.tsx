@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Bar,
   BarChart,
@@ -128,41 +128,42 @@ function SubBlock({
 export default function WatchlistFundamentalsPanel({ symbol }: { symbol: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadFundamentals = useCallback(async (isRefresh = false) => {
     const trimmed = symbol?.trim();
     if (!trimmed) return;
-    let cancelled = false;
 
-    void (async () => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
       setLoading(true);
-      setErr(null);
-      try {
-        const r = await fetch(
-          `/api/watchlist-fundamentals?symbol=${encodeURIComponent(trimmed)}`
-        );
-        const j = await r.json();
-        if (cancelled) return;
-        if (j.error && !j.quality) {
-          setErr(j.error);
-          setData(null);
-          return;
-        }
-        setData(j);
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setErr(e instanceof Error ? e.message : 'Failed to load fundamentals');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    }
+    setErr(null);
 
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const r = await fetch(
+        `/api/watchlist-fundamentals?symbol=${encodeURIComponent(trimmed)}`
+      );
+      const j = await r.json();
+      if (j.error && !j.quality) {
+        setErr(j.error);
+        setData(null);
+        return;
+      }
+      setData(j);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to load fundamentals');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [symbol]);
+
+  useEffect(() => {
+    void loadFundamentals(false);
+  }, [loadFundamentals]);
 
   if (!symbol?.trim()) return null;
 
@@ -170,7 +171,17 @@ export default function WatchlistFundamentalsPanel({ symbol }: { symbol: string 
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6 border border-gray-200 dark:border-gray-700">
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Fundamentals overview</h2>
+      <div className="flex justify-between items-center mb-4 gap-3">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Fundamentals overview</h2>
+        <button
+          type="button"
+          onClick={() => void loadFundamentals(true)}
+          disabled={loading || refreshing}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium text-sm whitespace-nowrap shrink-0"
+        >
+          {refreshing ? 'Refreshing…' : '🔄 Refresh'}
+        </button>
+      </div>
 
       {loading && <p className="text-sm text-gray-500">Loading fundamentals…</p>}
       {err && <p className="text-sm text-red-600 dark:text-red-400 mb-4">{err}</p>}

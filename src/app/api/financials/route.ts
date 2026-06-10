@@ -182,14 +182,7 @@ export async function GET(request: NextRequest) {
         }
       } catch (fmpError) {
         console.log('Could not fetch EPS from FMP income statement:', fmpError);
-        // Use mock value for testing
-        eps = 3.25;
-        console.log('Using mock EPS value for testing:', eps);
       }
-    } else {
-      // Use mock value for testing when no API key
-      eps = 3.25;
-      console.log('Using mock EPS value for testing (no API key):', eps);
     }
 
     return NextResponse.json({
