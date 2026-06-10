@@ -61,7 +61,7 @@ export default function Navigation() {
               📋 Reporting
             </Link>
             <Link
-              href="/research/world-alerts"
+              href="/research/markets"
               className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
                 isResearchTab
                   ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
@@ -191,6 +191,16 @@ export default function Navigation() {
             )}
             {isResearchTab && (
               <>
+                <Link 
+                  href="/research/markets" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/research/markets' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  🗺️ Markets
+                </Link>
                 <Link 
                   href="/research/world-alerts" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${

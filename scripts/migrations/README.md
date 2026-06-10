@@ -28,6 +28,19 @@ Run against your Postgres/Supabase database in order when needed.
    - Populated by "Get Stock Symbols" (FMP API). Load route uses COALESCE(portfolio_data.dividend_per_share, stock_ticker_cache.dividend_per_share) so the dividends table shows a value from either place.  
    - Safe to run multiple times (ADD COLUMN IF NOT EXISTS).
 
+5. **011_markets_heatmap.sql**  
+   Creates `markets` and `market_stocks` tables for the Market Money Flow heatmap (`/research/markets`).  
+   - Each market has a name; stocks are added separately in `market_stocks`.  
+   - Safe to run multiple times (CREATE TABLE IF NOT EXISTS).
+
+6. **012_market_stocks_unlimited.sql**  
+   Removes the 3-stock limit on `market_stocks` (if you ran 011 before this change).  
+   - Safe to run multiple times.
+
+7. **013_market_stock_quotes.sql**  
+   Caches live quote snapshots for the market heatmap (`market_stock_quotes`).  
+   - Used when FMP is rate-limited; Finnhub is tried first for live data.
+
 - `portfolio_data.instrument_id` references `stock_ticker_cache.instrument_id`.
 - `stock_ticker_cache` is filled by "Get Stock Symbols" (eToro market-data API); then portfolio rows can reference it by `instrument_id`.
 

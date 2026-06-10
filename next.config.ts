@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
         destination: '/companies',
         permanent: true,
       },
+      {
+        source: '/markets',
+        destination: '/research/markets',
+        permanent: true,
+      },
     ];
   },
 };
