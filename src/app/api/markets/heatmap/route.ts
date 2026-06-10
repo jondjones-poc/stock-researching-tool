@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { fetchMarketsWithStocks } from '../../../utils/marketsDb';
-import { resolvePeriodStockQuotes } from '../../../utils/marketEodCache';
+import {
+  refreshStaleHeatmapQuotes,
+  resolveHeatmapQuotesFromCache,
+} from '../../../utils/marketPeriodCache';
 import { parseMarketPeriod } from '../../../utils/marketPeriods';
-import { resolveStockQuotes } from '../../../utils/marketQuotes';
 
 function buildHeatmap(
   markets: Awaited<ReturnType<typeof fetchMarketsWithStocks>>,
@@ -63,13 +65,10 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const period = parseMarketPeriod(searchParams.get('period'));
-    const force = searchParams.get('force') === 'true';
+    const refresh = searchParams.get('refresh') === 'true';
 
     const markets = await fetchMarketsWithStocks();
     const allSymbols = markets.flatMap((m) => m.stocks);
-
-    let quoteWarning: string | undefined;
-    let usedCache = false;
 
     const quotes = new Map<
       string,
@@ -82,36 +81,18 @@ export async function GET(request: Request) {
       }
     >();
 
-    if (period === 'today') {
-      const { quotes: live, warning, usedCache: liveCache } = await resolveStockQuotes(allSymbols);
-      usedCache = liveCache;
-      quoteWarning = warning;
-      for (const [symbol, q] of live) {
-        quotes.set(symbol, {
-          name: q.name,
-          price: q.price,
-          change: q.change,
-          changePercent: q.changePercent,
-          dataSource: q.dataSource,
-        });
-      }
-    } else {
-      const { quotes: periodQuotes, warning } = await resolvePeriodStockQuotes(
-        allSymbols,
-        period,
-        force
-      );
-      quoteWarning = warning;
-      usedCache = true;
-      for (const [symbol, q] of periodQuotes) {
-        quotes.set(symbol, {
-          name: q.name,
-          price: q.price,
-          change: q.change,
-          changePercent: q.changePercent,
-          dataSource: q.dataSource,
-        });
-      }
+    const result = refresh
+      ? await refreshStaleHeatmapQuotes(allSymbols, period)
+      : await resolveHeatmapQuotesFromCache(allSymbols, period);
+
+    for (const [symbol, q] of result.quotes) {
+      quotes.set(symbol, {
+        name: q.name,
+        price: q.price,
+        change: q.change,
+        changePercent: q.changePercent,
+        dataSource: q.dataSource,
+      });
     }
 
     const heatmap = buildHeatmap(markets, quotes);
@@ -119,11 +100,14 @@ export async function GET(request: Request) {
     return NextResponse.json({
       markets: heatmap,
       period,
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: result.cacheStatus.oldestFetchedAt ?? new Date().toISOString(),
       quoteCount: quotes.size,
       symbolsRequested: allSymbols.length,
-      usedCache,
-      quoteWarning,
+      usedCache: true,
+      cacheStale: result.cacheStatus.cacheStale,
+      cacheOldestAt: result.cacheStatus.oldestFetchedAt,
+      refreshedCount: 'refreshedCount' in result ? result.refreshedCount : 0,
+      quoteWarning: result.warning,
     });
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };
@@ -131,7 +115,7 @@ export async function GET(request: Request) {
     let hint = '';
     if (err.code === '42P01') {
       hint =
-        'Run scripts/migrations/011_markets_heatmap.sql, 013_market_stock_quotes.sql, and 014_market_stock_eod_cache.sql';
+        'Run scripts/migrations/011_markets_heatmap.sql through 015_market_stock_period_cache.sql';
     } else if (err.message?.includes('FMP_API_KEY') || err.message?.includes('FINNHUB')) {
       hint = 'Set FMP_API_KEY or FINNHUB_API_KEY in .env.local';
     }

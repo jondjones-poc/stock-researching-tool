@@ -13,6 +13,7 @@ import {
   MARKET_PERIOD_OPTIONS,
   type MarketHeatmapPeriod,
 } from '../../utils/marketPeriods';
+import TickerText from '../../components/TickerText';
 
 interface MarketStock {
   symbol: string;
@@ -78,6 +79,8 @@ export default function MarketsHeatmapPage() {
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [quoteWarning, setQuoteWarning] = useState<string | null>(null);
+  const [cacheStale, setCacheStale] = useState(false);
+  const [cacheOldestAt, setCacheOldestAt] = useState<string | null>(null);
 
   const [showNewMarketModal, setShowNewMarketModal] = useState(false);
   const [newMarketName, setNewMarketName] = useState('');
@@ -91,12 +94,12 @@ export default function MarketsHeatmapPage() {
   const [heatmapAskAiCopiedId, setHeatmapAskAiCopiedId] = useState<number | null>(null);
   const [period, setPeriod] = useState<MarketHeatmapPeriod>('today');
 
-  const loadHeatmap = useCallback(async (opts?: { force?: boolean }) => {
+  const loadHeatmap = useCallback(async (opts?: { refresh?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ period });
-      if (opts?.force) params.set('force', 'true');
+      if (opts?.refresh) params.set('refresh', 'true');
 
       const [heatmapRes, marketsRes] = await Promise.all([
         fetch(`/api/markets/heatmap?${params}`),
@@ -116,6 +119,8 @@ export default function MarketsHeatmapPage() {
       setHeatmap(heatmapJson.markets || []);
       setFetchedAt(heatmapJson.fetchedAt || null);
       setQuoteWarning(heatmapJson.quoteWarning || null);
+      setCacheStale(Boolean(heatmapJson.cacheStale));
+      setCacheOldestAt(heatmapJson.cacheOldestAt || null);
       setMarketList(marketsJson.markets || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load markets');
@@ -271,6 +276,19 @@ export default function MarketsHeatmapPage() {
     return a.name.localeCompare(b.name);
   });
 
+  const footerTickerParts = [
+    cacheStale && !loading
+      ? `Stale cache${
+          cacheOldestAt
+            ? ` — oldest update ${new Date(cacheOldestAt).toLocaleString()}`
+            : ''
+        }`
+      : null,
+    quoteWarning && !loading ? quoteWarning : null,
+    error,
+  ].filter((part): part is string => Boolean(part));
+  const footerTickerText = footerTickerParts.join('   •   ');
+
   return (
     <div className="h-[calc(100vh-120px)] min-h-0 bg-white dark:bg-gray-900 text-gray-900 dark:text-white overflow-hidden">
       <div className="flex flex-col lg:flex-row h-full min-h-0">
@@ -370,28 +388,21 @@ export default function MarketsHeatmapPage() {
           )}
           </div>
 
-          <div className="shrink-0 pt-3 mt-4 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3">
-            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-              {quoteWarning && !loading && (
-                <p
-                  className="text-xs text-amber-800 dark:text-amber-200 truncate text-left"
-                  title={quoteWarning}
-                >
-                  {quoteWarning}
-                </p>
-              )}
-              {error && (
-                <p
-                  className="text-xs text-red-700 dark:text-red-300 truncate text-left"
-                  title={error}
-                >
-                  {error}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 shrink-0 ml-auto">
+          <div className="shrink-0 pt-3 mt-4 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3 min-w-0">
+            {footerTickerText ? (
+              <TickerText
+                className={`flex-1 min-w-0 text-xs ${
+                  error && !quoteWarning && !cacheStale
+                    ? 'text-red-700 dark:text-red-300'
+                    : 'text-amber-800 dark:text-amber-200'
+                }`}
+                text={footerTickerText}
+              />
+            ) : (
+              <div className="flex-1 min-w-0" />
+            )}
+            <div className="flex items-center justify-end gap-x-3 shrink-0">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-gray-500 dark:text-gray-400">Scale:</span>
                 <span className="px-2 py-0.5 rounded" style={{ backgroundColor: '#b91c1c', color: '#fff' }}>
                   ≤ −5%
                 </span>
@@ -409,7 +420,7 @@ export default function MarketsHeatmapPage() {
               )}
               <button
                 type="button"
-                onClick={() => void loadHeatmap({ force: true })}
+                onClick={() => void loadHeatmap({ refresh: true })}
                 disabled={loading}
                 className="px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >

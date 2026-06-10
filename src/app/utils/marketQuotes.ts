@@ -1,5 +1,10 @@
 import axios from 'axios';
 import { query } from './db';
+import {
+  computeCacheStatus,
+  symbolsNeedingRefresh,
+  type CacheStatus,
+} from './marketCachePolicy';
 
 export interface StockQuote {
   symbol: string;
@@ -79,7 +84,7 @@ export async function fetchLiveStockQuotes(symbols: string[]): Promise<{
             });
           }
         } catch {
-          /* try cache next */
+          /* keep missing */
         }
       })
     );
@@ -115,6 +120,16 @@ export async function upsertStockQuotes(quotes: Map<string, StockQuote>): Promis
          fetched_at = NOW()`,
       [q.symbol, q.name, q.price, q.change, q.changePercent, q.dataSource]
     );
+  }
+
+  const { upsertTodayPeriodCacheFromQuote } = await import('./marketPeriodCache');
+  for (const q of quotes.values()) {
+    if (q.dataSource !== 'CACHE') {
+      await upsertTodayPeriodCacheFromQuote({
+        ...q,
+        fetchedAt: new Date().toISOString(),
+      });
+    }
   }
 }
 
@@ -152,41 +167,120 @@ export async function loadCachedStockQuotes(symbols: string[]): Promise<Map<stri
   return result;
 }
 
+export async function loadQuoteCacheMeta(symbols: string[]): Promise<Map<string, Date>> {
+  const meta = new Map<string, Date>();
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
+  if (unique.length === 0) return meta;
+
+  try {
+    const rows = await query(
+      `SELECT symbol, fetched_at FROM market_stock_quotes WHERE symbol = ANY($1::text[])`,
+      [unique]
+    );
+    for (const row of rows.rows) {
+      meta.set(String(row.symbol).toUpperCase(), new Date(row.fetched_at));
+    }
+  } catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err.code !== '42P01') throw error;
+  }
+
+  return meta;
+}
+
+function mergeQuotes(
+  symbols: string[],
+  quotes: Map<string, StockQuote>
+): Map<string, StockQuote> {
+  const merged = new Map<string, StockQuote>();
+  for (const symbol of symbols) {
+    const upper = symbol.toUpperCase();
+    const quote = quotes.get(upper);
+    if (quote) merged.set(upper, quote);
+  }
+  return merged;
+}
+
+/** Read today quotes from cache only (no live API calls). */
+export async function resolveStockQuotesFromCache(symbols: string[]): Promise<{
+  quotes: Map<string, StockQuote>;
+  cacheStatus: CacheStatus;
+  usedCache: boolean;
+}> {
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
+  const cached = await loadCachedStockQuotes(unique);
+  const meta = await loadQuoteCacheMeta(unique);
+
+  return {
+    quotes: mergeQuotes(unique, cached),
+    cacheStatus: computeCacheStatus(unique, meta),
+    usedCache: cached.size > 0,
+  };
+}
+
+/** Refresh symbols whose cache is older than 24h (or missing), then return merged quotes. */
+export async function refreshStaleStockQuotes(symbols: string[]): Promise<{
+  quotes: Map<string, StockQuote>;
+  cacheStatus: CacheStatus;
+  refreshedCount: number;
+  warning?: string;
+  usedCache: boolean;
+}> {
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
+  const cached = await loadCachedStockQuotes(unique);
+  const meta = await loadQuoteCacheMeta(unique);
+  const toRefresh = symbolsNeedingRefresh(unique, meta);
+
+  const warnings: string[] = [];
+  let refreshedCount = 0;
+
+  if (toRefresh.length > 0) {
+    const { quotes: live, warning: liveWarning } = await fetchLiveStockQuotes(toRefresh);
+    if (liveWarning) warnings.push(liveWarning);
+
+    if (live.size > 0) {
+      try {
+        await upsertStockQuotes(live);
+        refreshedCount = live.size;
+      } catch (error: unknown) {
+        const err = error as { code?: string };
+        if (err.code !== '42P01') throw error;
+      }
+      for (const [symbol, quote] of live) {
+        cached.set(symbol, {
+          ...quote,
+          dataSource: quote.dataSource === 'CACHE' ? 'CACHE' : quote.dataSource,
+          fetchedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const metaAfter = await loadQuoteCacheMeta(unique);
+  const freshCached = await loadCachedStockQuotes(unique);
+  for (const [symbol, quote] of freshCached) {
+    if (!cached.has(symbol)) cached.set(symbol, quote);
+  }
+
+  return {
+    quotes: mergeQuotes(unique, cached),
+    cacheStatus: computeCacheStatus(unique, metaAfter),
+    refreshedCount,
+    warning: warnings.length > 0 ? warnings.join('. ') : undefined,
+    usedCache: true,
+  };
+}
+
+/** @deprecated use resolveStockQuotesFromCache or refreshStaleStockQuotes */
 export async function resolveStockQuotes(symbols: string[]): Promise<{
   quotes: Map<string, StockQuote>;
   warning?: string;
   usedCache: boolean;
 }> {
-  const { quotes: live, warning: liveWarning } = await fetchLiveStockQuotes(symbols);
-
-  if (live.size > 0) {
-    try {
-      await upsertStockQuotes(live);
-    } catch (error: unknown) {
-      const err = error as { code?: string };
-      if (err.code !== '42P01') throw error;
-    }
-  }
-
-  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
-  const missing = unique.filter((s) => !live.has(s));
-  let usedCache = false;
-
-  if (missing.length > 0) {
-    const cached = await loadCachedStockQuotes(missing);
-    for (const [symbol, quote] of cached) {
-      live.set(symbol, quote);
-      usedCache = true;
-    }
-  }
-
-  const warnings = [liveWarning, usedCache ? 'Showing cached prices for symbols without live data' : '']
-    .filter(Boolean)
-    .join('. ');
-
+  const { quotes, cacheStatus, warning, usedCache } = await refreshStaleStockQuotes(symbols);
   return {
-    quotes: live,
-    warning: warnings || undefined,
-    usedCache,
+    quotes,
+    warning,
+    usedCache: usedCache || cacheStatus.cacheStale,
   };
 }

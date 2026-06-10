@@ -7,11 +7,21 @@
   --foreground: #171717;
 }
 
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --animate-ticker: ticker-scroll 55s linear infinite;
 }
 
 @media (prefers-color-scheme: dark) {

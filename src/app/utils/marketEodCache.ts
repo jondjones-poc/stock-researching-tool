@@ -1,13 +1,16 @@
 import axios from 'axios';
 import { query } from './db';
 import {
+  computeCacheStatus,
+  symbolsNeedingRefresh,
+  type CacheStatus,
+} from './marketCachePolicy';
+import {
   eodFetchFromDate,
   eodFetchToDate,
   periodStartDate,
   type MarketHeatmapPeriod,
 } from './marketPeriods';
-
-const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export interface EodBar {
   date: string;
@@ -73,7 +76,7 @@ async function fetchFmpEod(symbol: string, from: string, to: string): Promise<Eo
   return parseFmpEodRows(response.data);
 }
 
-async function loadCachedBars(symbols: string[]): Promise<Map<string, EodBar[]>> {
+export async function loadCachedBars(symbols: string[]): Promise<Map<string, EodBar[]>> {
   const result = new Map<string, EodBar[]>();
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
   if (unique.length === 0) return result;
@@ -102,32 +105,25 @@ async function loadCachedBars(symbols: string[]): Promise<Map<string, EodBar[]>>
   return result;
 }
 
-async function loadStaleSymbols(symbols: string[]): Promise<string[]> {
+export async function loadEodCacheMeta(symbols: string[]): Promise<Map<string, Date>> {
+  const meta = new Map<string, Date>();
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
-  if (unique.length === 0) return [];
+  if (unique.length === 0) return meta;
 
   try {
     const rows = await query(
-      `SELECT symbol, fetched_at
-       FROM market_stock_eod_meta
-       WHERE symbol = ANY($1::text[])`,
+      `SELECT symbol, fetched_at FROM market_stock_eod_meta WHERE symbol = ANY($1::text[])`,
       [unique]
     );
-    const meta = new Map<string, Date>();
     for (const row of rows.rows) {
       meta.set(String(row.symbol).toUpperCase(), new Date(row.fetched_at));
     }
-
-    const cutoff = Date.now() - CACHE_MAX_AGE_MS;
-    return unique.filter((s) => {
-      const fetched = meta.get(s);
-      return !fetched || fetched.getTime() < cutoff;
-    });
   } catch (error: unknown) {
     const err = error as { code?: string };
-    if (err.code === '42P01') return unique;
-    throw error;
+    if (err.code !== '42P01') throw error;
   }
+
+  return meta;
 }
 
 async function upsertEodBars(symbol: string, bars: EodBar[]): Promise<void> {
@@ -148,6 +144,9 @@ async function upsertEodBars(symbol: string, bars: EodBar[]): Promise<void> {
      ON CONFLICT (symbol) DO UPDATE SET fetched_at = NOW()`,
     [symbol]
   );
+
+  const { upsertEodPeriodCachesFromBars } = await import('./marketPeriodCache');
+  await upsertEodPeriodCachesFromBars(symbol, bars);
 }
 
 function closeOnOrBefore(bars: EodBar[], targetDate: string): number | null {
@@ -172,14 +171,44 @@ export function computePeriodReturnPct(bars: EodBar[], period: MarketHeatmapPeri
   return ((latest.close - startClose) / startClose) * 100;
 }
 
-export async function ensureEodCache(
+function buildPeriodQuotes(
   symbols: string[],
-  force = false
-): Promise<{ refreshed: number; warning?: string }> {
+  period: MarketHeatmapPeriod,
+  cached: Map<string, EodBar[]>
+): Map<string, PeriodStockQuote> {
+  const quotes = new Map<string, PeriodStockQuote>();
+
+  for (const symbol of symbols) {
+    const upper = symbol.toUpperCase();
+    const bars = cached.get(upper) ?? [];
+    const changePercent = computePeriodReturnPct(bars, period);
+    const latest = bars.length > 0 ? bars[bars.length - 1] : null;
+    const startDate = periodStartDate(period);
+    const startClose = startDate ? closeOnOrBefore(bars, startDate) : null;
+
+    quotes.set(upper, {
+      symbol: upper,
+      name: upper,
+      price: latest?.close ?? null,
+      change: latest && startClose !== null ? latest.close - startClose : null,
+      changePercent,
+      dataSource: bars.length > 0 ? 'EOD_CACHE' : null,
+    });
+  }
+
+  return quotes;
+}
+
+/** Refresh EOD history for symbols older than 24h (or missing). */
+export async function refreshStaleEodCache(symbols: string[]): Promise<{
+  refreshed: number;
+  warning?: string;
+}> {
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
   if (unique.length === 0) return { refreshed: 0 };
 
-  const toRefresh = force ? unique : await loadStaleSymbols(unique);
+  const meta = await loadEodCacheMeta(unique);
+  const toRefresh = symbolsNeedingRefresh(unique, meta);
   if (toRefresh.length === 0) return { refreshed: 0 };
 
   const from = eodFetchFromDate();
@@ -207,38 +236,21 @@ export async function ensureEodCache(
   };
 }
 
-export async function resolvePeriodStockQuotes(
+/** Read period returns from EOD cache only (no API calls). */
+export async function resolvePeriodStockQuotesFromCache(
   symbols: string[],
-  period: MarketHeatmapPeriod,
-  force = false
-): Promise<{ quotes: Map<string, PeriodStockQuote>; warning?: string }> {
+  period: MarketHeatmapPeriod
+): Promise<{
+  quotes: Map<string, PeriodStockQuote>;
+  cacheStatus: CacheStatus;
+  warning?: string;
+}> {
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
-  const quotes = new Map<string, PeriodStockQuote>();
-
-  if (unique.length === 0) return { quotes };
-
-  const { warning: refreshWarning } = await ensureEodCache(unique, force);
   const cached = await loadCachedBars(unique);
-  const warnings = [refreshWarning].filter(Boolean);
+  const meta = await loadEodCacheMeta(unique);
+  const quotes = buildPeriodQuotes(unique, period, cached);
 
-  for (const symbol of unique) {
-    const bars = cached.get(symbol) ?? [];
-    const changePercent = computePeriodReturnPct(bars, period);
-    const latest = bars.length > 0 ? bars[bars.length - 1] : null;
-    const startDate = periodStartDate(period);
-    const startClose = startDate ? closeOnOrBefore(bars, startDate) : null;
-
-    quotes.set(symbol, {
-      symbol,
-      name: symbol,
-      price: latest?.close ?? null,
-      change:
-        latest && startClose !== null ? latest.close - startClose : null,
-      changePercent,
-      dataSource: bars.length > 0 ? 'EOD_CACHE' : null,
-    });
-  }
-
+  const warnings: string[] = [];
   const missing = unique.filter((s) => !cached.has(s) || cached.get(s)!.length === 0);
   if (missing.length > 0) {
     warnings.push(`No cached history for ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '…' : ''}`);
@@ -246,6 +258,33 @@ export async function resolvePeriodStockQuotes(
 
   return {
     quotes,
+    cacheStatus: computeCacheStatus(unique, meta),
+    warning: warnings.length > 0 ? warnings.join('. ') : undefined,
+  };
+}
+
+/** Refresh stale EOD symbols (>24h), then return period quotes from cache. */
+export async function refreshStalePeriodStockQuotes(
+  symbols: string[],
+  period: MarketHeatmapPeriod
+): Promise<{
+  quotes: Map<string, PeriodStockQuote>;
+  cacheStatus: CacheStatus;
+  refreshedCount: number;
+  warning?: string;
+}> {
+  const { refreshed, warning: refreshWarning } = await refreshStaleEodCache(symbols);
+  const { quotes, cacheStatus, warning: cacheWarning } = await resolvePeriodStockQuotesFromCache(
+    symbols,
+    period
+  );
+
+  const warnings = [refreshWarning, cacheWarning].filter(Boolean);
+
+  return {
+    quotes,
+    cacheStatus,
+    refreshedCount: refreshed,
     warning: warnings.length > 0 ? warnings.join('. ') : undefined,
   };
 }

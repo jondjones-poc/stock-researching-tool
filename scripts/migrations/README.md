@@ -45,6 +45,10 @@ Run against your Postgres/Supabase database in order when needed.
    Caches daily EOD closes for period returns (`market_stock_eod`, `market_stock_eod_meta`).  
    - Powers 1M / YTD / 1Y / 2Y heatmap views; refreshed at most once per symbol per 24h.
 
+9. **015_market_stock_period_cache.sql**  
+   Per-period heatmap quote cache (`market_stock_period_cache`) keyed by symbol + period (`today`, `1m`, `ytd`, `1y`, `2y`).  
+   - Each period has its own `fetched_at` for stale warnings and selective refresh.
+
 - `portfolio_data.instrument_id` references `stock_ticker_cache.instrument_id`.
 - `stock_ticker_cache` is filled by "Get Stock Symbols" (eToro market-data API); then portfolio rows can reference it by `instrument_id`.
 
