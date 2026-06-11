@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -7,12 +8,11 @@ type InvestmentEntry = { month: string; invested: number | string };
 /** GET - Current year: cumulative invested by month + target monthly average (amount_to_invest_per_year / 12) */
 export async function GET(request: Request) {
   try {
-    const origin = request.headers.get('origin') || new URL(request.url).origin;
     const currentYear = new Date().getFullYear();
 
     const [trackerRes, settingsRes] = await Promise.all([
-      fetch(`${origin}/api/investment-tracker?year=${currentYear}`),
-      fetch(`${origin}/api/settings`),
+      internalApiFetch(request, `/api/investment-tracker?year=${currentYear}`),
+      internalApiFetch(request, '/api/settings'),
     ]);
     if (!trackerRes.ok) throw new Error('Failed to fetch investment tracker');
     if (!settingsRes.ok) throw new Error('Failed to fetch settings');

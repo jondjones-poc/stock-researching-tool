@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 /** GET - Projection data for Retirement by Target Pot: accumulation (years, portfolioValue) and drawdown (years, portfolioValue, withdrawalAmount) */
 export async function GET(request: NextRequest) {
   try {
-    const origin = request.nextUrl.origin;
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth() + 1;
     const previousMonth = currentMonth - 1 >= 1 ? currentMonth - 1 : 12;
     const previousYear = previousMonth === 12 ? currentYear - 1 : currentYear;
+
     const [settingsRes, networthRes] = await Promise.all([
-      fetch(`${origin}/api/settings`),
-      fetch(`${origin}/api/networth-report?year=${previousYear}`),
+      internalApiFetch(request, '/api/settings'),
+      internalApiFetch(request, `/api/networth-report?year=${previousYear}`),
     ]);
     if (!settingsRes.ok) throw new Error('Failed to fetch settings');
     const settingsData = await settingsRes.json();

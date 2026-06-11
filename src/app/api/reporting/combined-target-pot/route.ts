@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 /** GET - Combined pre-retirement (Cashflow Income, Portfolio Value, Total Portfolio Value) + drawdown (Portfolio Value, Withdrawal Amount) for Summary-style graph */
 export async function GET(request: NextRequest) {
   try {
-    const origin = request.nextUrl.origin;
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth() + 1;
@@ -11,12 +11,12 @@ export async function GET(request: NextRequest) {
     const previousYear = previousMonth === 12 ? currentYear - 1 : currentYear;
 
     const [settingsRes, networthRes, currentYearRes, prevYearRes, typesRes, sourcesRes] = await Promise.all([
-      fetch(`${origin}/api/settings`),
-      fetch(`${origin}/api/networth-report?year=${previousYear}`),
-      fetch(`${origin}/api/income-entries?year=${currentYear}`),
-      fetch(`${origin}/api/income-entries?year=${currentYear - 1}`),
-      fetch(`${origin}/api/income-types`),
-      fetch(`${origin}/api/income-sources`),
+      internalApiFetch(request, '/api/settings'),
+      internalApiFetch(request, `/api/networth-report?year=${previousYear}`),
+      internalApiFetch(request, `/api/income-entries?year=${currentYear}`),
+      internalApiFetch(request, `/api/income-entries?year=${currentYear - 1}`),
+      internalApiFetch(request, '/api/income-types'),
+      internalApiFetch(request, '/api/income-sources'),
     ]);
     if (!settingsRes.ok) throw new Error('Failed to fetch settings');
     const settingsData = await settingsRes.json();

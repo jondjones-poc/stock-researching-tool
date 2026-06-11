@@ -10,6 +10,10 @@ import {
   fetchAndStoreDcfSnapshotForSymbol,
 } from '../utils/storeResearchSnapshotForDcf';
 import WatchlistFundamentalsPanel from '../components/WatchlistFundamentalsPanel';
+import { WeekRangeGauge } from '../components/WeekRangeGauge';
+import { PeRangeGauge } from '../components/PeRangeGauge';
+import { FcfRangeGauge } from '../components/FcfRangeGauge';
+import { SharesOutstandingRangeGauge } from '../components/SharesOutstandingRangeGauge';
 
 interface StockValuation {
   id?: number;
@@ -33,6 +37,14 @@ interface StockValuation {
   market_cap?: number | null;
   enterprise_value?: number | null;
   free_cash_flow?: number | null;
+  pe_range_low?: number | null;
+  pe_range_high?: number | null;
+  fcf_range_low?: number | null;
+  fcf_range_high?: number | null;
+  shares_outstanding?: number | null;
+  shares_range_low?: number | null;
+  shares_range_high?: number | null;
+  fundamentals_refreshed_at?: string | null;
   bear_case_avg_price?: number | null;
   bear_case_low_price?: number | null;
   bear_case_high_price?: number | null;
@@ -1048,6 +1060,14 @@ export default function CompanyWatchlistPage() {
         market_cap: data.market_cap ?? null,
         enterprise_value: data.enterprise_value ?? null,
         free_cash_flow: data.free_cash_flow ?? null,
+        pe_range_low: data.pe_range_low ?? null,
+        pe_range_high: data.pe_range_high ?? null,
+        fcf_range_low: data.fcf_range_low ?? null,
+        fcf_range_high: data.fcf_range_high ?? null,
+        shares_outstanding: data.shares_outstanding ?? null,
+        shares_range_low: data.shares_range_low ?? null,
+        shares_range_high: data.shares_range_high ?? null,
+        fundamentals_refreshed_at: data.fundamentals_refreshed_at ?? null,
         bear_case_avg_price: data.bear_case_avg_price ?? null,
         bear_case_low_price: data.bear_case_low_price ?? null,
         bear_case_high_price: data.bear_case_high_price ?? null,
@@ -1374,12 +1394,14 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
       let snapKeyMetrics: any;
 
       // Fetch data from APIs
-      const [financialsRes, peRatiosRes, earningsGrowthRes, fmpRes, keyMetricsRes] = await Promise.allSettled([
+      const [financialsRes, peRatiosRes, earningsGrowthRes, fmpRes, keyMetricsRes, fundamentalsRangesRes] =
+        await Promise.allSettled([
         fetch(`/api/financials?symbol=${formData.stock.toUpperCase()}`),
         fetch(`/api/pe-ratios?symbol=${formData.stock.toUpperCase()}`),
         fetch(`/api/earnings-growth?symbol=${formData.stock.toUpperCase()}`),
         fetch(`/api/fmp?symbol=${formData.stock.toUpperCase()}`),
-        fetch(`/api/key-metrics?symbol=${formData.stock.toUpperCase()}`)
+        fetch(`/api/key-metrics?symbol=${formData.stock.toUpperCase()}`),
+        fetch(`/api/fundamentals-ranges?symbol=${formData.stock.toUpperCase()}`),
       ]);
 
       const updatedFields: Partial<StockValuation> = {};
@@ -1576,6 +1598,38 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         }
       }
 
+      if (fundamentalsRangesRes.status === 'fulfilled' && fundamentalsRangesRes.value.ok) {
+        const ranges = await fundamentalsRangesRes.value.json();
+        if (ranges.peRangeLow != null) updatedFields.pe_range_low = ranges.peRangeLow;
+        if (ranges.peRangeHigh != null) updatedFields.pe_range_high = ranges.peRangeHigh;
+        if (ranges.fcfRangeLow != null) updatedFields.fcf_range_low = ranges.fcfRangeLow;
+        if (ranges.fcfRangeHigh != null) updatedFields.fcf_range_high = ranges.fcfRangeHigh;
+        if (ranges.sharesOutstanding != null) updatedFields.shares_outstanding = ranges.sharesOutstanding;
+        if (ranges.sharesRangeLow != null) updatedFields.shares_range_low = ranges.sharesRangeLow;
+        if (ranges.sharesRangeHigh != null) updatedFields.shares_range_high = ranges.sharesRangeHigh;
+        if (ranges.currentPe != null && updatedFields.pe == null) {
+          updatedFields.pe = ranges.currentPe;
+        }
+        if (ranges.latestFcf != null && updatedFields.free_cash_flow == null) {
+          updatedFields.free_cash_flow = ranges.latestFcf;
+        }
+        if (
+          ranges.peRangeLow != null ||
+          ranges.peRangeHigh != null ||
+          ranges.fcfRangeLow != null ||
+          ranges.fcfRangeHigh != null ||
+          ranges.sharesRangeLow != null ||
+          ranges.sharesRangeHigh != null
+        ) {
+          updatedFields.fundamentals_refreshed_at = ranges.fetchedAt ?? new Date().toISOString();
+        }
+        if (ranges.warning) {
+          console.log('[Refresh] Fundamentals ranges warning:', ranges.warning);
+        }
+      } else if (fundamentalsRangesRes.status === 'rejected') {
+        console.error('[Refresh] Fundamentals ranges request failed:', fundamentalsRangesRes.reason);
+      }
+
       storeResearchSnapshotForDcf({
         symbol: formData.stock.toUpperCase(),
         financials: snapFinancials,
@@ -1587,7 +1641,24 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
 
       // Update form data with fetched values
       if (Object.keys(updatedFields).length > 0) {
-        setFormData(prev => ({ ...prev, ...updatedFields }));
+        const merged = { ...formData, ...updatedFields };
+        setFormData(merged);
+
+        if (stockValuationId) {
+          try {
+            const saveRes = await fetch(`/api/stock-valuations?id=${stockValuationId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(merged),
+            });
+            if (!saveRes.ok) {
+              console.warn('[Refresh] Auto-save after refresh failed:', await saveRes.text());
+            }
+          } catch (saveErr) {
+            console.warn('[Refresh] Auto-save after refresh failed:', saveErr);
+          }
+        }
+
         setMessage({ 
           type: 'success', 
           text: 'Successfully updated from live data!' 
@@ -2163,6 +2234,14 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         market_cap: formData.market_cap ?? null,
         enterprise_value: formData.enterprise_value ?? null,
         free_cash_flow: formData.free_cash_flow ?? null,
+        pe_range_low: formData.pe_range_low ?? null,
+        pe_range_high: formData.pe_range_high ?? null,
+        fcf_range_low: formData.fcf_range_low ?? null,
+        fcf_range_high: formData.fcf_range_high ?? null,
+        shares_outstanding: formData.shares_outstanding ?? null,
+        shares_range_low: formData.shares_range_low ?? null,
+        shares_range_high: formData.shares_range_high ?? null,
+        fundamentals_refreshed_at: formData.fundamentals_refreshed_at ?? null,
       };
 
       // Debug: Log what we're sending
@@ -2359,12 +2438,24 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
 
         {/* Message Display */}
         {message && (
-          <div className={`mb-6 p-4 rounded-lg ${
-            message.type === 'success' 
-              ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' 
-              : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
-          }`}>
-            {message.text}
+          <div
+            className={`mb-6 p-4 rounded-lg flex items-start gap-3 ${
+              message.type === 'success'
+                ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => setMessage(null)}
+              className="shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100 transition-opacity"
+              aria-label="Dismiss notification"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <p className="flex-1 min-w-0 pt-0.5">{message.text}</p>
           </div>
         )}
 
@@ -2915,6 +3006,29 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-gray-100 cursor-not-allowed"
                 />
               </div>
+            </div>
+
+            <div className="pt-6 border-t border-gray-200 dark:border-gray-700 space-y-4 w-full">
+              <WeekRangeGauge
+                yearlyFloor={formData.year_low}
+                yearlyCeiling={formData.year_high}
+                currentBenchmark={formData.active_price}
+              />
+              <PeRangeGauge
+                rangeLow={formData.pe_range_low}
+                rangeHigh={formData.pe_range_high}
+                currentPe={formData.pe}
+              />
+              <FcfRangeGauge
+                rangeLow={formData.fcf_range_low}
+                rangeHigh={formData.fcf_range_high}
+                currentFcf={formData.free_cash_flow}
+              />
+              <SharesOutstandingRangeGauge
+                rangeLow={formData.shares_range_low}
+                rangeHigh={formData.shares_range_high}
+                currentShares={formData.shares_outstanding}
+              />
             </div>
           </div>
 

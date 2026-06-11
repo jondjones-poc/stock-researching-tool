@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** GET - Networth time series from first to last available month (uses networth-report per year) */
 export async function GET(request: Request) {
   try {
-    const origin = request.headers.get('origin') || new URL(request.url).origin;
-
-    const yearsRes = await fetch(`${origin}/api/monthly-account-balances/years`);
+    const yearsRes = await internalApiFetch(request, '/api/monthly-account-balances/years');
     if (!yearsRes.ok) throw new Error('Failed to fetch years');
     const yearsData = await yearsRes.json();
     const years: number[] = yearsData.years || [];
@@ -16,7 +15,7 @@ export async function GET(request: Request) {
     const data: { monthLabel: string; year: number; month: number; networth: number }[] = [];
 
     for (const year of years.sort((a, b) => a - b)) {
-      const res = await fetch(`${origin}/api/networth-report?year=${year}`);
+      const res = await internalApiFetch(request, `/api/networth-report?year=${year}`);
       if (!res.ok) continue;
       const json = await res.json();
       const monthData: Record<number, Record<string, number>> = json.monthData || {};

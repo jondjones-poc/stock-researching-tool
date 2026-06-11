@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 /** GET - Projection data for Retirement by Cashflow: years, projectedMonthlyCashflow */
 export async function GET(request: NextRequest) {
   try {
-    const origin = request.nextUrl.origin;
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth() + 1;
     let month1 = currentMonth - 1;
@@ -18,12 +18,13 @@ export async function GET(request: NextRequest) {
       month2 = 12;
       year2 = currentYear - 1;
     }
+
     const [settingsRes, currentYearRes, prevYearRes, typesRes, sourcesRes] = await Promise.all([
-      fetch(`${origin}/api/settings`),
-      fetch(`${origin}/api/income-entries?year=${currentYear}`),
-      fetch(`${origin}/api/income-entries?year=${currentYear - 1}`),
-      fetch(`${origin}/api/income-types`),
-      fetch(`${origin}/api/income-sources`),
+      internalApiFetch(request, '/api/settings'),
+      internalApiFetch(request, `/api/income-entries?year=${currentYear}`),
+      internalApiFetch(request, `/api/income-entries?year=${currentYear - 1}`),
+      internalApiFetch(request, '/api/income-types'),
+      internalApiFetch(request, '/api/income-sources'),
     ]);
     if (!settingsRes.ok) throw new Error('Failed to fetch settings');
     const settingsData = await settingsRes.json();

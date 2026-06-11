@@ -1,6 +1,11 @@
 import axios from 'axios';
 import { query } from './db';
 import {
+  isMissingRelationError,
+  MARKETS_EOD_MIGRATION_HINT,
+  missingRelationMessage,
+} from './marketDbErrors';
+import {
   computeCacheStatus,
   symbolsNeedingRefresh,
   type CacheStatus,
@@ -129,24 +134,28 @@ export async function loadEodCacheMeta(symbols: string[]): Promise<Map<string, D
 async function upsertEodBars(symbol: string, bars: EodBar[]): Promise<void> {
   if (bars.length === 0) return;
 
-  for (const bar of bars) {
+  try {
+    for (const bar of bars) {
+      await query(
+        `INSERT INTO market_stock_eod (symbol, trade_date, close)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (symbol, trade_date) DO UPDATE SET close = EXCLUDED.close`,
+        [symbol, bar.date, bar.close]
+      );
+    }
+
     await query(
-      `INSERT INTO market_stock_eod (symbol, trade_date, close)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (symbol, trade_date) DO UPDATE SET close = EXCLUDED.close`,
-      [symbol, bar.date, bar.close]
+      `INSERT INTO market_stock_eod_meta (symbol, fetched_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (symbol) DO UPDATE SET fetched_at = NOW()`,
+      [symbol]
     );
+  } catch (error: unknown) {
+    if (isMissingRelationError(error)) {
+      throw new Error(MARKETS_EOD_MIGRATION_HINT);
+    }
+    throw error;
   }
-
-  await query(
-    `INSERT INTO market_stock_eod_meta (symbol, fetched_at)
-     VALUES ($1, NOW())
-     ON CONFLICT (symbol) DO UPDATE SET fetched_at = NOW()`,
-    [symbol]
-  );
-
-  const { upsertEodPeriodCachesFromBars } = await import('./marketPeriodCache');
-  await upsertEodPeriodCachesFromBars(symbol, bars);
 }
 
 function closeOnOrBefore(bars: EodBar[], targetDate: string): number | null {
@@ -226,6 +235,47 @@ export async function refreshStaleEodCache(symbols: string[]): Promise<{
       await upsertEodBars(symbol, bars);
       refreshed += 1;
     } catch (e) {
+      const missing = missingRelationMessage(e);
+      if (missing) {
+        return { refreshed, warning: missing };
+      }
+      warnings.push(`${symbol}: ${e instanceof Error ? e.message : 'EOD fetch failed'}`);
+    }
+  }
+
+  return {
+    refreshed,
+    warning: warnings.length > 0 ? warnings.slice(0, 3).join('; ') : undefined,
+  };
+}
+
+/** Force-fetch EOD history for all symbols (ignores 24h cache age). */
+export async function forceRefreshEodCache(symbols: string[]): Promise<{
+  refreshed: number;
+  warning?: string;
+}> {
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
+  if (unique.length === 0) return { refreshed: 0 };
+
+  const from = eodFetchFromDate();
+  const to = eodFetchToDate();
+  const warnings: string[] = [];
+  let refreshed = 0;
+
+  for (const symbol of unique) {
+    try {
+      const bars = await fetchFmpEod(symbol, from, to);
+      if (bars.length === 0) {
+        warnings.push(`${symbol}: no EOD data`);
+        continue;
+      }
+      await upsertEodBars(symbol, bars);
+      refreshed += 1;
+    } catch (e) {
+      const missing = missingRelationMessage(e);
+      if (missing) {
+        return { refreshed, warning: missing };
+      }
       warnings.push(`${symbol}: ${e instanceof Error ? e.message : 'EOD fetch failed'}`);
     }
   }

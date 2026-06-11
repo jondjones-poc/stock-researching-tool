@@ -9,11 +9,13 @@ import {
 import { buildMarketSuggestionsPrompt } from '../../utils/buildMarketSuggestionsPrompt';
 import { buildMarketStockValidationPrompt } from '../../utils/buildMarketStockValidationPrompt';
 import { buildMarketTrendAnalysisPrompt } from '../../utils/buildMarketTrendAnalysisPrompt';
+import { buildMarketMoneyFlowPrompt } from '../../utils/buildMarketMoneyFlowPrompt';
 import {
   MARKET_PERIOD_OPTIONS,
   type MarketHeatmapPeriod,
 } from '../../utils/marketPeriods';
 import TickerText from '../../components/TickerText';
+import { simplyWallStStockUrl } from '../../utils/simplyWallStStockUrl';
 
 interface MarketStock {
   symbol: string;
@@ -81,6 +83,7 @@ export default function MarketsHeatmapPage() {
   const [quoteWarning, setQuoteWarning] = useState<string | null>(null);
   const [cacheStale, setCacheStale] = useState(false);
   const [cacheOldestAt, setCacheOldestAt] = useState<string | null>(null);
+  const [liveAvailable, setLiveAvailable] = useState(false);
 
   const [showNewMarketModal, setShowNewMarketModal] = useState(false);
   const [newMarketName, setNewMarketName] = useState('');
@@ -92,14 +95,20 @@ export default function MarketsHeatmapPage() {
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [marketAskAiCopiedId, setMarketAskAiCopiedId] = useState<number | null>(null);
   const [heatmapAskAiCopiedId, setHeatmapAskAiCopiedId] = useState<number | null>(null);
+  const [footerAskAiCopied, setFooterAskAiCopied] = useState(false);
   const [period, setPeriod] = useState<MarketHeatmapPeriod>('today');
+  const [liveLoading, setLiveLoading] = useState(false);
 
-  const loadHeatmap = useCallback(async (opts?: { refresh?: boolean }) => {
-    setLoading(true);
+  const loadHeatmap = useCallback(async (opts?: { live?: boolean }) => {
+    if (opts?.live) {
+      setLiveLoading(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const params = new URLSearchParams({ period });
-      if (opts?.refresh) params.set('refresh', 'true');
+      if (opts?.live) params.set('live', 'true');
 
       const [heatmapRes, marketsRes] = await Promise.all([
         fetch(`/api/markets/heatmap?${params}`),
@@ -121,11 +130,16 @@ export default function MarketsHeatmapPage() {
       setQuoteWarning(heatmapJson.quoteWarning || null);
       setCacheStale(Boolean(heatmapJson.cacheStale));
       setCacheOldestAt(heatmapJson.cacheOldestAt || null);
+      setLiveAvailable(Boolean(heatmapJson.liveAvailable));
       setMarketList(marketsJson.markets || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load markets');
     } finally {
-      setLoading(false);
+      if (opts?.live) {
+        setLiveLoading(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, [period]);
 
@@ -266,6 +280,24 @@ export default function MarketsHeatmapPage() {
     }
   };
 
+  const handleFooterAskAi = async () => {
+    try {
+      setFooterAskAiCopied(true);
+      setAiMessage(null);
+      const prompt = buildMarketMoneyFlowPrompt(heatmap, period, fetchedAt);
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setTimeout(() => setFooterAskAiCopied(false), 3000);
+      } else {
+        setAiMessage('Could not access clipboard.');
+        setFooterAskAiCopied(false);
+      }
+    } catch (e) {
+      setAiMessage(e instanceof Error ? e.message : 'Failed to copy prompt');
+      setFooterAskAiCopied(false);
+    }
+  };
+
   const sortedHeatmap = [...heatmap].sort((a, b) => {
     const aPct = a.meanChangePct;
     const bPct = b.meanChangePct;
@@ -299,7 +331,7 @@ export default function MarketsHeatmapPage() {
                 key={opt.id}
                 type="button"
                 onClick={() => setPeriod(opt.id)}
-                disabled={loading}
+                disabled={loading || liveLoading}
                 className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
                   period === opt.id
                     ? 'bg-blue-600 border-blue-600 text-white'
@@ -370,7 +402,15 @@ export default function MarketsHeatmapPage() {
                         ) : (
                           market.stocks.map((stock) => (
                             <div key={stock.symbol} className="flex justify-between gap-2">
-                              <span className="font-medium">{stock.symbol}</span>
+                              <a
+                                href={simplyWallStStockUrl(stock.symbol)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium underline-offset-2 hover:underline"
+                                style={{ color: 'inherit' }}
+                              >
+                                {stock.symbol}
+                              </a>
                               <span className="tabular-nums">
                                 {stock.changePercent !== null
                                   ? formatChangePct(stock.changePercent)
@@ -413,18 +453,53 @@ export default function MarketsHeatmapPage() {
                   ≥ +5%
                 </span>
               </div>
-              {fetchedAt && !loading && (
+              {fetchedAt && !loading && !liveLoading && (
                 <p className="text-xs text-gray-400 whitespace-nowrap">
                   {new Date(fetchedAt).toLocaleString()}
                 </p>
               )}
               <button
                 type="button"
-                onClick={() => void loadHeatmap({ refresh: true })}
-                disabled={loading}
-                className="px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                onClick={() => void loadHeatmap()}
+                disabled={loading || liveLoading}
+                title="Reload from cache"
+                aria-label="Reload from cache"
+                className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
               >
-                {loading ? 'Refreshing…' : 'Refresh'}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadHeatmap({ live: true })}
+                disabled={loading || liveLoading || !liveAvailable}
+                title={
+                  liveAvailable
+                    ? 'Force-fetch live data for this period'
+                    : 'Cache is less than 24 hours old'
+                }
+                className="px-3 py-1.5 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {liveLoading ? 'Live…' : 'Live'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFooterAskAi()}
+                disabled={loading || liveLoading || heatmap.length === 0 || footerAskAiCopied}
+                title="Ask AI where Wall Street money is moving"
+                className={`text-xs px-2 py-1.5 rounded-lg font-medium border transition-colors ${
+                  footerAskAiCopied
+                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                    : 'border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {footerAskAiCopied ? '✓' : 'AI'}
               </button>
             </div>
           </div>

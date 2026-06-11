@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 /** GET - Projection data for Retirement by Dividends: years, monthlyLivingCost, monthlyDividendIncome */
 export async function GET(request: NextRequest) {
   try {
-    const origin = request.nextUrl.origin;
     const [settingsRes, portfolioRes, gbpRes] = await Promise.all([
-      fetch(`${origin}/api/settings`),
-      fetch(`${origin}/api/etoro/portfolio/load?activeOnly=false`),
-      fetch(`${origin}/api/usd-to-gbp`),
+      internalApiFetch(request, '/api/settings'),
+      internalApiFetch(request, '/api/etoro/portfolio/load?activeOnly=false'),
+      internalApiFetch(request, '/api/usd-to-gbp'),
     ]);
     if (!settingsRes.ok) throw new Error('Failed to fetch settings');
     if (!portfolioRes.ok) throw new Error('Failed to fetch portfolio');

@@ -4,6 +4,8 @@ export const CACHE_STALE_WARN_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 export interface CacheStatus {
   cacheStale: boolean;
   oldestFetchedAt: string | null;
+  /** True when any symbol is missing or older than 24h for this period. */
+  liveAvailable: boolean;
 }
 
 export function computeCacheStatus(
@@ -12,7 +14,7 @@ export function computeCacheStatus(
 ): CacheStatus {
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
   if (unique.length === 0) {
-    return { cacheStale: false, oldestFetchedAt: null };
+    return { cacheStale: false, oldestFetchedAt: null, liveAvailable: false };
   }
 
   let oldest: Date | null = null;
@@ -32,6 +34,7 @@ export function computeCacheStatus(
   return {
     cacheStale,
     oldestFetchedAt: oldest?.toISOString() ?? null,
+    liveAvailable: symbolsNeedingRefresh(unique, meta).length > 0,
   };
 }
 

@@ -6,12 +6,14 @@ import {
 } from './marketCachePolicy';
 import {
   computePeriodReturnPct,
+  forceRefreshEodCache,
   loadCachedBars,
   loadEodCacheMeta,
   refreshStaleEodCache,
   type EodBar,
 } from './marketEodCache';
 import {
+  forceLiveStockQuotes,
   loadCachedStockQuotes,
   loadQuoteCacheMeta,
   refreshStaleStockQuotes,
@@ -31,8 +33,6 @@ export interface PeriodCachedQuote {
   dataSource: string | null;
   fetchedAt: string;
 }
-
-const EOD_PERIODS: MarketHeatmapPeriod[] = ['1m', 'ytd', '1y', '2y'];
 
 function closeOnOrBefore(bars: EodBar[], targetDate: string): number | null {
   let best: number | null = null;
@@ -108,19 +108,19 @@ export async function upsertTodayPeriodCacheFromQuote(quote: StockQuote): Promis
   });
 }
 
-export async function upsertEodPeriodCachesFromBars(
+export async function upsertEodPeriodCacheFromBars(
   symbol: string,
   bars: EodBar[],
+  period: MarketHeatmapPeriod,
   dataSource = 'EOD_CACHE'
 ): Promise<void> {
-  const upper = symbol.toUpperCase();
-  const fetchedAt = new Date().toISOString();
-
-  for (const period of EOD_PERIODS) {
-    const quote = buildEodPeriodQuote(upper, period, bars, dataSource);
-    if (!quote) continue;
-    await upsertPeriodCacheEntry(upper, period, { ...quote, fetchedAt });
-  }
+  if (period === 'today') return;
+  const quote = buildEodPeriodQuote(symbol.toUpperCase(), period, bars, dataSource);
+  if (!quote) return;
+  await upsertPeriodCacheEntry(symbol, period, {
+    ...quote,
+    fetchedAt: new Date().toISOString(),
+  });
 }
 
 export async function loadPeriodCache(
@@ -212,7 +212,7 @@ async function backfillPeriodCacheFromSources(
   for (const symbol of unique) {
     const bars = barsBySymbol.get(symbol) ?? [];
     if (bars.length > 0) {
-      await upsertEodPeriodCachesFromBars(symbol, bars);
+      await upsertEodPeriodCacheFromBars(symbol, bars, period);
     }
   }
 }
@@ -230,7 +230,7 @@ function mergePeriodStatus(
   for (const symbol of unique) {
     const bars = barsBySymbol.get(symbol) ?? [];
     if (!periodCoverageOk(bars, period)) {
-      return { ...base, cacheStale: true };
+      return { ...base, cacheStale: true, liveAvailable: true };
     }
   }
 
@@ -276,9 +276,60 @@ export async function resolveHeatmapQuotesFromCache(
     );
   }
 
+  const status = mergePeriodStatus(unique, period, meta, barsBySymbol);
+  if (stillMissing.length > 0 || uncovered.length > 0) {
+    status.liveAvailable = true;
+  }
+
   return {
     quotes,
-    cacheStatus: mergePeriodStatus(unique, period, meta, barsBySymbol),
+    cacheStatus: status,
+    warning: warnings.length > 0 ? warnings.join('. ') : undefined,
+  };
+}
+
+/** Force-fetch live/API data for the active period only, then return period cache. */
+export async function forceLiveHeatmapQuotes(
+  symbols: string[],
+  period: MarketHeatmapPeriod
+): Promise<{
+  quotes: Map<string, PeriodCachedQuote>;
+  cacheStatus: CacheStatus;
+  refreshedCount: number;
+  warning?: string;
+}> {
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
+  const warnings: string[] = [];
+  let refreshedCount = 0;
+
+  if (period === 'today') {
+    const result = await forceLiveStockQuotes(unique);
+    if (result.warning) warnings.push(result.warning);
+    refreshedCount = result.refreshedCount;
+  } else {
+    const { refreshed, warning } = await forceRefreshEodCache(unique);
+    if (warning) warnings.push(warning);
+    refreshedCount = refreshed;
+
+    const barsBySymbol = await loadCachedBars(unique);
+    for (const symbol of unique) {
+      const bars = barsBySymbol.get(symbol) ?? [];
+      if (bars.length > 0) {
+        await upsertEodPeriodCacheFromBars(symbol, bars, period);
+      }
+    }
+  }
+
+  const { quotes, cacheStatus, warning: cacheWarning } = await resolveHeatmapQuotesFromCache(
+    symbols,
+    period
+  );
+  if (cacheWarning) warnings.push(cacheWarning);
+
+  return {
+    quotes,
+    cacheStatus,
+    refreshedCount,
     warning: warnings.length > 0 ? warnings.join('. ') : undefined,
   };
 }
@@ -312,7 +363,9 @@ export async function refreshStaleHeatmapQuotes(
       if (result.warning) warnings.push(result.warning);
       refreshedCount = result.refreshedCount;
       for (const quote of result.quotes.values()) {
-        await upsertTodayPeriodCacheFromQuote(quote);
+        if (toRefresh.includes(quote.symbol)) {
+          await upsertTodayPeriodCacheFromQuote(quote);
+        }
       }
     }
   } else {
@@ -329,13 +382,13 @@ export async function refreshStaleHeatmapQuotes(
       const { refreshed, warning } = await refreshStaleEodCache(toRefresh);
       if (warning) warnings.push(warning);
       refreshedCount = refreshed;
+    }
 
-      const barsBySymbol = await loadCachedBars(toRefresh);
-      for (const symbol of toRefresh) {
-        const bars = barsBySymbol.get(symbol) ?? [];
-        if (bars.length > 0) {
-          await upsertEodPeriodCachesFromBars(symbol, bars);
-        }
+    const barsBySymbol = await loadCachedBars(unique);
+    for (const symbol of unique) {
+      const bars = barsBySymbol.get(symbol) ?? [];
+      if (bars.length > 0) {
+        await upsertEodPeriodCacheFromBars(symbol, bars, period);
       }
     }
   }

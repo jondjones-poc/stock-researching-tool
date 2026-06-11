@@ -49,6 +49,14 @@ Run against your Postgres/Supabase database in order when needed.
    Per-period heatmap quote cache (`market_stock_period_cache`) keyed by symbol + period (`today`, `1m`, `ytd`, `1y`, `2y`).  
    - Each period has its own `fetched_at` for stale warnings and selective refresh.
 
+10. **016_stock_valuations_fundamentals_ranges.sql**  
+   PE / FCF historical range snapshots on `stock_valuations` (`pe_range_low`, `pe_range_high`, `fcf_range_low`, `fcf_range_high`, `fundamentals_refreshed_at`).  
+   - Populated on Stock Details **Refresh**; read by range gauges without extra API calls.
+
+11. **017_stock_valuations_shares_range.sql**  
+   Shares outstanding 5-year range on `stock_valuations` (`shares_outstanding`, `shares_range_low`, `shares_range_high`).  
+   - Populated on **Refresh** from FMP annual income statement.
+
 - `portfolio_data.instrument_id` references `stock_ticker_cache.instrument_id`.
 - `stock_ticker_cache` is filled by "Get Stock Symbols" (eToro market-data API); then portfolio rows can reference it by `instrument_id`.
 

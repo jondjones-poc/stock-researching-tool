@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchMarketsWithStocks } from '../../../utils/marketsDb';
 import {
-  refreshStaleHeatmapQuotes,
+  forceLiveHeatmapQuotes,
   resolveHeatmapQuotesFromCache,
 } from '../../../utils/marketPeriodCache';
 import { parseMarketPeriod } from '../../../utils/marketPeriods';
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const period = parseMarketPeriod(searchParams.get('period'));
-    const refresh = searchParams.get('refresh') === 'true';
+    const live = searchParams.get('live') === 'true';
 
     const markets = await fetchMarketsWithStocks();
     const allSymbols = markets.flatMap((m) => m.stocks);
@@ -81,8 +81,8 @@ export async function GET(request: Request) {
       }
     >();
 
-    const result = refresh
-      ? await refreshStaleHeatmapQuotes(allSymbols, period)
+    const result = live
+      ? await forceLiveHeatmapQuotes(allSymbols, period)
       : await resolveHeatmapQuotesFromCache(allSymbols, period);
 
     for (const [symbol, q] of result.quotes) {
@@ -103,9 +103,11 @@ export async function GET(request: Request) {
       fetchedAt: result.cacheStatus.oldestFetchedAt ?? new Date().toISOString(),
       quoteCount: quotes.size,
       symbolsRequested: allSymbols.length,
-      usedCache: true,
+      usedCache: !live,
+      live,
       cacheStale: result.cacheStatus.cacheStale,
       cacheOldestAt: result.cacheStatus.oldestFetchedAt,
+      liveAvailable: result.cacheStatus.liveAvailable,
       refreshedCount: 'refreshedCount' in result ? result.refreshedCount : 0,
       quoteWarning: result.warning,
     });

@@ -271,6 +271,26 @@ export async function refreshStaleStockQuotes(symbols: string[]): Promise<{
   };
 }
 
+/** Force-fetch live quotes for all symbols and update today cache only. */
+export async function forceLiveStockQuotes(symbols: string[]): Promise<{
+  quotes: Map<string, StockQuote>;
+  warning?: string;
+  refreshedCount: number;
+}> {
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
+  const { quotes: live, warning } = await fetchLiveStockQuotes(unique);
+
+  if (live.size > 0) {
+    await upsertStockQuotes(live);
+  }
+
+  return {
+    quotes: live,
+    warning,
+    refreshedCount: live.size,
+  };
+}
+
 /** @deprecated use resolveStockQuotesFromCache or refreshStaleStockQuotes */
 export async function resolveStockQuotes(symbols: string[]): Promise<{
   quotes: Map<string, StockQuote>;

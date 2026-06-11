@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { internalApiFetch } from '../../../utils/internalApiFetch';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const HOURS_PER_MONTH = 730;
@@ -38,7 +39,6 @@ function getTrailing12Months(endYear: number, endMonth: number): { year: number;
 /** GET - 24/7 Wage hourly rate: trailing 12 months ending at current month (same logic as finances/24-7-wage page) */
 export async function GET(request: Request) {
   try {
-    const origin = request.headers.get('origin') || new URL(request.url).origin;
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // 1-12
@@ -47,8 +47,8 @@ export async function GET(request: Request) {
     const yearsToFetch = [...new Set(monthsToShow.map((m) => m.year))].sort((a, b) => a - b);
 
     const [typesRes, sourcesRes] = await Promise.all([
-      fetch(`${origin}/api/income-types`),
-      fetch(`${origin}/api/income-sources`),
+      internalApiFetch(request, '/api/income-types'),
+      internalApiFetch(request, '/api/income-sources'),
     ]);
     if (!typesRes.ok) throw new Error('Failed to fetch income types');
     if (!sourcesRes.ok) throw new Error('Failed to fetch income sources');
@@ -89,7 +89,7 @@ export async function GET(request: Request) {
 
     const entriesByYear = new Map<number, IncomeEntry[]>();
     for (const year of yearsToFetch) {
-      const entriesRes = await fetch(`${origin}/api/income-entries?year=${year}`);
+      const entriesRes = await internalApiFetch(request, `/api/income-entries?year=${year}`);
       if (!entriesRes.ok) continue;
       const entriesJson = await entriesRes.json();
       entriesByYear.set(year, entriesJson.data || []);

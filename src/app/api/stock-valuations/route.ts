@@ -23,6 +23,14 @@ interface StockValuation {
   market_cap?: number | null;
   enterprise_value?: number | null;
   free_cash_flow?: number | null;
+  pe_range_low?: number | null;
+  pe_range_high?: number | null;
+  fcf_range_low?: number | null;
+  fcf_range_high?: number | null;
+  shares_outstanding?: number | null;
+  shares_range_low?: number | null;
+  shares_range_high?: number | null;
+  fundamentals_refreshed_at?: string | null;
   bear_case_avg_price?: number | null;
   bear_case_low_price?: number | null;
   bear_case_high_price?: number | null;
@@ -98,6 +106,14 @@ export async function GET(request: NextRequest) {
       market_cap: row.market_cap ? parseFloat(row.market_cap) : null,
       enterprise_value: row.enterprise_value ? parseFloat(row.enterprise_value) : null,
       free_cash_flow: row.free_cash_flow ? parseFloat(row.free_cash_flow) : null,
+      pe_range_low: row.pe_range_low ? parseFloat(row.pe_range_low) : null,
+      pe_range_high: row.pe_range_high ? parseFloat(row.pe_range_high) : null,
+      fcf_range_low: row.fcf_range_low ? parseFloat(row.fcf_range_low) : null,
+      fcf_range_high: row.fcf_range_high ? parseFloat(row.fcf_range_high) : null,
+      shares_outstanding: row.shares_outstanding ? parseInt(row.shares_outstanding, 10) : null,
+      shares_range_low: row.shares_range_low ? parseInt(row.shares_range_low, 10) : null,
+      shares_range_high: row.shares_range_high ? parseInt(row.shares_range_high, 10) : null,
+      fundamentals_refreshed_at: row.fundamentals_refreshed_at ?? null,
       bear_case_avg_price: row.bear_case_avg_price ? parseFloat(row.bear_case_avg_price) : null,
       bear_case_low_price: row.bear_case_low_price ? parseFloat(row.bear_case_low_price) : null,
       bear_case_high_price: row.bear_case_high_price ? parseFloat(row.bear_case_high_price) : null,
@@ -241,8 +257,11 @@ export async function PUT(request: NextRequest) {
         bear_case_avg_price = $21, bear_case_low_price = $22, bear_case_high_price = $23,
         base_case_avg_price = $24, base_case_low_price = $25, base_case_high_price = $26,
         bull_case_avg_price = $27, bull_case_low_price = $28, bull_case_high_price = $29,
+        pe_range_low = $30, pe_range_high = $31, fcf_range_low = $32, fcf_range_high = $33,
+        fundamentals_refreshed_at = $34,
+        shares_outstanding = $35, shares_range_low = $36, shares_range_high = $37,
         updated_at = NOW()
-      WHERE id = $30
+      WHERE id = $38
       RETURNING id, updated_at, market_cap, enterprise_value, free_cash_flow`,
       [
         body.stock?.toUpperCase() || null,
@@ -274,6 +293,14 @@ export async function PUT(request: NextRequest) {
         body.bull_case_avg_price ?? null,
         body.bull_case_low_price ?? null,
         body.bull_case_high_price ?? null,
+        body.pe_range_low ?? null,
+        body.pe_range_high ?? null,
+        body.fcf_range_low ?? null,
+        body.fcf_range_high ?? null,
+        body.fundamentals_refreshed_at ?? null,
+        body.shares_outstanding ?? null,
+        body.shares_range_low ?? null,
+        body.shares_range_high ?? null,
         id,
       ]
     );
