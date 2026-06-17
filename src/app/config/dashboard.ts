@@ -1,4 +1,21 @@
 // Dashboard configuration for watchlist symbols and layout
+export type WatchlistCategory =
+  | 'GROWTH'
+  | 'DIVIDEND & VALUE'
+  | 'MARKETS'
+  | 'PRECIOUS METALS'
+  | 'WATCHLIST';
+
+export type CategoryFilter = 'ALL' | WatchlistCategory;
+
+export const WATCHLIST_CATEGORY_LABELS: Record<WatchlistCategory, string> = {
+  GROWTH: 'Growth',
+  'DIVIDEND & VALUE': 'Dividend & Value',
+  MARKETS: 'Markets',
+  'PRECIOUS METALS': 'Precious Metals',
+  WATCHLIST: 'Watchlist',
+};
+
 export interface WatchlistSymbol {
   symbol: string;
   name: string;
@@ -198,14 +215,6 @@ export const dashboardConfig: DashboardConfig = {
         fredSeriesId: 'DTWEXBGS'
       },
       {
-        symbol: 'GLD',
-        name: 'Gold Price (GLD)',
-        category: 'MARKETS',
-        icon: '🥇',
-        color: 'yellow',
-        dataSource: 'FMP'
-      },
-      {
         symbol: 'BTC',
         name: 'Bitcoin',
         category: 'MARKETS',
@@ -257,6 +266,32 @@ export const dashboardConfig: DashboardConfig = {
         fredSeriesId: 'UMCSENT'
       }
     ],
+    'PRECIOUS METALS': [
+      {
+        symbol: 'GLD',
+        name: 'Gold (GLD — spot bullion ETF)',
+        category: 'PRECIOUS METALS',
+        icon: '🥇',
+        color: 'yellow',
+        dataSource: 'FMP'
+      },
+      {
+        symbol: 'GCUSD',
+        name: 'Gold (COMEX futures, $/oz)',
+        category: 'PRECIOUS METALS',
+        icon: '🥇',
+        color: 'yellow',
+        dataSource: 'FMP'
+      },
+      {
+        symbol: 'SIUSD',
+        name: 'Silver (COMEX futures, $/oz)',
+        category: 'PRECIOUS METALS',
+        icon: '🥈',
+        color: 'gray',
+        dataSource: 'FMP'
+      }
+    ],
     WATCHLIST: [
       {
         symbol: 'VICI',
@@ -299,4 +334,41 @@ export function getAllWatchlistSymbols(): WatchlistSymbol[] {
 // Helper function to get symbol by symbol string
 export function getSymbolBySymbol(symbol: string): WatchlistSymbol | undefined {
   return getAllWatchlistSymbols().find(s => s.symbol === symbol);
+}
+
+/** Merge config symbols into DB-backed watchlist; config wins on category placement. */
+export function mergeConfigSymbolsIntoWatchlistData(
+  data: { [category: string]: WatchlistSymbol[] },
+  dbSymbols: WatchlistSymbol[]
+): { data: { [category: string]: WatchlistSymbol[] }; symbols: WatchlistSymbol[] } {
+  const merged = { ...data };
+  const configSymbols = getAllWatchlistSymbols();
+  const configSymbolSet = new Set(configSymbols.map(s => s.symbol));
+
+  for (const cfg of configSymbols) {
+    for (const [category, symbols] of Object.entries(merged)) {
+      if (category !== cfg.category) {
+        merged[category] = symbols.filter(s => s.symbol !== cfg.symbol);
+      }
+    }
+    if (!merged[cfg.category]) {
+      merged[cfg.category] = [];
+    }
+    const existingIdx = merged[cfg.category].findIndex(s => s.symbol === cfg.symbol);
+    if (existingIdx >= 0) {
+      merged[cfg.category][existingIdx] = { ...merged[cfg.category][existingIdx], ...cfg };
+    } else {
+      merged[cfg.category] = [...merged[cfg.category], cfg];
+    }
+  }
+
+  const missingFromDb = configSymbols.filter(
+    cfg => !dbSymbols.some(s => s.symbol === cfg.symbol)
+  );
+  const symbols = [
+    ...dbSymbols.filter(s => !configSymbolSet.has(s.symbol)),
+    ...configSymbols,
+  ];
+
+  return { data: merged, symbols };
 }

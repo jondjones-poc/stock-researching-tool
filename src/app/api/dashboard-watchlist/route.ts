@@ -158,6 +158,64 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// PATCH - Update an existing dashboard watchlist symbol (e.g. move category)
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { symbol, name, category, icon, color, data_source, fred_series_id, notes, display_order, is_active } = body;
+
+    if (!symbol) {
+      return NextResponse.json({ error: 'symbol is required' }, { status: 400 });
+    }
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    const setField = (column: string, value: unknown) => {
+      if (value !== undefined) {
+        fields.push(`${column} = $${paramIndex++}`);
+        values.push(value);
+      }
+    };
+
+    setField('name', name);
+    setField('category', category);
+    setField('icon', icon);
+    setField('color', color);
+    setField('data_source', data_source);
+    setField('fred_series_id', fred_series_id);
+    setField('notes', notes);
+    setField('display_order', display_order);
+    setField('is_active', is_active);
+
+    if (fields.length === 0) {
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(symbol.toUpperCase());
+
+    const result = await query(
+      `UPDATE dashboard_watchlist SET ${fields.join(', ')} WHERE symbol = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: 'Symbol not found in watchlist' }, { status: 404 });
+    }
+
+    return NextResponse.json({ data: result.rows[0] });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error updating dashboard watchlist symbol:', message);
+    return NextResponse.json(
+      { error: 'Failed to update watchlist symbol', details: message },
+      { status: 500 }
+    );
+  }
+}
+
 // DELETE - Remove a symbol from dashboard watchlist
 export async function DELETE(request: NextRequest) {
   try {

@@ -1,7 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { dashboardConfig, WatchlistSymbol } from '../config/dashboard';
+import {
+  dashboardConfig,
+  WatchlistSymbol,
+  CategoryFilter,
+  WatchlistCategory,
+  WATCHLIST_CATEGORY_LABELS,
+} from '../config/dashboard';
 import Link from 'next/link';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -54,9 +60,9 @@ export default function DashboardPage() {
   const [customSymbols, setCustomSymbols] = useState<WatchlistSymbol[]>([]);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newSymbol, setNewSymbol] = useState<string>('');
-  const [newSymbolCategory, setNewSymbolCategory] = useState<'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('WATCHLIST');
+  const [newSymbolCategory, setNewSymbolCategory] = useState<WatchlistCategory>('WATCHLIST');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; symbol: string } | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST'>('MARKETS');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('MARKETS');
   const [showEarnings, setShowEarnings] = useState<boolean>(false);
   const [earningsData, setEarningsData] = useState<EarningsData[]>([]);
   const [earningsLoading, setEarningsLoading] = useState<boolean>(false);
@@ -1009,14 +1015,15 @@ export default function DashboardPage() {
             </div>
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as 'ALL' | 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST')}
+              onChange={(e) => setCategoryFilter(e.target.value as CategoryFilter)}
               className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="ALL">All Categories</option>
-              <option value="MARKETS">Markets</option>
-              <option value="GROWTH">Growth</option>
-              <option value="DIVIDEND & VALUE">Dividend & Value</option>
-              <option value="WATCHLIST">Watchlist</option>
+              {(Object.keys(WATCHLIST_CATEGORY_LABELS) as WatchlistCategory[]).map((category) => (
+                <option key={category} value={category}>
+                  {WATCHLIST_CATEGORY_LABELS[category]}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1127,13 +1134,14 @@ export default function DashboardPage() {
                 </label>
                 <select
                   value={newSymbolCategory}
-                  onChange={(e) => setNewSymbolCategory(e.target.value as 'GROWTH' | 'DIVIDEND & VALUE' | 'MARKETS' | 'WATCHLIST')}
+                  onChange={(e) => setNewSymbolCategory(e.target.value as WatchlistCategory)}
                   className="w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white"
                 >
-                  <option value="GROWTH">GROWTH</option>
-                  <option value="DIVIDEND & VALUE">DIVIDEND & VALUE</option>
-                  <option value="MARKETS">MARKETS</option>
-                  <option value="WATCHLIST">WATCHLIST</option>
+                  {(Object.keys(WATCHLIST_CATEGORY_LABELS) as WatchlistCategory[]).map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
                 </select>
               </div>
               
