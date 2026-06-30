@@ -59,7 +59,7 @@ function parseFmpEodRows(data: unknown): EodBar[] {
   return bars;
 }
 
-async function fetchFmpEod(symbol: string, from: string, to: string): Promise<EodBar[]> {
+export async function fetchFmpEod(symbol: string, from: string, to: string): Promise<EodBar[]> {
   const fmpKey = process.env.FMP_API_KEY?.trim();
   if (!fmpKey) {
     throw new Error('FMP_API_KEY is not configured');
@@ -131,7 +131,7 @@ export async function loadEodCacheMeta(symbols: string[]): Promise<Map<string, D
   return meta;
 }
 
-async function upsertEodBars(symbol: string, bars: EodBar[]): Promise<void> {
+export async function upsertEodBars(symbol: string, bars: EodBar[]): Promise<void> {
   if (bars.length === 0) return;
 
   try {

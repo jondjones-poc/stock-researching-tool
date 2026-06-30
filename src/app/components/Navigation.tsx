@@ -192,6 +192,16 @@ export default function Navigation() {
             {isResearchTab && (
               <>
                 <Link 
+                  href="/research/youtube-feed" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/research/youtube-feed' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  📺 YouTube
+                </Link>
+                <Link 
                   href="/research/markets" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/research/markets' 
@@ -209,7 +219,7 @@ export default function Navigation() {
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  🌍 World Alerts
+                  🌍 Regional Stock Index Performance
                 </Link>
               </>
             )}
