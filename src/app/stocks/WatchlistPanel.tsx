@@ -289,11 +289,14 @@ export default function WatchlistPanel() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 text-center">
                     Buy Price
                   </label>
-                  <div className="px-4 py-2 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-center font-semibold h-[42px] flex items-center justify-center">
+                  <div className="px-4 py-2 rounded-lg border-2 border-slate-200 dark:border-slate-500/60 bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-slate-100 text-center font-semibold h-[42px] flex items-center justify-center">
                     {stock.buy_price != null ? `$${Number(stock.buy_price).toFixed(2)}` : '—'}
                   </div>
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 text-center invisible" aria-hidden="true">
+                    Active Price
+                  </label>
                   <div className="px-4 py-2 rounded-lg border-2 border-blue-200 dark:border-blue-500/60 bg-blue-50 dark:bg-blue-950/50 text-gray-900 dark:text-blue-100 text-center font-semibold h-[42px] flex items-center justify-center">
                     {stock.active_price != null ? `$${Number(stock.active_price).toFixed(2)}` : '—'}
                   </div>

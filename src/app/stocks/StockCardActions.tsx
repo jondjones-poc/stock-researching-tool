@@ -22,6 +22,9 @@ export default function StockCardActions({
   hasDcfEntry = false,
   dcfHref,
 }: StockCardActionsProps) {
+  const iconButtonClass =
+    'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-base transition-colors';
+
   return (
     <div className="flex items-center gap-2">
       {showDcf && dcfHref && (
@@ -29,7 +32,7 @@ export default function StockCardActions({
           href={dcfHref}
           title={hasDcfEntry ? 'DCF model saved' : 'No DCF model — create one'}
           aria-label={hasDcfEntry ? 'DCF model saved' : 'No DCF model — create one'}
-          className={`px-2 py-1 rounded-lg border text-xs font-bold transition-colors ${
+          className={`${iconButtonClass} text-[10px] font-bold leading-none ${
             hasDcfEntry
               ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40'
               : 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40'
@@ -44,7 +47,7 @@ export default function StockCardActions({
         disabled={saving}
         title={trafficLightCopied ? 'Copied!' : 'Traffic Light Test'}
         aria-label={trafficLightCopied ? 'Copied!' : 'Traffic Light Test'}
-        className={`px-2 py-1 rounded-lg border text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`${iconButtonClass} disabled:opacity-50 disabled:cursor-not-allowed ${
           trafficLightCopied
             ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
             : 'border-violet-300 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40'

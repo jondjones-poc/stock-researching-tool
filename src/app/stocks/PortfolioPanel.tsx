@@ -439,13 +439,17 @@ export default function PortfolioPanel() {
                       ? 'Already in watchlist this month'
                       : 'Add to watchlist for this month'
                   }
-                  className={`shrink-0 h-[42px] px-2 rounded-lg border text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`shrink-0 h-[42px] w-[42px] flex items-center justify-center rounded-lg border text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     watchlistStockIds.has(stock.stock_id)
                       ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500'
                       : 'border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
                   }`}
                 >
-                  {addingWatchlistStockId === stock.stock_id ? '…' : '➕'}
+                  {addingWatchlistStockId === stock.stock_id ? (
+                    '…'
+                  ) : (
+                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-300">+</span>
+                  )}
                 </button>
                 <button
                   type="button"

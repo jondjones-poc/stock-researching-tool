@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/stocks',
-        destination: '/stocks/watchlist',
+        destination: '/stocks/portfolio',
         permanent: false,
       },
     ];

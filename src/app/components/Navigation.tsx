@@ -272,7 +272,7 @@ export default function Navigation() {
                   📊 Dashboard
                 </Link>
                 <Link 
-                  href="/stocks/watchlist" 
+                  href="/stocks/portfolio" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/stocks' ||
                     pathname === '/stocks/watchlist' ||
