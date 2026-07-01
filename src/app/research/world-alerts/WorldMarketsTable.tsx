@@ -1,8 +1,12 @@
 'use client';
 
 import {
+  peValuationColor,
+  peValuationLabel,
+  peValuationStyle,
   type WorldMarketPeriod,
   type WorldMarketRegionResult,
+  type WorldMarketViewMode,
   returnColor,
   returnGradeStyle,
   statusLabel,
@@ -18,14 +22,23 @@ function formatLevel(value: number | null): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function formatPe(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  return `${value.toFixed(1)}×`;
+}
+
 interface WorldMarketsTableProps {
   regions: WorldMarketRegionResult[];
   period: WorldMarketPeriod;
+  viewMode: WorldMarketViewMode;
   loading: boolean;
 }
 
-export default function WorldMarketsTable({ regions, period, loading }: WorldMarketsTableProps) {
-  const sorted = [...regions].sort((a, b) => (b.changePercent ?? -999) - (a.changePercent ?? -999));
+export default function WorldMarketsTable({ regions, period, viewMode, loading }: WorldMarketsTableProps) {
+  const sorted =
+    viewMode === 'pe'
+      ? [...regions].sort((a, b) => (a.peRatio ?? 999) - (b.peRatio ?? 999))
+      : [...regions].sort((a, b) => (b.changePercent ?? -999) - (a.changePercent ?? -999));
 
   return (
     <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
@@ -39,33 +52,52 @@ export default function WorldMarketsTable({ regions, period, loading }: WorldMar
               <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                 Index
               </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                Return
-              </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                Status
-              </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                Level
-              </th>
-              <th className="text-left px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                As of
-              </th>
+              {viewMode === 'pe' ? (
+                <>
+                  <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    P/E
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Valuation
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Proxy
+                  </th>
+                </>
+              ) : (
+                <>
+                  <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Return
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Status
+                  </th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Level
+                  </th>
+                  <th className="text-left px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    As of
+                  </th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading && sorted.length === 0 ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="animate-pulse">
-                  <td colSpan={6} className="px-6 py-4">
+                  <td colSpan={viewMode === 'pe' ? 5 : 6} className="px-6 py-4">
                     <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full max-w-md" />
                   </td>
                 </tr>
               ))
             ) : sorted.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-10 text-center text-gray-500 dark:text-gray-400">
-                  No market data available for this period.
+                <td
+                  colSpan={viewMode === 'pe' ? 5 : 6}
+                  className="px-6 py-10 text-center text-gray-500 dark:text-gray-400"
+                >
+                  No market data available.
                 </td>
               </tr>
             ) : (
@@ -85,25 +117,48 @@ export default function WorldMarketsTable({ regions, period, loading }: WorldMar
                     </span>
                   </td>
                   <td className="px-4 py-3.5 text-gray-700 dark:text-gray-300">{region.indexName}</td>
-                  <td className="px-4 py-3.5 text-right font-semibold tabular-nums font-mono">
-                    <span style={{ color: returnColor(region.changePercent, period) }}>
-                      {formatPct(region.changePercent)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <span
-                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border"
-                      style={returnGradeStyle(region.changePercent, period)}
-                    >
-                      {statusLabel(region.status)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5 text-right tabular-nums font-mono text-gray-900 dark:text-gray-100">
-                    {formatLevel(region.price)}
-                  </td>
-                  <td className="px-4 sm:px-6 py-3.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                    {region.asOfDate ?? '—'}
-                  </td>
+                  {viewMode === 'pe' ? (
+                    <>
+                      <td className="px-4 py-3.5 text-right font-semibold tabular-nums font-mono">
+                        <span style={{ color: peValuationColor(region.peValuation) }}>
+                          {formatPe(region.peRatio)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border"
+                          style={peValuationStyle(region.peValuation)}
+                        >
+                          {peValuationLabel(region.peValuation)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-400 font-mono text-xs">
+                        {region.peSymbol ?? '—'}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-3.5 text-right font-semibold tabular-nums font-mono">
+                        <span style={{ color: returnColor(region.changePercent, period) }}>
+                          {formatPct(region.changePercent)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border"
+                          style={returnGradeStyle(region.changePercent, period)}
+                        >
+                          {statusLabel(region.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right tabular-nums font-mono text-gray-900 dark:text-gray-100">
+                        {formatLevel(region.price)}
+                      </td>
+                      <td className="px-4 sm:px-6 py-3.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {region.asOfDate ?? '—'}
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))
             )}

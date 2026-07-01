@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
-import type { WorldMarketPeriod, WorldMarketRegionResult } from '../../config/worldMarkets';
+import type { WorldMarketPeriod, WorldMarketRegionResult, WorldMarketViewMode } from '../../config/worldMarkets';
 import WorldMarketsGeoLayer from './WorldMarketsGeoLayer';
 import MapResizeHandler from './MapResizeHandler';
 import 'leaflet/dist/leaflet.css';
@@ -10,9 +10,10 @@ import 'leaflet/dist/leaflet.css';
 interface WorldMarketsMapViewProps {
   regions: WorldMarketRegionResult[];
   period: WorldMarketPeriod;
+  viewMode: WorldMarketViewMode;
 }
 
-export default function WorldMarketsMapView({ regions, period }: WorldMarketsMapViewProps) {
+export default function WorldMarketsMapView({ regions, period, viewMode }: WorldMarketsMapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
   const [geoJson, setGeoJson] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -85,7 +86,7 @@ export default function WorldMarketsMapView({ regions, period }: WorldMarketsMap
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapResizeHandler trigger={geoJson ?? regions.length} />
-          <WorldMarketsGeoLayer regions={regions} geoJson={geoJson} period={period} />
+          <WorldMarketsGeoLayer regions={regions} geoJson={geoJson} period={period} viewMode={viewMode} />
         </MapContainer>
       )}
     </div>

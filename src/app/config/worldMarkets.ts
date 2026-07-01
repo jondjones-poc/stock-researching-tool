@@ -10,7 +10,33 @@ export const WORLD_MARKET_PERIOD_OPTIONS: { id: WorldMarketPeriod; label: string
   { id: '10y', label: '10 Years' },
 ];
 
+export type WorldMarketViewMode = 'returns' | 'pe';
+
+export type WorldMarketPeValuation = 'cheap' | 'fair' | 'expensive' | 'unavailable';
+
 export type WorldMarketDataSource = 'FMP' | 'FRED';
+
+/** ETF proxies used to estimate index P/E via FMP (trailing P/E on the quote). */
+export const WORLD_MARKET_PE_SYMBOL_BY_ID: Record<string, string> = {
+  us: 'SPY',
+  uk: 'EWU',
+  japan: 'EWJ',
+  'hong-kong': 'EWH',
+  europe: 'FEZ',
+  china: 'MCHI',
+  germany: 'EWG',
+  france: 'EWQ',
+  india: 'INDA',
+  brazil: 'EWZ',
+  australia: 'EWA',
+  canada: 'EWC',
+  'south-korea': 'EWY',
+  taiwan: 'EWT',
+  singapore: 'EWS',
+  mexico: 'EWW',
+  switzerland: 'EWL',
+  'south-africa': 'EZA',
+};
 
 export interface WorldMarketRegionConfig {
   id: string;
@@ -239,6 +265,9 @@ export interface WorldMarketRegionResult {
   status: WorldMarketStatus;
   dataSource: string | null;
   asOfDate: string | null;
+  peRatio: number | null;
+  peValuation: WorldMarketPeValuation;
+  peSymbol: string | null;
 }
 
 export function classifyMarketStatus(changePercent: number | null): WorldMarketStatus {
@@ -429,4 +458,73 @@ export function statusLabel(status: WorldMarketStatus): string {
     default:
       return 'No data';
   }
+}
+
+/** Rough index valuation bands (trailing P/E on regional ETF proxy). */
+export function classifyPeValuation(pe: number | null): WorldMarketPeValuation {
+  if (pe === null || !Number.isFinite(pe) || pe <= 0) return 'unavailable';
+  if (pe < 14) return 'cheap';
+  if (pe <= 22) return 'fair';
+  return 'expensive';
+}
+
+export function peValuationLabel(valuation: WorldMarketPeValuation): string {
+  switch (valuation) {
+    case 'cheap':
+      return 'Cheap';
+    case 'fair':
+      return 'Fair value';
+    case 'expensive':
+      return 'Expensive';
+    default:
+      return 'No data';
+  }
+}
+
+export function peValuationColor(valuation: WorldMarketPeValuation): string {
+  switch (valuation) {
+    case 'cheap':
+      return '#22c55e';
+    case 'fair':
+      return '#f59e0b';
+    case 'expensive':
+      return '#dc2626';
+    default:
+      return '#9ca3af';
+  }
+}
+
+export function peValuationStyle(valuation: WorldMarketPeValuation): ReturnGradeStyle {
+  const color = peValuationColor(valuation);
+  if (valuation === 'unavailable') {
+    return {
+      backgroundColor: 'rgb(243 244 246)',
+      color: 'rgb(107 114 128)',
+      borderColor: 'rgb(209 213 219)',
+    };
+  }
+
+  const rgb =
+    valuation === 'cheap'
+      ? { r: 34, g: 197, b: 94 }
+      : valuation === 'fair'
+        ? { r: 245, g: 158, b: 11 }
+        : { r: 220, g: 38, b: 38 };
+
+  return {
+    backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.22)`,
+    color,
+    borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.55)`,
+  };
+}
+
+export function regionMapColor(
+  region: Pick<WorldMarketRegionResult, 'changePercent' | 'peValuation'>,
+  viewMode: WorldMarketViewMode,
+  period: WorldMarketPeriod = '1y'
+): string {
+  if (viewMode === 'pe') {
+    return peValuationColor(region.peValuation);
+  }
+  return returnColor(region.changePercent, period);
 }

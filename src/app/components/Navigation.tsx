@@ -19,6 +19,8 @@ export default function Navigation() {
     pathname === '/ddm' ||
     pathname === '/graphs' ||
     pathname === '/' ||
+    pathname === '/stocks' ||
+    pathname?.startsWith('/stocks/') ||
     pathname === '/monthly-watchlist' ||
     pathname === '/research/dividend-fcf-analysis'
   ) || false;
@@ -61,7 +63,7 @@ export default function Navigation() {
               📋 Reporting
             </Link>
             <Link
-              href="/research/markets"
+              href="/research/youtube-feed"
               className={`px-6 py-3 font-semibold transition-colors border-b-2 ${
                 isResearchTab
                   ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
@@ -219,7 +221,7 @@ export default function Navigation() {
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  🌍 Regional Stock Index Performance
+                  🌍 World Index Performance
                 </Link>
               </>
             )}
@@ -270,14 +272,17 @@ export default function Navigation() {
                   📊 Dashboard
                 </Link>
                 <Link 
-                  href="/monthly-watchlist" 
+                  href="/stocks/watchlist" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/monthly-watchlist' 
+                    pathname === '/stocks' ||
+                    pathname === '/stocks/watchlist' ||
+                    pathname === '/stocks/portfolio' ||
+                    pathname === '/monthly-watchlist'
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  📅 Watchlist
+                  📈 Stocks
                 </Link>
                 <Link 
                   href="/companies" 

@@ -1,7 +1,10 @@
 import axios from 'axios';
 import {
   classifyMarketStatus,
+  classifyPeValuation,
+  WORLD_MARKET_PE_SYMBOL_BY_ID,
   type WorldMarketPeriod,
+  type WorldMarketPeValuation,
   type WorldMarketRegionConfig,
   type WorldMarketRegionResult,
 } from '../config/worldMarkets';
@@ -12,9 +15,47 @@ import {
 } from './worldMarketReturns';
 import { fetchFmpEod, loadCachedBars, upsertEodBars, type EodBar } from './marketEodCache';
 import { loadWorldMarketIndicesFromDb } from './worldMarketIndicesDb';
+import {
+  loadStaleWorldMarketsCache,
+  loadWorldMarketsCache,
+  saveWorldMarketsCache,
+} from './worldMarketsCacheDb';
 
 function barsToPoints(bars: EodBar[]): PricePoint[] {
   return bars.map((b) => ({ date: b.date, close: b.close }));
+}
+
+async function fetchFmpPeBySymbol(symbols: string[]): Promise<Map<string, number | null>> {
+  const fmpKey = process.env.FMP_API_KEY?.trim();
+  const result = new Map<string, number | null>();
+  if (!fmpKey || symbols.length === 0) return result;
+
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()))];
+  const url = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(unique.join(','))}&apikey=${fmpKey}`;
+
+  try {
+    const response = await axios.get(url, { timeout: 15000, validateStatus: () => true });
+    if (response.status !== 200 || !Array.isArray(response.data)) return result;
+
+    for (const row of response.data as { symbol?: string; pe?: number }[]) {
+      const sym = row.symbol?.toUpperCase();
+      if (!sym) continue;
+      const pe = row.pe;
+      result.set(sym, pe !== undefined && pe !== null && Number.isFinite(Number(pe)) && Number(pe) > 0 ? Number(pe) : null);
+    }
+  } catch (error) {
+    console.warn('FMP PE batch fetch failed:', error);
+  }
+
+  return result;
+}
+
+function emptyPeFields(): {
+  peRatio: number | null;
+  peValuation: WorldMarketPeValuation;
+  peSymbol: string | null;
+} {
+  return { peRatio: null, peValuation: 'unavailable', peSymbol: null };
 }
 
 async function fetchFmpQuoteChangePercent(symbol: string): Promise<number | null> {
@@ -99,6 +140,7 @@ async function loadRegionData(
     status: 'unavailable' as const,
     dataSource: null as string | null,
     asOfDate: null as string | null,
+    ...emptyPeFields(),
   };
 
   try {
@@ -147,15 +189,61 @@ export async function fetchWorldMarkets(period: WorldMarketPeriod): Promise<{
   period: WorldMarketPeriod;
   regions: WorldMarketRegionResult[];
   fetchedAt: string;
+  cached?: boolean;
+  stale?: boolean;
+}> {
+  const cached = await loadWorldMarketsCache(period);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const fresh = await fetchWorldMarketsFresh(period);
+    await saveWorldMarketsCache({
+      period: fresh.period,
+      regions: fresh.regions,
+      fetchedAt: fresh.fetchedAt,
+    });
+    return { ...fresh, cached: false };
+  } catch (error) {
+    const stale = await loadStaleWorldMarketsCache(period);
+    if (stale) {
+      console.warn(`[world_markets] Live fetch failed for ${period} — serving stale cache`);
+      return stale;
+    }
+    throw error;
+  }
+}
+
+async function fetchWorldMarketsFresh(period: WorldMarketPeriod): Promise<{
+  period: WorldMarketPeriod;
+  regions: WorldMarketRegionResult[];
+  fetchedAt: string;
 }> {
   const indexConfigs = await loadWorldMarketIndicesFromDb();
   const results = await Promise.all(
     indexConfigs.map((region) => loadRegionData(region, period))
   );
 
+  const peSymbols = indexConfigs
+    .map((region) => WORLD_MARKET_PE_SYMBOL_BY_ID[region.id])
+    .filter(Boolean) as string[];
+  const peBySymbol = await fetchFmpPeBySymbol(peSymbols);
+
+  const regions = results.map((region) => {
+    const peSymbol = WORLD_MARKET_PE_SYMBOL_BY_ID[region.id] ?? null;
+    const peRatio = peSymbol ? peBySymbol.get(peSymbol.toUpperCase()) ?? null : null;
+    return {
+      ...region,
+      peSymbol,
+      peRatio,
+      peValuation: classifyPeValuation(peRatio),
+    };
+  });
+
   return {
     period,
-    regions: results,
+    regions,
     fetchedAt: new Date().toISOString(),
   };
 }

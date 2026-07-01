@@ -1,12 +1,45 @@
 'use client';
 
-import { gradeSpanForPeriod, returnColor, type WorldMarketPeriod } from '../../config/worldMarkets';
+import {
+  peValuationColor,
+  type WorldMarketPeriod,
+  type WorldMarketViewMode,
+} from '../../config/worldMarkets';
+import { gradeSpanForPeriod, returnColor } from '../../config/worldMarkets';
 
 interface WorldMarketsColorLegendProps {
   period: WorldMarketPeriod;
+  viewMode: WorldMarketViewMode;
 }
 
-export default function WorldMarketsColorLegend({ period }: WorldMarketsColorLegendProps) {
+export default function WorldMarketsColorLegend({ period, viewMode }: WorldMarketsColorLegendProps) {
+  if (viewMode === 'pe') {
+    const peSamples = [
+      { label: 'Cheap (<14×)', valuation: 'cheap' as const, pe: 11 },
+      { label: 'Fair (14–22×)', valuation: 'fair' as const, pe: 18 },
+      { label: 'Expensive (>22×)', valuation: 'expensive' as const, pe: 28 },
+    ];
+
+    return (
+      <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3">
+        <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+          P/E valuation (trailing P/E on regional ETF proxy — cheap / fair / expensive)
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {peSamples.map((sample) => (
+            <div key={sample.valuation} className="flex items-center gap-2">
+              <div
+                className="w-8 h-3 rounded-sm border border-gray-300/50 dark:border-gray-600/50"
+                style={{ backgroundColor: peValuationColor(sample.valuation) }}
+              />
+              <span className="text-xs text-gray-600 dark:text-gray-400">{sample.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const span = gradeSpanForPeriod(period);
   const samples = [
     -span,

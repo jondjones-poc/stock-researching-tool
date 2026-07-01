@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
-export default function MonthlyWatchlistRedirect() {
+export default function StocksIndexPage() {
   redirect('/stocks/watchlist');
 }

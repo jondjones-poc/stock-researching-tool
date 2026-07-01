@@ -3,8 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GeoJSON, CircleMarker, Popup, Tooltip } from 'react-leaflet';
 import type { PathOptions } from 'leaflet';
-import type { WorldMarketPeriod, WorldMarketRegionResult } from '../../config/worldMarkets';
-import { returnColor } from '../../config/worldMarkets';
+import type { WorldMarketPeriod, WorldMarketRegionResult, WorldMarketViewMode } from '../../config/worldMarkets';
+import {
+  peValuationLabel,
+  regionMapColor,
+  statusLabel,
+} from '../../config/worldMarkets';
 
 const GEOJSON_URL =
   'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
@@ -23,6 +27,7 @@ interface WorldMarketsGeoLayerProps {
   regions: WorldMarketRegionResult[];
   geoJson: GeoJSON.FeatureCollection | null;
   period: WorldMarketPeriod;
+  viewMode: WorldMarketViewMode;
 }
 
 function resolveCountryCode(feature: CountryFeature): string | null {
@@ -57,7 +62,7 @@ export function useWorldGeoJson() {
   return geoJson;
 }
 
-export default function WorldMarketsGeoLayer({ regions, geoJson, period }: WorldMarketsGeoLayerProps) {
+export default function WorldMarketsGeoLayer({ regions, geoJson, period, viewMode }: WorldMarketsGeoLayerProps) {
   const countryToRegion = useMemo(() => {
     const map = new Map<string, WorldMarketRegionResult>();
     for (const region of regions) {
@@ -71,7 +76,7 @@ export default function WorldMarketsGeoLayer({ regions, geoJson, period }: World
   const styleFeature = (feature?: CountryFeature): PathOptions => {
     const code = feature ? resolveCountryCode(feature) : null;
     const region = code ? countryToRegion.get(code) : undefined;
-    const fill = region ? returnColor(region.changePercent, period) : '#d1d5db';
+    const fill = region ? regionMapColor(region, viewMode, period) : '#d1d5db';
 
     return {
       fillColor: fill,
@@ -88,21 +93,17 @@ export default function WorldMarketsGeoLayer({ regions, geoJson, period }: World
     const name = feature.properties?.ADMIN ?? feature.properties?.name ?? code ?? 'Unknown';
 
     if (region) {
-      const pct =
-        region.changePercent !== null && Number.isFinite(region.changePercent)
-          ? `${region.changePercent >= 0 ? '+' : ''}${region.changePercent.toFixed(2)}%`
-          : 'N/A';
-      const statusLabel =
-        region.status === 'growing'
-          ? 'Growing'
-          : region.status === 'falling'
-            ? 'Falling'
-            : region.status === 'flat'
-              ? 'Flat'
-              : 'No data';
+      const detail =
+        viewMode === 'pe'
+          ? region.peRatio !== null && Number.isFinite(region.peRatio)
+            ? `P/E ${region.peRatio.toFixed(1)} — ${peValuationLabel(region.peValuation)}`
+            : 'P/E — No data'
+          : region.changePercent !== null && Number.isFinite(region.changePercent)
+            ? `${region.changePercent >= 0 ? '+' : ''}${region.changePercent.toFixed(2)}% — ${statusLabel(region.status)}`
+            : 'Return — No data';
 
       layer.bindTooltip(
-        `<strong>${region.icon} ${region.name}</strong><br/>${region.indexName}<br/>${pct} — ${statusLabel}`,
+        `<strong>${region.icon} ${region.name}</strong><br/>${region.indexName}<br/>${detail}`,
         { sticky: true }
       );
     } else {
@@ -114,7 +115,7 @@ export default function WorldMarketsGeoLayer({ regions, geoJson, period }: World
     <>
       {geoJson && (
         <GeoJSON
-          key={regions.map((r) => `${r.id}-${r.changePercent}`).join('|')}
+          key={`${regions.map((r) => `${r.id}-${r.changePercent}-${r.peRatio}`).join('|')}-${viewMode}`}
           data={geoJson as GeoJSON.GeoJsonObject}
           style={styleFeature as (feature?: GeoJSON.Feature) => PathOptions}
           onEachFeature={onEachFeature as (feature: GeoJSON.Feature, layer: L.Layer) => void}
@@ -122,11 +123,15 @@ export default function WorldMarketsGeoLayer({ regions, geoJson, period }: World
       )}
 
       {regions.map((region) => {
-        const color = returnColor(region.changePercent, period);
-        const pct =
-          region.changePercent !== null && Number.isFinite(region.changePercent)
-            ? `${region.changePercent >= 0 ? '+' : ''}${region.changePercent.toFixed(1)}%`
-            : '—';
+        const color = regionMapColor(region, viewMode, period);
+        const markerLabel =
+          viewMode === 'pe'
+            ? region.peRatio !== null && Number.isFinite(region.peRatio)
+              ? `P/E ${region.peRatio.toFixed(1)}`
+              : '—'
+            : region.changePercent !== null && Number.isFinite(region.changePercent)
+              ? `${region.changePercent >= 0 ? '+' : ''}${region.changePercent.toFixed(1)}%`
+              : '—';
 
         return (
           <CircleMarker
@@ -142,7 +147,7 @@ export default function WorldMarketsGeoLayer({ regions, geoJson, period }: World
           >
             <Tooltip direction="top" offset={[0, -8]} opacity={1}>
               <span className="text-xs font-semibold">
-                {region.icon} {pct}
+                {region.icon} {markerLabel}
               </span>
             </Tooltip>
             <Popup>
@@ -151,14 +156,28 @@ export default function WorldMarketsGeoLayer({ regions, geoJson, period }: World
                   {region.icon} {region.name}
                 </div>
                 <div className="text-gray-600">{region.indexName}</div>
-                <div className="font-semibold" style={{ color }}>
-                  {pct}{' '}
-                  {region.status === 'growing'
-                    ? '↑ Growing'
-                    : region.status === 'falling'
-                      ? '↓ Falling'
-                      : '→ Flat'}
-                </div>
+                {viewMode === 'pe' ? (
+                  <>
+                    <div className="font-semibold" style={{ color }}>
+                      {region.peRatio !== null && Number.isFinite(region.peRatio)
+                        ? `P/E ${region.peRatio.toFixed(1)}`
+                        : 'P/E —'}{' '}
+                      {peValuationLabel(region.peValuation)}
+                    </div>
+                    {region.peSymbol && (
+                      <div className="text-xs text-gray-500">Proxy ETF: {region.peSymbol}</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="font-semibold" style={{ color }}>
+                    {markerLabel}{' '}
+                    {region.status === 'growing'
+                      ? '↑ Growing'
+                      : region.status === 'falling'
+                        ? '↓ Falling'
+                        : '→ Flat'}
+                  </div>
+                )}
                 {region.price !== null && (
                   <div className="text-gray-600">
                     Level: {region.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}

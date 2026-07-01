@@ -7,6 +7,7 @@ import {
   WORLD_MARKET_PERIOD_OPTIONS,
   type WorldMarketPeriod,
   type WorldMarketRegionResult,
+  type WorldMarketViewMode,
 } from '../../config/worldMarkets';
 import WorldMarketsTable from './WorldMarketsTable';
 import WorldMarketsColorLegend from './WorldMarketsColorLegend';
@@ -45,7 +46,7 @@ interface AlertLocation {
   country?: string;
 }
 
-type PageTab = 'markets' | 'news';
+type PageTab = 'performance' | 'pe' | 'news';
 
 function NewsAlertsPanel() {
   const [locations, setLocations] = useState<AlertLocation[]>([]);
@@ -199,7 +200,7 @@ function NewsAlertsPanel() {
   );
 }
 
-function WorldMarketsPanel() {
+function WorldMarketsPanel({ viewMode }: { viewMode: WorldMarketViewMode }) {
   const [period, setPeriod] = useState<WorldMarketPeriod>('1y');
   const [regions, setRegions] = useState<WorldMarketRegionResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -231,39 +232,58 @@ function WorldMarketsPanel() {
 
   const growing = regions.filter((r) => r.status === 'growing').length;
   const falling = regions.filter((r) => r.status === 'falling').length;
+  const cheap = regions.filter((r) => r.peValuation === 'cheap').length;
+  const fair = regions.filter((r) => r.peValuation === 'fair').length;
+  const expensive = regions.filter((r) => r.peValuation === 'expensive').length;
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2 items-center">
-          {WORLD_MARKET_PERIOD_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setPeriod(opt.id)}
-              disabled={loading}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                period === opt.id
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-              } disabled:opacity-50`}
-            >
-              {opt.label}
-            </button>
-          ))}
-          {loading && <span className="text-sm text-gray-500">Updating…</span>}
-        </div>
+        {viewMode === 'returns' ? (
+          <div className="flex flex-wrap gap-2 items-center">
+            {WORLD_MARKET_PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setPeriod(opt.id)}
+                disabled={loading}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  period === opt.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                } disabled:opacity-50`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            {loading && <span className="text-sm text-gray-500">Updating…</span>}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Trailing P/E from regional ETF proxies (SPY, EWU, EWJ, etc.)
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-4 text-sm items-center">
-          <span className="text-green-600 dark:text-green-400 font-medium">{growing} growing</span>
-          <span className="text-red-600 dark:text-red-400 font-medium">{falling} falling</span>
+          {viewMode === 'returns' ? (
+            <>
+              <span className="text-green-600 dark:text-green-400 font-medium">{growing} growing</span>
+              <span className="text-red-600 dark:text-red-400 font-medium">{falling} falling</span>
+            </>
+          ) : (
+            <>
+              <span className="text-green-600 dark:text-green-400 font-medium">{cheap} cheap</span>
+              <span className="text-amber-600 dark:text-amber-400 font-medium">{fair} fair</span>
+              <span className="text-red-600 dark:text-red-400 font-medium">{expensive} expensive</span>
+            </>
+          )}
           {fetchedAt && (
             <span className="text-gray-500">Updated {new Date(fetchedAt).toLocaleString()}</span>
           )}
         </div>
       </div>
 
-      <WorldMarketsColorLegend period={period} />
+      <WorldMarketsColorLegend period={period} viewMode={viewMode} />
 
       {error && (
         <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg text-red-800 dark:text-red-200 text-sm">
@@ -272,10 +292,10 @@ function WorldMarketsPanel() {
       )}
 
       <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 mb-6 h-[520px]">
-        <WorldMarketsMapView regions={regions} period={period} />
+        <WorldMarketsMapView regions={regions} period={period} viewMode={viewMode} />
       </div>
 
-      <WorldMarketsTable regions={regions} period={period} loading={loading} />
+      <WorldMarketsTable regions={regions} period={period} viewMode={viewMode} loading={loading} />
 
       <WorldMarketsAddIndexForm onAdded={() => loadMarkets(period)} />
     </div>
@@ -283,17 +303,16 @@ function WorldMarketsPanel() {
 }
 
 export default function WorldAlertsPage() {
-  const [tab, setTab] = useState<PageTab>('markets');
+  const [tab, setTab] = useState<PageTab>('performance');
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">🌍 Regional Stock Index Performance</h1>
-
         <div className="flex gap-2 mb-6 border-b border-gray-200 dark:border-gray-700">
           {(
             [
-              { id: 'markets' as const, label: 'Index Map' },
+              { id: 'performance' as const, label: 'World Index Performance' },
+              { id: 'pe' as const, label: 'P/E Valuation' },
               { id: 'news' as const, label: 'News Alerts' },
             ] as const
           ).map((t) => (
@@ -312,7 +331,11 @@ export default function WorldAlertsPage() {
           ))}
         </div>
 
-        {tab === 'markets' ? <WorldMarketsPanel /> : <NewsAlertsPanel />}
+        {tab === 'news' ? (
+          <NewsAlertsPanel />
+        ) : (
+          <WorldMarketsPanel viewMode={tab === 'pe' ? 'pe' : 'returns'} />
+        )}
       </div>
     </div>
   );

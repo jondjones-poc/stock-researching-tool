@@ -13,6 +13,16 @@ const nextConfig: NextConfig = {
         destination: '/research/markets',
         permanent: true,
       },
+      {
+        source: '/monthly-watchlist',
+        destination: '/stocks/watchlist',
+        permanent: true,
+      },
+      {
+        source: '/stocks',
+        destination: '/stocks/watchlist',
+        permanent: false,
+      },
     ];
   },
 };
