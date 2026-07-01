@@ -14,6 +14,11 @@ import { WeekRangeGauge } from '../components/WeekRangeGauge';
 import { PeRangeGauge } from '../components/PeRangeGauge';
 import { FcfRangeGauge } from '../components/FcfRangeGauge';
 import { SharesOutstandingRangeGauge } from '../components/SharesOutstandingRangeGauge';
+import DcfStatusLink from '../components/DcfStatusLink';
+import {
+  getDcfLastUpdated,
+  isDcfUpdatedWithinMonths,
+} from '../utils/dcfDates';
 
 interface StockValuation {
   id?: number;
@@ -136,7 +141,7 @@ export default function CompanyWatchlistPage() {
   const [editingReasonId, setEditingReasonId] = useState<number | null>(null);
   const [editingReasonText, setEditingReasonText] = useState('');
   const [askAiCopied, setAskAiCopied] = useState(false);
-  const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
+  const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string; updated_at?: string | null }>>([]);
   const [loadingMatchingEntries, setLoadingMatchingEntries] = useState(false);
   const [earningsCalendar, setEarningsCalendar] = useState<{
     symbol: string;
@@ -2672,7 +2677,6 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         {/* Form Section */}
         {showSections && (
         <>
-        <WatchlistFundamentalsPanel symbol={formData.stock} />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -3406,11 +3410,36 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
           </div>
         )}
 
+        {showSections && (
+          <div className="mt-6">
+            <WatchlistFundamentalsPanel symbol={formData.stock} />
+          </div>
+        )}
+
         {/* DCF Summary */}
         {showSections && formData.stock && (matchingDcfEntries.length > 0 || formData.bear_case_low_price || formData.base_case_low_price || formData.bull_case_low_price) && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">DCF Projections</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">DCF Projections</h2>
+                <DcfStatusLink
+                  href={
+                    matchingDcfEntries.length > 0
+                      ? `/dcf?id=${matchingDcfEntries[0].id}`
+                      : `/dcf?symbol=${encodeURIComponent(formData.stock)}`
+                  }
+                  hasDcfEntry={matchingDcfEntries.length > 0}
+                  updatedAt={
+                    matchingDcfEntries.length > 0
+                      ? getDcfLastUpdated(matchingDcfEntries[0])
+                      : null
+                  }
+                  isRecent={isDcfUpdatedWithinMonths(
+                    matchingDcfEntries.length > 0 ? getDcfLastUpdated(matchingDcfEntries[0]) : null,
+                    6
+                  )}
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleAskDcfAI}

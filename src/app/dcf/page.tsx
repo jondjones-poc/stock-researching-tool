@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { formatDcfDisplayDate, formatDcfListLabel, getDcfLastUpdated } from '../utils/dcfDates';
 import { getDCFData, DCFData, hasDCFData, storeDCFData } from '../utils/dcfData';
 import {
   fetchDcfSnapshotForSymbol,
@@ -21,6 +22,15 @@ interface DCFProjections {
   cagrHigh: { bear: number; base: number; bull: number };
 }
 
+interface DcfListEntry {
+  id: string;
+  symbol: string;
+  stock_price: number;
+  revenue: number;
+  created_at: string;
+  updated_at?: string | null;
+}
+
 export default function DCFCalculator() {
   const [dcfData, setDcfData] = useState<DCFData | null>(null);
   const [projections, setProjections] = useState<DCFProjections | null>(null);
@@ -36,9 +46,10 @@ export default function DCFCalculator() {
   const [dbSaving, setDbSaving] = useState(false);
   const [dbMessage, setDbMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [dcfDbId, setDcfDbId] = useState<string | null>(null);
-  const [dcfList, setDcfList] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
+  const [dcfList, setDcfList] = useState<DcfListEntry[]>([]);
   const [selectedDcfId, setSelectedDcfId] = useState<string>('');
   const [loadingList, setLoadingList] = useState(false);
+  const [dcfUpdatedAt, setDcfUpdatedAt] = useState<string | null>(null);
   const [savingToWatchlist, setSavingToWatchlist] = useState(false);
   const [matchingDcfEntries, setMatchingDcfEntries] = useState<Array<{ id: string; symbol: string; stock_price: number; revenue: number; created_at: string }>>([]);
   const [loadingMatchingEntries, setLoadingMatchingEntries] = useState(false);
@@ -194,6 +205,12 @@ export default function DCFCalculator() {
 
       const data = result.data;
       setDcfDbId(result.id);
+      setDcfUpdatedAt(
+        getDcfLastUpdated({
+          updated_at: result.updated_at,
+          created_at: result.created_at,
+        }) || data.timestamp || null
+      );
 
       const refreshed = await refreshBaseFieldsFromMarket(data);
       setDataWarnings(getMissingDcfRequiredFields(refreshed));
@@ -249,6 +266,7 @@ export default function DCFCalculator() {
     // Clear any existing data first to prevent conflicts
     setDcfData(null);
     setSelectedDcfId('');
+    setDcfUpdatedAt(null);
     setProjections(null);
     
     setDbLoading(true);
@@ -809,6 +827,13 @@ export default function DCFCalculator() {
         setSelectedDcfId(checkResult.id);
       }
 
+      setDcfUpdatedAt(
+        getDcfLastUpdated({
+          updated_at: result.updated_at,
+          created_at: result.created_at,
+        }) || dataToSave.timestamp
+      );
+
       // Calculate DCF price from projections (use base case share price high from final year)
       let dcfPrice = null;
       if (projections && projections.sharePriceHigh && projections.sharePriceHigh.base) {
@@ -1132,7 +1157,7 @@ export default function DCFCalculator() {
                       <option value="">-- Select a DCF entry --</option>
                       {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
                         <option key={entry.id} value={entry.id}>
-                          {entry.symbol}
+                          {formatDcfListLabel(entry)}
                         </option>
                       ))}
                     </select>
@@ -1201,7 +1226,7 @@ export default function DCFCalculator() {
                 <option value="">-- Select a DCF entry --</option>
                 {[...dcfList].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((entry) => (
                   <option key={entry.id} value={entry.id}>
-                    {entry.symbol}
+                    {formatDcfListLabel(entry)}
                   </option>
                 ))}
               </select>
@@ -1221,6 +1246,11 @@ export default function DCFCalculator() {
           )}
           {loadingList && (
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading DCF entries...</p>
+          )}
+          {dcfUpdatedAt && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              Last updated: {formatDcfDisplayDate(dcfUpdatedAt)}
+            </p>
           )}
           {dbMessage && (
             <div className={`mt-4 p-3 rounded-lg text-sm ${

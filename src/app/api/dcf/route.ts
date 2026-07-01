@@ -71,7 +71,12 @@ export async function GET(request: NextRequest) {
       timestamp: row.timestamp || new Date().toISOString(),
     };
 
-    return NextResponse.json({ data: dcfData, id: row.id });
+    return NextResponse.json({
+      data: dcfData,
+      id: row.id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    });
   } catch (error: any) {
     console.error('Error fetching DCF data:', error);
     return NextResponse.json(
@@ -132,6 +137,7 @@ export async function POST(request: NextRequest) {
       success: true,
       id: result.rows[0].id,
       created_at: result.rows[0].created_at,
+      updated_at: result.rows[0].updated_at,
     });
   } catch (error: any) {
     console.error('Error creating DCF data:', error);

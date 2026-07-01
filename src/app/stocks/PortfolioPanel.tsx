@@ -6,6 +6,10 @@ import { buildPortfolioReviewPrompt } from '../utils/buildPortfolioReviewPrompt'
 import { buildPortfolioTrafficLightTestPrompt, buildTrafficLightTestPrompt } from '../utils/buildTrafficLightTestPrompt';
 import StockCardActions from './StockCardActions';
 
+interface DcfSummary {
+  id: string;
+}
+
 interface PortfolioStock {
   id: number;
   stock_id: number;
@@ -30,7 +34,7 @@ export default function PortfolioPanel() {
   const [portfolioReviewCopied, setPortfolioReviewCopied] = useState(false);
   const [watchlistStockIds, setWatchlistStockIds] = useState<Set<number>>(new Set());
   const [addingWatchlistStockId, setAddingWatchlistStockId] = useState<number | null>(null);
-  const [dcfBySymbol, setDcfBySymbol] = useState<Map<string, string>>(new Map());
+  const [dcfBySymbol, setDcfBySymbol] = useState<Map<string, DcfSummary>>(new Map());
 
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
@@ -104,11 +108,11 @@ export default function PortfolioPanel() {
       const response = await fetch('/api/dcf/list?limit=500');
       const result = await response.json();
       if (response.ok && result.data) {
-        const map = new Map<string, string>();
+        const map = new Map<string, DcfSummary>();
         for (const entry of result.data as Array<{ id: string; symbol: string }>) {
           const symbol = String(entry.symbol).toUpperCase();
           if (!map.has(symbol)) {
-            map.set(symbol, String(entry.id));
+            map.set(symbol, { id: String(entry.id) });
           }
         }
         setDcfBySymbol(map);
@@ -385,10 +389,10 @@ export default function PortfolioPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {portfolioStocks.map((stock) => {
             const symbol = stock.stock_symbol.toUpperCase();
-            const dcfId = dcfBySymbol.get(symbol);
-            const hasDcfEntry = Boolean(dcfId);
+            const dcfEntry = dcfBySymbol.get(symbol);
+            const hasDcfEntry = Boolean(dcfEntry);
             const dcfHref = hasDcfEntry
-              ? `/dcf?id=${dcfId}`
+              ? `/dcf?id=${dcfEntry!.id}`
               : `/dcf?symbol=${encodeURIComponent(symbol)}`;
 
             return (
