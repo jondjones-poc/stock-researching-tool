@@ -1,21 +1,20 @@
 import { NextResponse } from 'next/server';
+import { getUsdToGbpRate } from '../../utils/fxRates';
 
-const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=GBP';
-
-/** GET - Return USD to GBP rate from Frankfurter (free API). Used for displaying £ on Dividends and Retirement by Dividends. */
+/** GET - USD→GBP rate (DB-cached 24h, Frankfurter / ECB reference). */
 export async function GET() {
   try {
-    const res = await fetch(FRANKFURTER_URL, { next: { revalidate: 3600 } });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Frankfurter API ${res.status}: ${text}`);
-    }
-    const data = await res.json();
-    const rate = data?.rates?.GBP;
-    if (typeof rate !== 'number' || !Number.isFinite(rate)) {
-      throw new Error('Invalid rate in response');
-    }
-    return NextResponse.json({ rate, base: 'USD', symbol: 'GBP', date: data?.date ?? null });
+    const fx = await getUsdToGbpRate();
+    return NextResponse.json({
+      rate: fx.rate,
+      base: fx.base,
+      symbol: fx.quote,
+      date: fx.rateDate,
+      fetchedAt: fx.fetchedAt,
+      fromCache: fx.fromCache,
+      stale: fx.stale,
+      source: fx.source,
+    });
   } catch (error: unknown) {
     console.error('USD to GBP fetch failed:', error);
     return NextResponse.json(

@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../utils/db';
+import { enrichPortfolioStockMetrics } from '../../utils/portfolioStockMetrics';
+import {
+  computePositionMetrics,
+  findHoldingForSymbol,
+  loadPortfolioHoldingsBySymbol,
+} from '../../utils/portfolioHoldings';
+import { getUsdToGbpRate } from '../../utils/fxRates';
 
 // GET - All portfolio stocks (all-time)
 export async function GET() {
@@ -11,24 +18,69 @@ export async function GET() {
          ps.created_at,
          ps.updated_at,
          sv.stock AS stock_symbol,
-         sv.active_price
+         sv.active_price,
+         sv.change_pct,
+         sv.bear_case_low_price
        FROM portfolio_stocks ps
        JOIN stock_valuations sv ON ps.stock_id = sv.id
        ORDER BY sv.stock ASC`
     );
 
+    const symbols = result.rows.map((row) => String(row.stock_symbol));
+    const [{ dayChangeBySymbol, monthChangeBySymbol }, holdingsBySymbol, fx] = await Promise.all([
+      enrichPortfolioStockMetrics(symbols),
+      loadPortfolioHoldingsBySymbol(),
+      getUsdToGbpRate().catch(() => null),
+    ]);
+
     return NextResponse.json({
-      data: result.rows.map((row) => ({
-        id: row.id,
-        stock_id: row.stock_id,
-        stock_symbol: row.stock_symbol,
-        active_price:
+      currency: fx ? 'GBP' : 'USD',
+      fx: fx
+        ? {
+            usd_to_gbp: fx.rate,
+            rate_date: fx.rateDate,
+            fetched_at: fx.fetchedAt,
+            from_cache: fx.fromCache,
+            stale: fx.stale,
+            source: fx.source,
+            note: 'USD prices converted to GBP using ECB reference rates (Frankfurter). Cached up to 24h.',
+          }
+        : null,
+      data: result.rows.map((row) => {
+        const symbol = String(row.stock_symbol).toUpperCase();
+        const storedChangePct =
+          row.change_pct !== null && row.change_pct !== undefined
+            ? parseFloat(String(row.change_pct))
+            : null;
+        const dayChange =
+          dayChangeBySymbol.get(symbol) ??
+          (storedChangePct != null && Number.isFinite(storedChangePct) ? storedChangePct : null);
+        const activePrice =
           row.active_price !== null && row.active_price !== undefined
             ? parseFloat(String(row.active_price))
-            : null,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      })),
+            : null;
+        const holding = findHoldingForSymbol(holdingsBySymbol, symbol);
+        const position = computePositionMetrics(holding, activePrice);
+
+        return {
+          id: row.id,
+          stock_id: row.stock_id,
+          stock_symbol: row.stock_symbol,
+          active_price: activePrice,
+          bear_case_low_price:
+            row.bear_case_low_price !== null && row.bear_case_low_price !== undefined
+              ? parseFloat(String(row.bear_case_low_price))
+              : null,
+          day_change_pct: dayChange,
+          month_change_pct: monthChangeBySymbol.get(symbol) ?? null,
+          shares: position.shares,
+          avg_buy_cost: position.avg_buy_cost,
+          position_value: position.position_value,
+          gain_loss_pct: position.gain_loss_pct,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        };
+      }),
     });
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };

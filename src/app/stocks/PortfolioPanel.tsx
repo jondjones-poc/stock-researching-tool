@@ -1,10 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildPortfolioReviewPrompt } from '../utils/buildPortfolioReviewPrompt';
 import { buildPortfolioTrafficLightTestPrompt, buildTrafficLightTestPrompt } from '../utils/buildTrafficLightTestPrompt';
-import StockCardActions from './StockCardActions';
+import { formatGbpPrice } from '../utils/formatPriceMove';
+import PortfolioStockCard from './PortfolioStockCard';
+import PortfolioStockTable from './PortfolioStockTable';
+
+type PortfolioViewMode = 'cards' | 'table';
+
+const VIEW_MODE_KEY = 'portfolio-view-mode-v2';
+
+function readViewMode(): PortfolioViewMode {
+  if (typeof window === 'undefined') return 'table';
+  const stored = window.localStorage.getItem(VIEW_MODE_KEY);
+  if (stored === 'cards') return 'cards';
+  if (stored === 'table') return 'table';
+  return 'table';
+}
 
 interface DcfSummary {
   id: string;
@@ -15,6 +28,13 @@ interface PortfolioStock {
   stock_id: number;
   stock_symbol: string;
   active_price: number | null;
+  bear_case_low_price?: number | null;
+  day_change_pct?: number | null;
+  month_change_pct?: number | null;
+  shares?: number | null;
+  avg_buy_cost?: number | null;
+  position_value?: number | null;
+  gain_loss_pct?: number | null;
 }
 
 interface StockValuation {
@@ -35,6 +55,8 @@ export default function PortfolioPanel() {
   const [watchlistStockIds, setWatchlistStockIds] = useState<Set<number>>(new Set());
   const [addingWatchlistStockId, setAddingWatchlistStockId] = useState<number | null>(null);
   const [dcfBySymbol, setDcfBySymbol] = useState<Map<string, DcfSummary>>(new Map());
+  const [usdToGbpRate, setUsdToGbpRate] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<PortfolioViewMode>('table');
 
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
@@ -53,6 +75,11 @@ export default function PortfolioPanel() {
             a.stock_symbol.localeCompare(b.stock_symbol)
           )
         );
+        if (result.fx?.usd_to_gbp && Number.isFinite(result.fx.usd_to_gbp)) {
+          setUsdToGbpRate(result.fx.usd_to_gbp);
+        } else {
+          setUsdToGbpRate(null);
+        }
       } else {
         setMessage({
           type: 'error',
@@ -121,6 +148,15 @@ export default function PortfolioPanel() {
       // optional
     }
   }, []);
+
+  useEffect(() => {
+    setViewMode(readViewMode());
+  }, []);
+
+  const handleViewModeChange = (mode: PortfolioViewMode) => {
+    setViewMode(mode);
+    window.localStorage.setItem(VIEW_MODE_KEY, mode);
+  };
 
   useEffect(() => {
     loadPortfolio();
@@ -239,6 +275,9 @@ export default function PortfolioPanel() {
         portfolioStocks.map((stock) => ({
           symbol: stock.stock_symbol,
           activePrice: stock.active_price,
+          avgBuyPrice: stock.avg_buy_cost,
+          gainLossPercent: stock.gain_loss_pct,
+          usdToGbpRate,
         }))
       );
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -306,12 +345,47 @@ export default function PortfolioPanel() {
     }
   };
 
+  const totalPositionValueGbp = usdToGbpRate
+    ? portfolioStocks.reduce((sum, stock) => {
+        if (stock.position_value == null || !Number.isFinite(stock.position_value)) return sum;
+        return sum + stock.position_value * usdToGbpRate;
+      }, 0)
+    : null;
+
+  const dcfByStockId = useMemo(() => {
+    const map = new Map<number, { hasDcfEntry: boolean; dcfHref: string }>();
+    for (const stock of portfolioStocks) {
+      const symbol = stock.stock_symbol.toUpperCase();
+      const dcfEntry = dcfBySymbol.get(symbol);
+      const hasDcfEntry = Boolean(dcfEntry);
+      map.set(stock.id, {
+        hasDcfEntry,
+        dcfHref: hasDcfEntry
+          ? `/dcf?id=${dcfEntry!.id}`
+          : `/dcf?symbol=${encodeURIComponent(symbol)}`,
+      });
+    }
+    return map;
+  }, [portfolioStocks, dcfBySymbol]);
+
+  const viewToggleClass = (active: boolean) =>
+    `inline-flex h-9 w-9 items-center justify-center transition-colors ${
+      active
+        ? 'bg-blue-600 text-white'
+        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+    }`;
+
   return (
     <div>
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
         <div className="flex items-center gap-4 flex-wrap">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
             {portfolioStocks.length} {portfolioStocks.length === 1 ? 'stock' : 'stocks'}
+            {totalPositionValueGbp != null && totalPositionValueGbp > 0 && (
+              <span className="ml-2 text-gray-900 dark:text-gray-100 font-semibold">
+                · {formatGbpPrice(totalPositionValueGbp)}
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <select
@@ -362,6 +436,42 @@ export default function PortfolioPanel() {
               {portfolioTrafficLightCopied ? '✓ Copied!' : '🚦 Traffic Light Test'}
             </button>
           </div>
+          <div
+            className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden shrink-0 ml-auto"
+            role="group"
+            aria-label="Portfolio view"
+          >
+            <button
+              type="button"
+              onClick={() => handleViewModeChange('table')}
+              title="Table view"
+              aria-label="Table view"
+              className={viewToggleClass(viewMode === 'table')}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path
+                  d="M2 4.5h14M2 9h14M2 13.5h14M6 2v14M12 2v14"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewModeChange('cards')}
+              title="Card view"
+              aria-label="Card view"
+              className={viewToggleClass(viewMode === 'cards')}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <rect x="2" y="2" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                <rect x="10" y="2" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                <rect x="2" y="10" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                <rect x="10" y="10" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -385,6 +495,19 @@ export default function PortfolioPanel() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-600 dark:text-gray-400">
           No stocks in your portfolio yet — add one above.
         </div>
+      ) : viewMode === 'table' ? (
+        <PortfolioStockTable
+          stocks={portfolioStocks}
+          usdToGbpRate={usdToGbpRate}
+          dcfByStockId={dcfByStockId}
+          saving={saving}
+          trafficLightCopiedId={trafficLightCopiedId}
+          watchlistStockIds={watchlistStockIds}
+          addingWatchlistStockId={addingWatchlistStockId}
+          onTrafficLight={(stock) => void handleTrafficLightTest(stock)}
+          onAddToWatchlist={(stock) => void handleAddToWatchlist(stock)}
+          onRemove={(id) => void handleDeleteStock(id)}
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {portfolioStocks.map((stock) => {
@@ -396,73 +519,20 @@ export default function PortfolioPanel() {
               : `/dcf?symbol=${encodeURIComponent(symbol)}`;
 
             return (
-            <div
-              key={stock.id}
-              className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
-            >
-              <div className="flex justify-between items-center mb-3">
-                <Link
-                  href={`/companies?stock_id=${stock.stock_id}`}
-                  className="text-xl font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 truncate"
-                >
-                  {stock.stock_symbol}
-                </Link>
-                <StockCardActions
-                  stockId={stock.stock_id}
-                  saving={saving}
-                  trafficLightCopied={trafficLightCopiedId === stock.id}
-                  onTrafficLight={() => void handleTrafficLightTest(stock)}
-                  showDcf
-                  hasDcfEntry={hasDcfEntry}
-                  dcfHref={dcfHref}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0 px-4 py-2 rounded-lg border-2 border-blue-200 dark:border-blue-500/60 bg-blue-50 dark:bg-blue-950/50 text-gray-900 dark:text-blue-100 text-center font-semibold h-[42px] flex items-center justify-center text-lg">
-                  {stock.active_price != null ? `$${Number(stock.active_price).toFixed(2)}` : '—'}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleAddToWatchlist(stock)}
-                  disabled={
-                    saving ||
-                    addingWatchlistStockId === stock.stock_id ||
-                    watchlistStockIds.has(stock.stock_id)
-                  }
-                  title={
-                    watchlistStockIds.has(stock.stock_id)
-                      ? 'Already in watchlist this month'
-                      : 'Add to watchlist for this month'
-                  }
-                  aria-label={
-                    watchlistStockIds.has(stock.stock_id)
-                      ? 'Already in watchlist this month'
-                      : 'Add to watchlist for this month'
-                  }
-                  className={`shrink-0 h-[42px] w-[42px] flex items-center justify-center rounded-lg border text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    watchlistStockIds.has(stock.stock_id)
-                      ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500'
-                      : 'border-emerald-300 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
-                  }`}
-                >
-                  {addingWatchlistStockId === stock.stock_id ? (
-                    '…'
-                  ) : (
-                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-300">+</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteStock(stock.id)}
-                  disabled={saving}
-                  title="Remove from portfolio"
-                  aria-label="Remove from portfolio"
-                  className="shrink-0 h-[42px] w-[42px] rounded-lg border border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-base font-semibold leading-none"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
+              <PortfolioStockCard
+                key={stock.id}
+                stock={stock}
+                usdToGbpRate={usdToGbpRate}
+                hasDcfEntry={hasDcfEntry}
+                dcfHref={dcfHref}
+                saving={saving}
+                trafficLightCopied={trafficLightCopiedId === stock.id}
+                onTrafficLight={() => void handleTrafficLightTest(stock)}
+                onAddToWatchlist={() => void handleAddToWatchlist(stock)}
+                onRemove={() => void handleDeleteStock(stock.id)}
+                watchlistAdded={watchlistStockIds.has(stock.stock_id)}
+                addingToWatchlist={addingWatchlistStockId === stock.stock_id}
+              />
             );
           })}
         </div>

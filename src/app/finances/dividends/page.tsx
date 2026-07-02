@@ -740,7 +740,6 @@ export default function DividendsPage() {
           </div>
         ) : (
           <>
-            {/* Filter: Dividend (is_dividend = true) | Growth (is_dividend = false) | All */}
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Show:</span>
               <button
@@ -773,6 +772,9 @@ export default function DividendsPage() {
               >
                 All
               </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400 w-full sm:w-auto">
+                Loads all eToro stock holdings. Dividend/Growth only filters this view.
+              </span>
             </div>
 
             {/* Summary Cards */}

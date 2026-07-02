@@ -1,50 +1,66 @@
 export interface PortfolioReviewStock {
   symbol: string;
   activePrice?: number | null;
+  avgBuyPrice?: number | null;
+  gainLossPercent?: number | null;
+  usdToGbpRate?: number | null;
+}
+
+function formatMoney(usd: number | null | undefined, rate: number | null | undefined): string {
+  if (usd == null || !Number.isFinite(usd)) return 'unknown';
+  if (rate) return `£${(usd * rate).toFixed(2)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function formatPercent(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return 'unknown';
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
 }
 
 export function buildPortfolioReviewPrompt(stocks: PortfolioReviewStock[]): string {
+  const rate = stocks[0]?.usdToGbpRate ?? null;
+
   const stockLines = stocks.map((stock) => {
-    const price =
-      stock.activePrice != null && Number.isFinite(Number(stock.activePrice))
-        ? `$${Number(stock.activePrice).toFixed(2)}`
-        : 'unknown';
-    return `- ${stock.symbol} (active price in my app: ${price})`;
+    const current = formatMoney(stock.activePrice, stock.usdToGbpRate ?? rate);
+    const avgPaid = formatMoney(stock.avgBuyPrice, stock.usdToGbpRate ?? rate);
+    const pl = formatPercent(stock.gainLossPercent);
+    return `- ${stock.symbol} (current: ${current}, avg paid: ${avgPaid}, P/L since buy: ${pl})`;
   });
 
   const stockList = stockLines.join('\n');
-  const today = new Date().toLocaleDateString('en-US', {
+  const today = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
 
-  return `Please review the health of my portfolio over the **last calendar month** (roughly the past 30 days). Use recent market data and news.
+  return `Please review my portfolio holdings and assess whether each position is still a **Buy**, **Hold**, or **Sell** at today's prices. Use recent market data, news, and fundamentals.
 
 Review date: ${today}
 Portfolio size: ${stocks.length} stock${stocks.length === 1 ? '' : 's'}
 
-My holdings:
+My holdings (prices${rate ? ' in GBP' : ''}, from my app + eToro cost basis):
 ${stockList}
 
 Create a **portfolio review matrix** as a markdown table with one row per stock. Use these columns:
 
-| Symbol | Active Price | 1-Month Move | Signal | Top News (1–2 items) |
+| Symbol | Current Price | Avg Paid | P/L Since Buy | Verdict | Rationale (1–2 sentences) | Top News (1–2 items) |
 
 Column guidance:
-- **Active Price** — current price (use my app price as a cross-check if helpful).
-- **1-Month Move** — approximate % change over the last month. Show direction with an icon: 📈 if up, 📉 if down, ➡️ if roughly flat (within ~2%).
-- **Signal** — a simple **Buy**, **Hold**, or **Sell** lean based mainly on the last month's price action and near-term outlook (not long-term fundamentals). Use plain language; this is a monthly health check, not financial advice.
-- **Top News (1–2 items)** — the 1–2 most important headlines from the last month I should know about (e.g. earnings reported, guidance change, major product news, regulatory action, analyst downgrade). One short bullet per item.
+- **Current Price** — today's price (cross-check my figures above).
+- **Avg Paid** — my average purchase price per share.
+- **P/L Since Buy** — my gain or loss % since purchase (cross-check my figures).
+- **Verdict** — **Buy** (would add / still attractive), **Hold** (keep, fair value), or **Sell** (trim or exit). Base this on whether the stock still looks like good value at the current price relative to what I paid, recent performance, and near-term outlook.
+- **Rationale** — brief plain-English reason for the verdict.
+- **Top News (1–2 items)** — the 1–2 most important recent headlines (earnings, guidance, product, regulatory, analyst moves). One short bullet per item.
 
 After the table, add:
 
 ### Portfolio summary
-- How many holdings are up vs down this month
-- One paragraph overall portfolio health verdict for the last month
-
-Do not suggest trades, portfolio changes, or improvements. Stick to the matrix and factual summary only.
+- Count of Buy / Hold / Sell recommendations
+- Which positions are working vs underwater since purchase
+- One paragraph overall portfolio verdict
 
 Be concise and practical. Prefer recent, verifiable news. If data is unavailable for a stock, say so in that row rather than guessing.`;
 }
