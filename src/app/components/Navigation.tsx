@@ -180,14 +180,14 @@ export default function Navigation() {
                   📈 Investing
                 </Link>
                 <Link 
-                  href="/finances/dividends" 
+                  href="/finances/etoro" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/finances/dividends' 
+                    pathname === '/finances/etoro' || pathname === '/finances/dividends'
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  💰 Dividends
+                  📊 eToro
                 </Link>
               </>
             )}

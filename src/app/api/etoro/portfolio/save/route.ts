@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../../../utils/db';
+import { isActiveSavedEtoroStock } from '../../../../utils/etoroPositionFilter';
 
 interface PortfolioStock {
   positionId: number;
@@ -48,9 +49,17 @@ export async function POST(request: NextRequest) {
 
     const savedPositions: number[] = [];
     const errors: string[] = [];
+    const activeStocks = stocks.filter((stock: PortfolioStock) => isActiveSavedEtoroStock(stock));
+
+    if (activeStocks.length === 0) {
+      return NextResponse.json(
+        { error: 'No active stock positions to save (sold or zero-unit positions are ignored)' },
+        { status: 400 }
+      );
+    }
 
     // Save each stock position
-    for (const stock of stocks) {
+    for (const stock of activeStocks) {
       try {
         // Calculate derived values if not provided
         const currentValue = stock.currentValue ?? (stock.currentPrice * stock.sharesOwned);
@@ -136,12 +145,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let removedCount = 0;
+    if (savedPositions.length > 0) {
+      const removed = await query(
+        `DELETE FROM portfolio_data WHERE NOT (position_id = ANY($1::bigint[]))`,
+        [savedPositions]
+      );
+      removedCount = removed.rowCount ?? 0;
+    }
+
     return NextResponse.json({
       success: true,
       saved: savedPositions.length,
-      total: stocks.length,
+      total: activeStocks.length,
+      removed: removedCount,
       errors: errors.length > 0 ? errors : undefined,
-      message: `Saved ${savedPositions.length} of ${stocks.length} positions`
+      message: `Saved ${savedPositions.length} of ${activeStocks.length} active positions` +
+        (removedCount > 0 ? `; removed ${removedCount} sold/closed from cache` : ''),
     });
 
   } catch (error: any) {

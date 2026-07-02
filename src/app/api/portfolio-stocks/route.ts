@@ -4,9 +4,10 @@ import { enrichPortfolioStockMetrics } from '../../utils/portfolioStockMetrics';
 import {
   computePositionMetrics,
   findHoldingForSymbol,
-  loadPortfolioHoldingsBySymbol,
+  loadPortfolioHoldingsIndex,
 } from '../../utils/portfolioHoldings';
 import { getUsdToGbpRate } from '../../utils/fxRates';
+import { loadResearchSymbolLinks } from '../../utils/researchSymbolLinks';
 
 // GET - All portfolio stocks (all-time)
 export async function GET() {
@@ -27,10 +28,12 @@ export async function GET() {
     );
 
     const symbols = result.rows.map((row) => String(row.stock_symbol));
-    const [{ dayChangeBySymbol, monthChangeBySymbol }, holdingsBySymbol, fx] = await Promise.all([
+    const [{ dayChangeBySymbol, monthChangeBySymbol, livePriceBySymbol }, holdingsIndex, fx, symbolLinks] =
+      await Promise.all([
       enrichPortfolioStockMetrics(symbols),
-      loadPortfolioHoldingsBySymbol(),
+      loadPortfolioHoldingsIndex(),
       getUsdToGbpRate().catch(() => null),
+      loadResearchSymbolLinks(),
     ]);
 
     return NextResponse.json({
@@ -55,11 +58,16 @@ export async function GET() {
         const dayChange =
           dayChangeBySymbol.get(symbol) ??
           (storedChangePct != null && Number.isFinite(storedChangePct) ? storedChangePct : null);
-        const activePrice =
+        const storedPrice =
           row.active_price !== null && row.active_price !== undefined
             ? parseFloat(String(row.active_price))
             : null;
-        const holding = findHoldingForSymbol(holdingsBySymbol, symbol);
+        const livePrice = livePriceBySymbol.get(symbol) ?? null;
+        const activePrice =
+          storedPrice != null && Number.isFinite(storedPrice) && storedPrice > 0
+            ? storedPrice
+            : livePrice;
+        const holding = findHoldingForSymbol(holdingsIndex, symbol, symbolLinks);
         const position = computePositionMetrics(holding, activePrice);
 
         return {

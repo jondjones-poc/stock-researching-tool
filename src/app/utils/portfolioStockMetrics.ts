@@ -39,13 +39,15 @@ async function fetchOneMonthBars(symbol: string): Promise<EodBar[]> {
 export async function enrichPortfolioStockMetrics(symbols: string[]): Promise<{
   dayChangeBySymbol: Map<string, number | null>;
   monthChangeBySymbol: Map<string, number | null>;
+  livePriceBySymbol: Map<string, number | null>;
 }> {
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
   const dayChangeBySymbol = new Map<string, number | null>();
   const monthChangeBySymbol = new Map<string, number | null>();
+  const livePriceBySymbol = new Map<string, number | null>();
 
   if (unique.length === 0) {
-    return { dayChangeBySymbol, monthChangeBySymbol };
+    return { dayChangeBySymbol, monthChangeBySymbol, livePriceBySymbol };
   }
 
   const [{ quotes: liveQuotes }, cachedBars] = await Promise.all([
@@ -55,6 +57,8 @@ export async function enrichPortfolioStockMetrics(symbols: string[]): Promise<{
 
   for (const symbol of unique) {
     const live = liveQuotes.get(symbol);
+    const livePrice = live?.price != null && Number.isFinite(live.price) && live.price > 0 ? live.price : null;
+    livePriceBySymbol.set(symbol, livePrice);
     dayChangeBySymbol.set(
       symbol,
       live?.changePercent != null && Number.isFinite(live.changePercent) ? live.changePercent : null
@@ -98,5 +102,5 @@ export async function enrichPortfolioStockMetrics(symbols: string[]): Promise<{
     }
   }
 
-  return { dayChangeBySymbol, monthChangeBySymbol };
+  return { dayChangeBySymbol, monthChangeBySymbol, livePriceBySymbol };
 }

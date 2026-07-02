@@ -3,6 +3,8 @@ import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { query } from '../../../utils/db';
 import { fmpSymbol, computeAnnualDpsFromFmpResponse } from '../../../utils/fmpDividend';
+import { isActiveEtoroStockPosition } from '../../../utils/etoroPositionFilter';
+import { isUsableEtoroTicker } from '../../../utils/etoroTicker';
 
 const ETORO_PUBLIC_KEY = process.env.ETORO_PUBLIC_KEY;
 const ETORO_PRIVATE_KEY = process.env.ETORO_PRIVATE_KEY;
@@ -18,6 +20,7 @@ interface DividendStock {
   currentPrice: number;
   dividendPerShare: number;
   dividendGrowthRate: number | null;
+  isDetached?: boolean;
 }
 
 interface EToroPosition {
@@ -48,6 +51,8 @@ interface EToroPosition {
 
 export async function GET(request: NextRequest) {
   try {
+    const directOnly = request.nextUrl.searchParams.get('directOnly') === 'true';
+
     // Check if eToro keys are configured
     if (!ETORO_PUBLIC_KEY || !ETORO_PRIVATE_KEY) {
       return NextResponse.json(
@@ -177,8 +182,8 @@ export async function GET(request: NextRequest) {
       allPositions.push(...portfolio.positions);
     }
     
-    // Add positions from mirrors
-    if (portfolio.mirrors && Array.isArray(portfolio.mirrors)) {
+    // Add positions from mirrors (optional — portfolio sync uses directOnly=true)
+    if (!directOnly && portfolio.mirrors && Array.isArray(portfolio.mirrors)) {
       console.log(`Found ${portfolio.mirrors.length} mirrors`);
       portfolio.mirrors.forEach((mirror: any) => {
         if (mirror.positions && Array.isArray(mirror.positions)) {
@@ -197,23 +202,18 @@ export async function GET(request: NextRequest) {
     // 3. Active/open positions - units > 0
     // Note: isSettled in eToro API means the trade has been executed/settled, not that position is closed
     // All active positions will have isSettled=true, so we don't filter on it
-    const stockPositions = allPositions.filter(
-      (pos: EToroPosition) => {
+    const stockPositions = allPositions.filter((pos: EToroPosition) => {
+      const shouldInclude = isActiveEtoroStockPosition(pos);
+
+      if (!shouldInclude) {
         const settlementType = pos.settlementTypeID ?? pos.settlementTypeId;
-        const isStock = settlementType === 1;
-        const isBuyPosition = pos.isBuy === true;
-        const hasUnits = (pos.units || 0) > 0;
-        
-        // Only filter on: is stock, is buy, has units
-        const shouldInclude = isStock && isBuyPosition && hasUnits;
-        
-        if (!shouldInclude) {
-          console.log(`Skipping position ${pos.positionID ?? pos.positionId}: settlementType=${settlementType}, isBuy=${isBuyPosition}, units=${pos.units}`);
-        }
-        
-        return shouldInclude;
+        console.log(
+          `Skipping position ${pos.positionID ?? pos.positionId}: settlementType=${settlementType}, isBuy=${pos.isBuy}, units=${pos.units}, isDetached=${pos.isDetached}`
+        );
       }
-    );
+
+      return shouldInclude;
+    });
 
     console.log(`Found ${stockPositions.length} stock positions after filtering`);
 
@@ -267,34 +267,56 @@ export async function GET(request: NextRequest) {
     const instrumentErrors: string[] = [];
     
     // Lookup order for instrument ID -> ticker symbol:
-    // 1. etoro_instruments table (dedicated mapping table)
-    // 2. portfolio_data table (previously saved data with ticker symbols)
-    // 3. Fallback hardcoded mappings (common stocks)
-    // 4. eToro API GET /instruments/{instrumentId} (query each missing ID)
-    // 5. "INSTRUMENT_XXX" as last resort (should rarely happen if API works)
+    // 1. stock_ticker_cache (canonical mapping table)
+    // 2. etoro_instruments table (legacy)
+    // 3. portfolio_data table (previously saved data)
+    // 4. Fallback hardcoded mappings (common stocks)
+    // 5. eToro market-data API
+    // 6. "INSTRUMENT_XXX" as last resort
     try {
       if (uniqueInstrumentIds.length > 0) {
         const placeholders = uniqueInstrumentIds.map((_, i) => `$${i + 1}`).join(',');
-        
-        // 1. Check etoro_instruments table (dedicated mapping table)
-        const instrumentsResult = await query(
-          `SELECT instrument_id, symbol 
-           FROM etoro_instruments 
+
+        // 1. stock_ticker_cache
+        const cacheResult = await query(
+          `SELECT instrument_id, symbol_full
+           FROM stock_ticker_cache
            WHERE instrument_id IN (${placeholders})`,
           uniqueInstrumentIds
         );
-        
-        instrumentsResult.rows.forEach((row: any) => {
-          if (row.symbol && !row.symbol.startsWith('INSTRUMENT_')) {
-            instrumentMap[row.instrument_id] = row.symbol;
+        cacheResult.rows.forEach((row: { instrument_id: number; symbol_full: string }) => {
+          if (isUsableEtoroTicker(row.symbol_full)) {
+            instrumentMap[row.instrument_id] = row.symbol_full.trim();
           }
         });
-        
-        console.log(`Found ${instrumentsResult.rows.length} instrument mappings in etoro_instruments table`);
-        
-        // 2. Also check portfolio_data table for any previously saved ticker symbols
-        // This helps if we saved data before but didn't have the mapping table
-        const missingFromInstruments = uniqueInstrumentIds.filter(id => id !== undefined && id !== null && !instrumentMap[id]);
+        console.log(`Found ${cacheResult.rows.length} rows in stock_ticker_cache`);
+
+        // 2. etoro_instruments table (legacy)
+        const missingFromCache = uniqueInstrumentIds.filter(
+          (id) => id !== undefined && id !== null && !instrumentMap[id]
+        );
+        if (missingFromCache.length > 0) {
+          const legacyPlaceholders = missingFromCache.map((_, i) => `$${i + 1}`).join(',');
+          const instrumentsResult = await query(
+            `SELECT instrument_id, symbol 
+             FROM etoro_instruments 
+             WHERE instrument_id IN (${legacyPlaceholders})`,
+            missingFromCache
+          );
+
+          instrumentsResult.rows.forEach((row: { instrument_id: number; symbol: string }) => {
+            if (isUsableEtoroTicker(row.symbol)) {
+              instrumentMap[row.instrument_id] = row.symbol.trim();
+            }
+          });
+
+          console.log(`Found ${instrumentsResult.rows.length} instrument mappings in etoro_instruments table`);
+        }
+
+        // 3. portfolio_data table for any previously saved ticker symbols
+        const missingFromInstruments = uniqueInstrumentIds.filter(
+          (id) => id !== undefined && id !== null && !instrumentMap[id]
+        );
         if (missingFromInstruments.length > 0) {
           const portfolioPlaceholders = missingFromInstruments.map((_, i) => `$${i + 1}`).join(',');
           const portfolioResult = await query(
@@ -302,26 +324,25 @@ export async function GET(request: NextRequest) {
              FROM portfolio_data 
              WHERE instrument_id IN (${portfolioPlaceholders})
                AND ticker IS NOT NULL 
-               AND ticker != ''
-               AND NOT ticker LIKE 'INSTRUMENT_%'`,
+               AND ticker != ''`,
             missingFromInstruments
           );
-          
-          portfolioResult.rows.forEach((row: any) => {
-            if (row.ticker && !row.ticker.startsWith('INSTRUMENT_')) {
-              instrumentMap[row.instrument_id] = row.ticker;
+
+          portfolioResult.rows.forEach((row: { instrument_id: number; ticker: string }) => {
+            if (isUsableEtoroTicker(row.ticker)) {
+              instrumentMap[row.instrument_id] = row.ticker.trim();
               console.log(`✓ Found ticker ${row.ticker} for instrument ${row.instrument_id} from portfolio_data`);
             }
           });
-          
+
           console.log(`Found ${portfolioResult.rows.length} additional ticker mappings from portfolio_data table`);
         }
-        
+
         console.log(`Total database mappings found: ${Object.keys(instrumentMap).length}`);
       }
-    } catch (dbErr: any) {
-      console.warn('Error fetching from database (table may not exist yet):', dbErr.message);
-      // Continue - table might not exist yet, we'll try fallback mappings
+    } catch (dbErr: unknown) {
+      const message = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      console.warn('Error fetching from database (table may not exist yet):', message);
     }
     
     // Fallback: Common eToro instrument ID mappings (manually maintained)
@@ -359,8 +380,6 @@ export async function GET(request: NextRequest) {
       1028: 'MRK',    // Merck
       1029: 'ABT',    // Abbott
       1030: 'TMO',    // Thermo Fisher
-      1137: 'UNKNOWN', // Need to identify - check price/buy cost
-      1484: 'UNKNOWN', // Need to identify - check price/buy cost
       // Add more mappings as you identify them
       // To add: POST /api/etoro/instruments with { "instrumentId": XXX, "symbol": "SYMBOL" }
     };
@@ -388,6 +407,9 @@ export async function GET(request: NextRequest) {
       // Check fallback
       if (fallbackMappings[idNum]) {
         const symbol = fallbackMappings[idNum];
+        if (!isUsableEtoroTicker(symbol)) {
+          return;
+        }
         instrumentMap[id] = symbol;
         instrumentMap[idNum] = symbol; // Store both string and number keys
         console.log(`✓ Applied fallback mapping: instrument ${id} (${idNum}) -> ${symbol}`);
@@ -630,7 +652,8 @@ export async function GET(request: NextRequest) {
           buyCost,
           currentPrice,
           dividendPerShare,
-          dividendGrowthRate
+          dividendGrowthRate,
+          isDetached: position.isDetached ?? false,
         });
       } catch (err: any) {
         const positionId = position.positionID ?? position.positionId ?? 'unknown';

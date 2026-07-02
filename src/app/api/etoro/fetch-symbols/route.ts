@@ -21,6 +21,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let requestedIds: number[] | null = null;
+    let forceRefetch = false;
+    try {
+      const body = await request.json();
+      if (Array.isArray(body?.instrumentIds)) {
+        requestedIds = body.instrumentIds
+          .map((id: unknown) => Number(id))
+          .filter((id: number) => Number.isFinite(id) && id > 0);
+      }
+      forceRefetch = body?.force === true;
+    } catch {
+      // no body — resolve all missing IDs from portfolio_data
+    }
+
     // Get all unique instrument IDs from portfolio_data table
     // First, check if table exists and has data
     let tableStats: any = {};
@@ -87,7 +101,7 @@ export async function POST(request: NextRequest) {
       })));
     }
 
-    if (portfolioResult.rows.length === 0) {
+    if (portfolioResult.rows.length === 0 && (!requestedIds || requestedIds.length === 0)) {
       return NextResponse.json({
         message: 'No instrument IDs found in portfolio_data table',
         debug: {
@@ -103,11 +117,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract instrument IDs - handle both string and number types
-    const instrumentIds = portfolioResult.rows.map((row: any) => {
+    let instrumentIds = portfolioResult.rows.map((row: any) => {
       const id = row.instrument_id;
       // Convert to number if it's a string
       return typeof id === 'string' ? parseInt(id) : id;
     }).filter((id: any) => id && !isNaN(id));
+
+    if (requestedIds && requestedIds.length > 0) {
+      instrumentIds = requestedIds;
+    }
     
     console.log(`Found ${instrumentIds.length} unique instrument IDs in portfolio_data:`, instrumentIds.slice(0, 10));
 
@@ -127,7 +145,9 @@ export async function POST(request: NextRequest) {
     }
 
     const cachedIds = new Set(cacheResult.rows.map((row: any) => row.instrument_id));
-    const missingIds = instrumentIds.filter((id: number) => !cachedIds.has(id));
+    const missingIds = forceRefetch
+      ? instrumentIds
+      : instrumentIds.filter((id: number) => !cachedIds.has(id));
 
     console.log(`${cachedIds.size} already cached, ${missingIds.length} need to be fetched`);
 

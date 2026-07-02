@@ -123,7 +123,7 @@ export default function PortfolioStockCard({
       ) : (
         <div
           className={`${valueBoxClass} text-lg border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-500`}
-          title="No holding data — save eToro portfolio on Dividends page"
+          title="No holding data — save eToro portfolio on the eToro page"
         >
           —
         </div>

@@ -4,8 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildPortfolioReviewPrompt } from '../utils/buildPortfolioReviewPrompt';
 import { buildPortfolioTrafficLightTestPrompt, buildTrafficLightTestPrompt } from '../utils/buildTrafficLightTestPrompt';
 import { formatGbpPrice } from '../utils/formatPriceMove';
+import { isActiveSavedEtoroStock } from '../utils/etoroPositionFilter';
+import { findEtoroHoldingsMissingFromPortfolio, type MissingEtoroHolding } from '../utils/portfolioSymbolMatch';
+import { deserializeResearchSymbolLinks } from '../utils/symbolMatch';
 import PortfolioStockCard from './PortfolioStockCard';
 import PortfolioStockTable from './PortfolioStockTable';
+import PortfolioEtoroSyncDialog from './PortfolioEtoroSyncDialog';
 
 type PortfolioViewMode = 'cards' | 'table';
 
@@ -57,6 +61,13 @@ export default function PortfolioPanel() {
   const [dcfBySymbol, setDcfBySymbol] = useState<Map<string, DcfSummary>>(new Map());
   const [usdToGbpRate, setUsdToGbpRate] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<PortfolioViewMode>('table');
+  const [reloadingEtoro, setReloadingEtoro] = useState(false);
+  const [etoroSyncDialog, setEtoroSyncDialog] = useState<{
+    open: boolean;
+    savedCount: number;
+    removedCount: number;
+    holdings: MissingEtoroHolding[];
+  }>({ open: false, savedCount: 0, removedCount: 0, holdings: [] });
 
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
@@ -295,6 +306,73 @@ export default function PortfolioPanel() {
     }
   };
 
+  const handleReloadFromEtoro = async () => {
+    setReloadingEtoro(true);
+    setMessage(null);
+
+    try {
+      const fetchRes = await fetch('/api/etoro/dividends?directOnly=true');
+      const fetchData = await fetchRes.json();
+
+      if (!fetchRes.ok) {
+        const details = fetchData.details ? ` — ${fetchData.details}` : '';
+        throw new Error((fetchData.error || 'Failed to fetch from eToro') + details);
+      }
+
+      const etoroStocks = (Array.isArray(fetchData.stocks) ? fetchData.stocks : []).filter(
+        (s: { sharesOwned?: number; isDetached?: boolean }) => isActiveSavedEtoroStock(s)
+      );
+      if (etoroStocks.length === 0) {
+        throw new Error('No active stock positions returned from eToro');
+      }
+
+      const saveRes = await fetch('/api/etoro/portfolio/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stocks: etoroStocks }),
+      });
+      const saveData = await saveRes.json();
+
+      if (!saveRes.ok) {
+        throw new Error(saveData.error || 'Failed to save eToro data');
+      }
+
+      const portfolioSymbols = portfolioStocks.map((s) => s.stock_symbol);
+      const linksRes = await fetch('/api/etoro/research-symbol-links');
+      const linksData = linksRes.ok ? await linksRes.json() : { links: {} };
+      const symbolLinks = deserializeResearchSymbolLinks(linksData.links ?? {});
+      const missingHoldings = findEtoroHoldingsMissingFromPortfolio(etoroStocks, portfolioSymbols, symbolLinks);
+
+      await loadPortfolio({ silent: true });
+
+      setEtoroSyncDialog({
+        open: true,
+        savedCount: saveData.saved ?? etoroStocks.length,
+        removedCount: saveData.removed ?? 0,
+        holdings: missingHoldings,
+      });
+
+      if (missingHoldings.length === 0) {
+        setMessage({
+          type: 'success',
+          text: `eToro holdings synced — ${saveData.saved ?? etoroStocks.length} active positions saved.`,
+        });
+      } else {
+        setMessage({
+          type: 'success',
+          text: `eToro synced. ${missingHoldings.length} holding${missingHoldings.length === 1 ? '' : 's'} not in your portfolio list.`,
+        });
+      }
+    } catch (error: unknown) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to reload from eToro',
+      });
+    } finally {
+      setReloadingEtoro(false);
+    }
+  };
+
   const handlePortfolioTrafficLightTest = async () => {
     if (portfolioStocks.length === 0) {
       setMessage({ type: 'error', text: 'Add stocks to your portfolio before running the Traffic Light Test.' });
@@ -435,6 +513,47 @@ export default function PortfolioPanel() {
             >
               {portfolioTrafficLightCopied ? '✓ Copied!' : '🚦 Traffic Light Test'}
             </button>
+            <button
+              type="button"
+              onClick={() => void handleReloadFromEtoro()}
+              disabled={loading || reloadingEtoro}
+              title="Reload holdings from eToro"
+              aria-label="Reload holdings from eToro"
+              className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {reloadingEtoro ? (
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path
+                    d="M15 9a6 6 0 1 1-1.76-4.24M15 3v4h-4"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </button>
           </div>
           <div
             className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden shrink-0 ml-auto"
@@ -537,6 +656,13 @@ export default function PortfolioPanel() {
           })}
         </div>
       )}
+      <PortfolioEtoroSyncDialog
+        open={etoroSyncDialog.open}
+        onClose={() => setEtoroSyncDialog((prev) => ({ ...prev, open: false }))}
+        savedCount={etoroSyncDialog.savedCount}
+        removedCount={etoroSyncDialog.removedCount}
+        holdings={etoroSyncDialog.holdings}
+      />
     </div>
   );
 }

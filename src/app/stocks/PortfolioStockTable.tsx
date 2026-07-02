@@ -112,6 +112,7 @@ function SortHeader({
   direction,
   onSort,
   align = 'left',
+  className = '',
 }: {
   label: string;
   sortKey: SortKey;
@@ -119,10 +120,11 @@ function SortHeader({
   direction: SortDir;
   onSort: (key: SortKey) => void;
   align?: 'left' | 'center';
+  className?: string;
 }) {
   const active = activeKey === sortKey;
   return (
-    <th className={`${thClass} ${align === 'center' ? 'text-center' : ''}`}>
+    <th className={`${thClass} ${align === 'center' ? 'text-center' : ''} ${className}`}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -190,15 +192,16 @@ export default function PortfolioStockTable({
                 onSort={handleSort}
               />
               <SortHeader
-                label="Since bought"
-                sortKey="gain_loss_pct"
+                label="Stocks Value"
+                sortKey="position_value"
                 activeKey={sortKey}
                 direction={sortDir}
                 onSort={handleSort}
+                className="min-w-[7.5rem]"
               />
               <SortHeader
-                label="Holding"
-                sortKey="position_value"
+                label="Since bought"
+                sortKey="gain_loss_pct"
                 activeKey={sortKey}
                 direction={sortDir}
                 onSort={handleSort}
@@ -267,13 +270,13 @@ export default function PortfolioStockTable({
                   <td className={`${tdClass} font-medium text-gray-900 dark:text-gray-100`}>
                     {formatGbpFromUsd(stock.active_price, usdToGbpRate)}
                   </td>
-                  <td className={`${tdClass} font-medium ${priceMoveColorClass(stock.gain_loss_pct)}`}>
-                    {formatPriceMovePercent(stock.gain_loss_pct)}
-                  </td>
-                  <td className={`${tdClass} font-medium ${priceMoveColorClass(stock.gain_loss_pct)}`}>
+                  <td className={`${tdClass} min-w-[7.5rem] font-medium text-gray-900 dark:text-gray-100`}>
                     {stock.position_value != null
                       ? formatPositionValue(stock.position_value, usdToGbpRate)
                       : '—'}
+                  </td>
+                  <td className={`${tdClass} font-medium ${priceMoveColorClass(stock.gain_loss_pct)}`}>
+                    {formatPriceMovePercent(stock.gain_loss_pct)}
                   </td>
                   <td className={`${tdClass} text-gray-700 dark:text-gray-300`}>
                     {formatShares(stock.shares)}

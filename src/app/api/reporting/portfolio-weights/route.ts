@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../utils/db';
+import { SQL_ETORO_RESOLVED_TICKER } from '../../../utils/etoroTicker';
 
 /** eToro portfolio amounts in DB are USD; convert for GBP display via Frankfurter (ECB). */
 async function fetchUsdToGbpRate(): Promise<number | null> {
@@ -25,7 +26,7 @@ export async function GET() {
   try {
     const sql = `
       SELECT
-        UPPER(COALESCE(NULLIF(TRIM(pd.ticker), ''), stc.symbol_full, 'UNKNOWN')) AS symbol,
+        UPPER(COALESCE(${SQL_ETORO_RESOLVED_TICKER}, '')) AS symbol,
         SUM(
           CASE
             WHEN pd.current_value IS NOT NULL AND pd.current_value::numeric > 0

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../../../utils/db';
+import { SQL_ETORO_RESOLVED_TICKER } from '../../../../utils/etoroTicker';
 
 // GET - Load portfolio data from database
 export async function GET(request: NextRequest) {
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     const columnsWithoutIsDividend = `
         pd.position_id, pd.instrument_id,
-        COALESCE(NULLIF(TRIM(pd.ticker), ''), stc.symbol_full) AS ticker,
+        ${SQL_ETORO_RESOLVED_TICKER} AS ticker,
         pd.shares_owned, pd.buy_cost, pd.current_price,
         pd.current_value, pd.gain_loss, pd.gain_loss_percent,
         ${hasStcDividendPerShare
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     if (activeOnly) {
       sql += ` WHERE pd.is_settled = true AND pd.shares_owned > 0`;
     }
-    sql += ` ORDER BY COALESCE(NULLIF(TRIM(pd.ticker), ''), stc.symbol_full) ASC, pd.position_id ASC`;
+    sql += ` ORDER BY ${SQL_ETORO_RESOLVED_TICKER} ASC NULLS LAST, pd.position_id ASC`;
 
     const result = await query(sql, params);
 

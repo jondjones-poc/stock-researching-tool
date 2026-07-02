@@ -352,7 +352,7 @@ export function RetirementByDividends() {
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      {error ? 'Unable to build projection.' : 'No data. Load portfolio on the Dividends page first.'}
+                      {error ? 'Unable to build projection.' : 'No data. Load portfolio on the eToro page first.'}
                     </td>
                   </tr>
                 ) : (
