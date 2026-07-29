@@ -206,12 +206,22 @@ export default function Navigation() {
                 <Link 
                   href="/research/markets" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/research/markets' 
+                    pathname === '/research/markets' || pathname?.startsWith('/research/markets/')
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  🗺️ Markets
+                  📈 Markets
+                </Link>
+                <Link 
+                  href="/research/sectors" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/research/sectors' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  🗺️ Sectors
                 </Link>
                 <Link 
                   href="/research/world-alerts" 

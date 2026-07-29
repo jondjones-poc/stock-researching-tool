@@ -1,701 +1,480 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  formatChangePct,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  MARKET_FLOW_PERIOD_LABELS,
+  MARKET_FLOW_PERIODS,
+  type MarketFlowPeriod,
+} from '@/app/config/marketFlow';
+import { useAuth } from '@/app/contexts/AuthContext';
+import {
   marketChangePctToColor,
   marketChangePctToTextColor,
-} from '../../utils/marketHeatColor';
-import { buildMarketSuggestionsPrompt } from '../../utils/buildMarketSuggestionsPrompt';
-import { buildMarketStockValidationPrompt } from '../../utils/buildMarketStockValidationPrompt';
-import { buildMarketTrendAnalysisPrompt } from '../../utils/buildMarketTrendAnalysisPrompt';
-import { buildMarketMoneyFlowPrompt } from '../../utils/buildMarketMoneyFlowPrompt';
+} from '@/app/utils/marketHeatColor';
 import {
-  MARKET_PERIOD_OPTIONS,
-  type MarketHeatmapPeriod,
-} from '../../utils/marketPeriods';
-import TickerText from '../../components/TickerText';
-import { simplyWallStStockUrl } from '../../utils/simplyWallStStockUrl';
+  formatPct,
+  type MarketFlowDashboardPayload,
+  type MarketFlowView,
+} from '@/app/utils/marketFlowFormat';
 
-interface MarketStock {
-  symbol: string;
-  name: string;
-  price: number | null;
-  change: number | null;
-  changePercent: number | null;
-}
+type SortOrder = 'best' | 'worst' | 'market';
 
-interface HeatmapMarket {
-  id: number;
-  name: string;
-  display_order: number;
-  stocks: MarketStock[];
-  meanChangePct: number | null;
-  cumulativeChangePct: number | null;
-  direction: 'up' | 'down' | 'flat' | 'unknown';
-}
+const CHART_COLORS = [
+  '#2563eb',
+  '#16a34a',
+  '#d97706',
+  '#dc2626',
+  '#7c3aed',
+  '#0891b2',
+  '#65a30d',
+  '#ea580c',
+  '#db2777',
+  '#4b5563',
+];
 
-interface MarketListItem {
-  id: number;
-  name: string;
-  display_order: number;
-  stocks: string[];
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-300 dark:border-gray-700 shadow-2xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-            aria-label="Close"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-export default function MarketsHeatmapPage() {
-  const [heatmap, setHeatmap] = useState<HeatmapMarket[]>([]);
-  const [marketList, setMarketList] = useState<MarketListItem[]>([]);
+export default function MarketFlowDashboardPage() {
+  const { isAdmin } = useAuth();
+  const [period, setPeriod] = useState<MarketFlowPeriod>('1m');
+  const [view, setView] = useState<MarketFlowView>('vs');
+  const [data, setData] = useState<MarketFlowDashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
-  const [quoteWarning, setQuoteWarning] = useState<string | null>(null);
-  const [cacheStale, setCacheStale] = useState(false);
-  const [cacheOldestAt, setCacheOldestAt] = useState<string | null>(null);
-  const [liveAvailable, setLiveAvailable] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sortOrder, setSortOrder] = useState<SortOrder>('best');
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const [globalCap, setGlobalCap] = useState<'large' | 'small'>('large');
+  const [globalPeriod, setGlobalPeriod] = useState<MarketFlowPeriod>('1y');
+  const [globalChart, setGlobalChart] = useState<{
+    series: Array<{ key: string; name: string; symbol: string }>;
+    chart: Array<Record<string, string | number>>;
+  } | null>(null);
 
-  const [showNewMarketModal, setShowNewMarketModal] = useState(false);
-  const [newMarketName, setNewMarketName] = useState('');
-
-  const [addStockMarket, setAddStockMarket] = useState<MarketListItem | null>(null);
-  const [newStockSymbol, setNewStockSymbol] = useState('');
-
-  const [askAiCopied, setAskAiCopied] = useState(false);
-  const [aiMessage, setAiMessage] = useState<string | null>(null);
-  const [marketAskAiCopiedId, setMarketAskAiCopiedId] = useState<number | null>(null);
-  const [heatmapAskAiCopiedId, setHeatmapAskAiCopiedId] = useState<number | null>(null);
-  const [footerAskAiCopied, setFooterAskAiCopied] = useState(false);
-  const [period, setPeriod] = useState<MarketHeatmapPeriod>('today');
-  const [liveLoading, setLiveLoading] = useState(false);
-
-  const loadHeatmap = useCallback(async (opts?: { live?: boolean }) => {
-    if (opts?.live) {
-      setLiveLoading(true);
-    } else {
-      setLoading(true);
-    }
+  const load = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ period });
-      if (opts?.live) params.set('live', 'true');
-
-      const [heatmapRes, marketsRes] = await Promise.all([
-        fetch(`/api/markets/heatmap?${params}`),
-        fetch('/api/markets'),
-      ]);
-
-      const heatmapJson = await heatmapRes.json();
-      const marketsJson = await marketsRes.json();
-
-      if (!heatmapRes.ok) {
-        throw new Error(heatmapJson.hint || heatmapJson.error || 'Failed to load heatmap');
-      }
-      if (!marketsRes.ok) {
-        throw new Error(marketsJson.hint || marketsJson.error || 'Failed to load markets');
-      }
-
-      setHeatmap(heatmapJson.markets || []);
-      setFetchedAt(heatmapJson.fetchedAt || null);
-      setQuoteWarning(heatmapJson.quoteWarning || null);
-      setCacheStale(Boolean(heatmapJson.cacheStale));
-      setCacheOldestAt(heatmapJson.cacheOldestAt || null);
-      setLiveAvailable(Boolean(heatmapJson.liveAvailable));
-      setMarketList(marketsJson.markets || []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load markets');
-    } finally {
-      if (opts?.live) {
-        setLiveLoading(false);
-      } else {
-        setLoading(false);
-      }
-    }
-  }, [period]);
-
-  useEffect(() => {
-    void loadHeatmap();
-  }, [loadHeatmap]);
-
-  const handleCreateMarket = async () => {
-    const trimmedName = newMarketName.trim();
-    if (!trimmedName) {
-      setError('Market name is required');
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/markets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName }),
-      });
+      const res = await fetch(`/api/market-flow?period=${period}&view=${view}`);
       const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || 'Failed to create market');
-      }
-      setShowNewMarketModal(false);
-      setNewMarketName('');
-      await loadHeatmap();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create market');
+      if (!res.ok) throw new Error(json.error || json.hint || 'Failed to load');
+      setData(json);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
+      setData(null);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  };
+  }, [period, view]);
 
-  const handleAddStock = async () => {
-    if (!addStockMarket) return;
-    const symbol = newStockSymbol.trim().toUpperCase();
-    if (!symbol) {
-      setError('Stock symbol is required');
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/markets/${addStockMarket.id}/stocks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || 'Failed to add stock');
-      }
-      setAddStockMarket(null);
-      setNewStockSymbol('');
-      await loadHeatmap();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to add stock');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRemoveStock = async (marketId: number, symbol: string) => {
-    setSaving(true);
-    setError(null);
+  const loadGlobal = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/markets/${marketId}/stocks?symbol=${encodeURIComponent(symbol)}`,
-        { method: 'DELETE' }
+        `/api/market-flow/global-chart?cap=${globalCap}&period=${globalPeriod}`
       );
       const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || 'Failed to remove stock');
-      }
-      await loadHeatmap();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to remove stock');
+      if (res.ok) setGlobalChart(json);
+    } catch {
+      // non-blocking
+    }
+  }, [globalCap, globalPeriod]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    void loadGlobal();
+  }, [loadGlobal]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/market-flow/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || json.details || 'Refresh failed');
+      await load();
+      await loadGlobal();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Refresh failed');
     } finally {
-      setSaving(false);
+      setRefreshing(false);
     }
   };
 
-  const handleAskAi = async () => {
-    try {
-      setAskAiCopied(true);
-      setAiMessage(null);
-      const prompt = buildMarketSuggestionsPrompt(marketList);
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(prompt);
-        setTimeout(() => setAskAiCopied(false), 3000);
-      } else {
-        setAiMessage('Could not access clipboard.');
-        setAskAiCopied(false);
+  const summaryCards = useMemo(() => {
+    if (!data) return [];
+    return [
+      {
+        label: 'Best market',
+        value: data.summary.bestMarket
+          ? `${data.summary.bestMarket.name} (${formatPct(data.summary.bestMarket.returnPct)})`
+          : '—',
+      },
+      {
+        label: 'Worst market',
+        value: data.summary.worstMarket
+          ? `${data.summary.worstMarket.name} (${formatPct(data.summary.worstMarket.returnPct)})`
+          : '—',
+      },
+      {
+        label: 'Strongest large-cap',
+        value: data.summary.strongestLarge
+          ? `${data.summary.strongestLarge.name} (${formatPct(data.summary.strongestLarge.returnPct)})`
+          : '—',
+      },
+      {
+        label: 'Strongest small-cap',
+        value: data.summary.strongestSmall
+          ? `${data.summary.strongestSmall.name} (${formatPct(data.summary.strongestSmall.returnPct)})`
+          : '—',
+      },
+    ];
+  }, [data]);
+
+  const fundCards = useMemo(() => {
+    if (!data) return [];
+
+    const cards = data.rows.flatMap((row) => {
+      const caps =
+        view === 'vs'
+          ? (['large', 'small'] as const)
+          : ([view] as Array<'large' | 'small'>);
+
+      return caps.map((capType) => {
+        const fund = row[capType];
+        return {
+          slug: row.slug,
+          market: row.name,
+          region: row.region,
+          capType,
+          symbol: fund.symbol,
+          fundName: fund.name,
+          returnPct: fund.returns[period],
+          price: fund.price,
+          leader: row.leader[period] === capType,
+        };
+      });
+    });
+
+    return cards.sort((a, b) => {
+      if (sortOrder === 'market') {
+        const market = a.market.localeCompare(b.market);
+        if (market !== 0) return market;
+        return a.capType === 'large' ? -1 : 1;
       }
-    } catch (e) {
-      setAiMessage(e instanceof Error ? e.message : 'Failed to copy prompt');
-      setAskAiCopied(false);
-    }
-  };
 
-  const handleMarketAskAi = async (market: MarketListItem) => {
-    try {
-      setMarketAskAiCopiedId(market.id);
-      setAiMessage(null);
-      const prompt = buildMarketStockValidationPrompt(market);
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(prompt);
-        setTimeout(() => setMarketAskAiCopiedId(null), 3000);
-      } else {
-        setAiMessage('Could not access clipboard.');
-        setMarketAskAiCopiedId(null);
-      }
-    } catch (e) {
-      setAiMessage(e instanceof Error ? e.message : 'Failed to copy prompt');
-      setMarketAskAiCopiedId(null);
-    }
-  };
+      const aValue = a.returnPct;
+      const bValue = b.returnPct;
+      if (aValue == null && bValue == null) return a.market.localeCompare(b.market);
+      if (aValue == null) return 1;
+      if (bValue == null) return -1;
+      return sortOrder === 'best' ? bValue - aValue : aValue - bValue;
+    });
+  }, [data, period, sortOrder, view]);
 
-  const handleHeatmapAskAi = async (market: HeatmapMarket) => {
-    try {
-      setHeatmapAskAiCopiedId(market.id);
-      setAiMessage(null);
-      const prompt = buildMarketTrendAnalysisPrompt(market);
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(prompt);
-        setTimeout(() => setHeatmapAskAiCopiedId(null), 3000);
-      } else {
-        setAiMessage('Could not access clipboard.');
-        setHeatmapAskAiCopiedId(null);
-      }
-    } catch (e) {
-      setAiMessage(e instanceof Error ? e.message : 'Failed to copy prompt');
-      setHeatmapAskAiCopiedId(null);
-    }
-  };
-
-  const handleFooterAskAi = async () => {
-    try {
-      setFooterAskAiCopied(true);
-      setAiMessage(null);
-      const prompt = buildMarketMoneyFlowPrompt(heatmap, period, fetchedAt);
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(prompt);
-        setTimeout(() => setFooterAskAiCopied(false), 3000);
-      } else {
-        setAiMessage('Could not access clipboard.');
-        setFooterAskAiCopied(false);
-      }
-    } catch (e) {
-      setAiMessage(e instanceof Error ? e.message : 'Failed to copy prompt');
-      setFooterAskAiCopied(false);
-    }
-  };
-
-  const sortedHeatmap = [...heatmap].sort((a, b) => {
-    const aPct = a.meanChangePct;
-    const bPct = b.meanChangePct;
-    if (aPct === null && bPct === null) return a.name.localeCompare(b.name);
-    if (aPct === null) return 1;
-    if (bPct === null) return -1;
-    if (bPct !== aPct) return bPct - aPct;
-    return a.name.localeCompare(b.name);
-  });
-
-  const footerTickerParts = [
-    cacheStale && !loading
-      ? `Stale cache${
-          cacheOldestAt
-            ? ` — oldest update ${new Date(cacheOldestAt).toLocaleString()}`
-            : ''
-        }`
-      : null,
-    quoteWarning && !loading ? quoteWarning : null,
-    error,
-  ].filter((part): part is string => Boolean(part));
-  const footerTickerText = footerTickerParts.join('   •   ');
+  const pillClass = (active: boolean) =>
+    `px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+      active
+        ? 'bg-blue-600 border-blue-600 text-white'
+        : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
+    }`;
 
   return (
-    <div className="h-[calc(100vh-120px)] min-h-0 bg-white dark:bg-gray-900 text-gray-900 dark:text-white overflow-hidden">
-      <div className="flex flex-col lg:flex-row h-full min-h-0">
-        <main className="flex-1 flex flex-col min-h-0 min-w-0 p-4 lg:p-6">
-          <div className="flex flex-wrap items-center justify-center gap-2 mb-3 shrink-0">
-            {MARKET_PERIOD_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setPeriod(opt.id)}
-                disabled={loading || liveLoading}
-                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                  period === opt.id
-                    ? 'bg-blue-600 border-blue-600 text-white'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
-          {loading && heatmap.length === 0 ? (
-            <div className="flex items-center justify-center h-64 text-gray-500">Loading heatmap…</div>
-          ) : heatmap.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center text-gray-500 dark:text-gray-400 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl">
-              <p className="text-lg font-medium mb-2">No markets yet</p>
-              <p className="text-sm max-w-md mb-4">
-                Add a market from the sidebar, then attach stocks with the + button on each row.
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowNewMarketModal(true)}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700"
-              >
-                + New market
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-              {sortedHeatmap.map((market) => {
-                const pct = market.meanChangePct ?? 0;
-                const bg = marketChangePctToColor(pct);
-                const fg = marketChangePctToTextColor(pct);
-                const directionArrow =
-                  market.direction === 'up' ? '↑' : market.direction === 'down' ? '↓' : '→';
-
-                return (
-                  <div
-                    key={market.id}
-                    className="rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden shadow-sm min-h-[160px] flex flex-col"
-                    style={{ backgroundColor: bg, color: fg }}
-                  >
-                    <div className="p-4 flex-1 flex flex-col">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <h2 className="font-bold text-lg leading-tight">{market.name}</h2>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-2xl font-bold tabular-nums leading-none">{directionArrow}</span>
-                          <button
-                            type="button"
-                            onClick={() => void handleHeatmapAskAi(market)}
-                            title="Ask AI why this sector is moving"
-                            className={`text-[10px] px-1.5 py-1 rounded font-medium border transition-colors ${
-                              heatmapAskAiCopiedId === market.id
-                                ? 'border-green-600 bg-green-600/20'
-                                : 'border-current/40 hover:bg-black/10'
-                            }`}
-                          >
-                            {heatmapAskAiCopiedId === market.id ? '✓' : 'AI'}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="text-3xl font-bold tabular-nums mb-3">
-                        {market.meanChangePct !== null ? formatChangePct(market.meanChangePct) : '—'}
-                      </div>
-                      <div className="mt-auto space-y-1 text-sm opacity-90">
-                        {market.stocks.length === 0 ? (
-                          <p className="opacity-75 italic">No stocks yet</p>
-                        ) : (
-                          market.stocks.map((stock) => (
-                            <div key={stock.symbol} className="flex justify-between gap-2">
-                              <a
-                                href={simplyWallStStockUrl(stock.symbol)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-medium underline-offset-2 hover:underline"
-                                style={{ color: 'inherit' }}
-                              >
-                                {stock.symbol}
-                              </a>
-                              <span className="tabular-nums">
-                                {stock.changePercent !== null
-                                  ? formatChangePct(stock.changePercent)
-                                  : '—'}
-                              </span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          </div>
-
-          <div className="shrink-0 pt-3 mt-4 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3 min-w-0">
-            {footerTickerText ? (
-              <TickerText
-                className={`flex-1 min-w-0 text-xs ${
-                  error && !quoteWarning && !cacheStale
-                    ? 'text-red-700 dark:text-red-300'
-                    : 'text-amber-800 dark:text-amber-200'
-                }`}
-                text={footerTickerText}
-              />
-            ) : (
-              <div className="flex-1 min-w-0" />
+    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+      <div className="max-w-7xl mx-auto p-4 lg:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h1 className="text-2xl font-bold">Global Market Flow Tracker</h1>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            {data?.lastUpdated && (
+              <span className="whitespace-nowrap">
+                {new Date(data.lastUpdated).toLocaleString()}
+              </span>
             )}
-            <div className="flex items-center justify-end gap-x-3 shrink-0">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="px-2 py-0.5 rounded" style={{ backgroundColor: '#b91c1c', color: '#fff' }}>
-                  ≤ −5%
-                </span>
-                <span className="px-2 py-0.5 rounded" style={{ backgroundColor: '#eab308', color: '#111' }}>
-                  ~0%
-                </span>
-                <span className="px-2 py-0.5 rounded" style={{ backgroundColor: '#15803d', color: '#fff' }}>
-                  ≥ +5%
-                </span>
-              </div>
-              {fetchedAt && !loading && !liveLoading && (
-                <p className="text-xs text-gray-400 whitespace-nowrap">
-                  {new Date(fetchedAt).toLocaleString()}
-                </p>
-              )}
+            {data?.mode && (
+              <span className="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600">
+                {data.mode}
+              </span>
+            )}
+            {data?.dataStale && (
+              <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
+                Stale
+              </span>
+            )}
+            <div className="relative">
               <button
                 type="button"
-                onClick={() => void loadHeatmap()}
-                disabled={loading || liveLoading}
-                title="Reload from cache"
-                aria-label="Reload from cache"
-                className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                onClick={() => setShowSortMenu((open) => !open)}
+                title="Sort market cards"
+                aria-label="Sort market cards"
+                aria-expanded={showSortMenu}
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  showSortMenu
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    d="M3 6h18M6 12h12m-9 6h6"
                   />
                 </svg>
               </button>
+              {showSortMenu && (
+                <div className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                  {(
+                    [
+                      ['best', 'Best to worst'],
+                      ['worst', 'Worst to best'],
+                      ['market', 'Market A–Z'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        setSortOrder(id);
+                        setShowSortMenu(false);
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
+                        sortOrder === id
+                          ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {label}
+                      {sortOrder === id && <span aria-hidden>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {isAdmin && (
               <button
                 type="button"
-                onClick={() => void loadHeatmap({ live: true })}
-                disabled={loading || liveLoading || !liveAvailable}
-                title={
-                  liveAvailable
-                    ? 'Force-fetch live data for this period'
-                    : 'Cache is less than 24 hours old'
-                }
+                onClick={() => void handleRefresh()}
+                disabled={refreshing}
+                title="Fetch latest prices and recompute returns"
                 className="px-3 py-1.5 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {liveLoading ? 'Live…' : 'Live'}
+                {refreshing ? 'Refreshing…' : 'Refresh'}
               </button>
-              <button
-                type="button"
-                onClick={() => void handleFooterAskAi()}
-                disabled={loading || liveLoading || heatmap.length === 0 || footerAskAiCopied}
-                title="Ask AI where Wall Street money is moving"
-                className={`text-xs px-2 py-1.5 rounded-lg font-medium border transition-colors ${
-                  footerAskAiCopied
-                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                    : 'border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {footerAskAiCopied ? '✓' : 'AI'}
-              </button>
-            </div>
-          </div>
-        </main>
-
-        <aside className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col min-h-0 h-full border-t lg:border-t-0 lg:border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <div className="flex items-center justify-between p-4 lg:px-5 lg:pt-5 pb-3 shrink-0">
-            <h2 className="text-lg font-semibold">Markets</h2>
-            <button
-              type="button"
-              onClick={() => {
-                setNewMarketName('');
-                setShowNewMarketModal(true);
-              }}
-              title="Add market"
-              className="w-8 h-8 flex items-center justify-center rounded-full bg-green-600 text-white hover:bg-green-700 shadow-sm"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 lg:px-5">
-          {marketList.length === 0 ? (
-            <p className="text-sm text-gray-500">No markets yet. Tap + to add one.</p>
-          ) : (
-            <ul className="space-y-2 pb-2">
-              {marketList.map((market) => (
-                <li
-                  key={market.id}
-                  className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <p className="font-medium truncate flex-1">{market.name}</p>
-                    <div className="flex gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => void handleMarketAskAi(market)}
-                        title="Ask AI to validate stocks"
-                        className={`text-[10px] px-1.5 py-1 rounded font-medium border transition-colors ${
-                          marketAskAiCopiedId === market.id
-                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                            : 'border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20'
-                        }`}
-                      >
-                        {marketAskAiCopiedId === market.id ? '✓' : 'AI'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNewStockSymbol('');
-                          setAddStockMarket(market);
-                        }}
-                        title="Add stock"
-                        className="w-7 h-7 flex items-center justify-center rounded-full border border-green-500 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  {market.stocks.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {market.stocks.map((sym) => (
-                        <span
-                          key={sym}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs font-medium"
-                        >
-                          {sym}
-                          <button
-                            type="button"
-                            onClick={() => void handleRemoveStock(market.id, sym)}
-                            className="text-gray-400 hover:text-red-500"
-                            aria-label={`Remove ${sym}`}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-400">No stocks — tap + to add</p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          </div>
-
-          <div className="shrink-0 p-4 lg:p-5 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <button
-              type="button"
-              onClick={() => void handleAskAi()}
-              disabled={askAiCopied}
-              className={`w-full px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                askAiCopied
-                  ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                  : 'border-violet-300 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40'
-              }`}
-            >
-              {askAiCopied ? '✓ Copied!' : '🤖 Ask AI — missing sectors?'}
-            </button>
-            {aiMessage && (
-              <p className="text-xs text-green-600 dark:text-green-400 leading-relaxed mt-2">{aiMessage}</p>
             )}
           </div>
-        </aside>
-      </div>
+        </div>
 
-      {showNewMarketModal && (
-        <Modal title="New market" onClose={() => setShowNewMarketModal(false)}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Market name
-              </label>
-              <input
-                type="text"
-                value={newMarketName}
-                onChange={(e) => setNewMarketName(e.target.value)}
-                placeholder="e.g. Big Tech"
-                className="w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleCreateMarket();
-                }}
-              />
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ['vs', 'Large vs Small'],
+                ['large', 'Large-cap'],
+                ['small', 'Small-cap'],
+              ] as const
+            ).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => setView(id)} className={pillClass(view === id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {MARKET_FLOW_PERIODS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPeriod(p)}
+                className={pillClass(period === p)}
+              >
+                {MARKET_FLOW_PERIOD_LABELS[p]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/20 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        {data?.staleWarning && !error && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
+            {data.staleWarning}
+          </div>
+        )}
+
+        {loading && !data ? (
+          <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+            Loading market flow data...
+          </div>
+        ) : data ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+              {summaryCards.map((card) => (
+                <div
+                  key={card.label}
+                  className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3"
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    {card.label}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold">{card.value}</div>
+                </div>
+              ))}
             </div>
-            <p className="text-xs text-gray-500">
-              Add stocks after creating the market using the + button on each row.
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 mb-6">
+              {fundCards.map((card, index) => {
+                const pct = card.returnPct;
+                const backgroundColor =
+                  pct == null ? '#9ca3af' : marketChangePctToColor(pct);
+                const color = pct == null ? '#ffffff' : marketChangePctToTextColor(pct);
+                const arrow = pct == null ? '→' : pct > 0 ? '↑' : pct < 0 ? '↓' : '→';
+
+                return (
+                  <Link
+                    key={`${card.slug}-${card.capType}`}
+                    href={`/research/markets/${card.slug}`}
+                    className="rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden shadow-sm min-h-[180px] flex flex-col transition-transform hover:-translate-y-0.5 hover:shadow-md"
+                    style={{ backgroundColor, color }}
+                  >
+                    <div className="p-4 flex-1 flex flex-col">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="font-bold text-lg leading-tight">{card.market}</h2>
+                            <span className="text-xs font-semibold opacity-70">#{index + 1}</span>
+                          </div>
+                          <p className="text-xs opacity-75">{card.region}</p>
+                        </div>
+                        <span className="text-2xl font-bold tabular-nums leading-none">{arrow}</span>
+                      </div>
+
+                      <div className="text-3xl font-bold tabular-nums mb-3">
+                        {formatPct(pct)}
+                      </div>
+
+                      <div className="mt-auto">
+                        <div className="flex items-center justify-between gap-2 text-sm">
+                          <span className="font-bold">{card.symbol}</span>
+                          <span className="rounded border border-current/30 px-2 py-0.5 text-[10px] font-bold uppercase">
+                            {card.capType === 'large' ? 'Large-cap' : 'Small-cap'}
+                          </span>
+                        </div>
+                        <p className="mt-1 truncate text-xs opacity-80">{card.fundName}</p>
+                        <div className="mt-2 flex items-center justify-between text-xs opacity-80">
+                          <span>
+                            {card.price != null ? `$${card.price.toFixed(2)}` : 'Price unavailable'}
+                          </span>
+                          {view === 'vs' && (
+                            <span className="font-semibold">
+                              {card.leader ? 'Leading' : 'Trailing'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h2 className="text-sm font-semibold">
+                  All markets — {globalCap === 'large' ? 'large-cap' : 'small-cap'} (indexed to 100)
+                </h2>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGlobalCap('large')}
+                    className={pillClass(globalCap === 'large')}
+                  >
+                    Large-cap
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGlobalCap('small')}
+                    className={pillClass(globalCap === 'small')}
+                  >
+                    Small-cap
+                  </button>
+                  {MARKET_FLOW_PERIODS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setGlobalPeriod(p)}
+                      className={pillClass(globalPeriod === p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="h-80 w-full">
+                {globalChart && globalChart.chart.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={globalChart.chart}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#9ca3af" opacity={0.3} />
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={40} />
+                      <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11 }} width={44} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12 }}
+                        formatter={(v: number) => v.toFixed(1)}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      {globalChart.series.map((s, i) => (
+                        <Line
+                          key={s.key}
+                          type="monotone"
+                          dataKey={s.key}
+                          name={`${s.name} (${s.symbol})`}
+                          stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                          dot={false}
+                          strokeWidth={1.75}
+                          connectNulls
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                    No chart data yet
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+              Tracks price momentum and market leadership. Does not show confirmed investor cash
+              flows.
             </p>
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => void handleCreateMarket()}
-                disabled={saving || !newMarketName.trim()}
-                className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium"
-              >
-                {saving ? 'Creating…' : 'Create'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowNewMarketModal(false)}
-                className="flex-1 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 px-4 py-2 rounded-lg font-medium"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {addStockMarket && (
-        <Modal
-          title={`Add stock — ${addStockMarket.name}`}
-          onClose={() => setAddStockMarket(null)}
-        >
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Symbol
-              </label>
-              <input
-                type="text"
-                value={newStockSymbol}
-                onChange={(e) => setNewStockSymbol(e.target.value.toUpperCase())}
-                placeholder="e.g. AAPL"
-                className="w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg uppercase text-gray-900 dark:text-white"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleAddStock();
-                }}
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => void handleAddStock()}
-                disabled={saving || !newStockSymbol.trim()}
-                className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium"
-              >
-                {saving ? 'Adding…' : 'Add stock'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddStockMarket(null)}
-                className="flex-1 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 px-4 py-2 rounded-lg font-medium"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
