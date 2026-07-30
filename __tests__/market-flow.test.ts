@@ -5,7 +5,7 @@ import {
 } from '../src/app/config/marketFlow';
 import { computeReturnPct, normalizeSeriesTo100, buildNormalizedComparison } from '../src/app/utils/marketFlowReturns';
 import { generateMockEod } from '../src/app/utils/marketFlowFetch';
-import { formatPct, heatClass } from '../src/app/utils/marketFlowFormat';
+import { capRelativeSpread, formatPct, heatClass, lcScSpreadTooltip } from '../src/app/utils/marketFlowFormat';
 
 describe('market flow config', () => {
   test('seeds ten markets with large and small funds', () => {
@@ -18,9 +18,9 @@ describe('market flow config', () => {
     }
   });
 
-  test('has five return periods', () => {
-    expect(MARKET_FLOW_PERIODS).toEqual(['1w', '1m', '3m', '6m', '1y']);
-    expect(Object.keys(MARKET_FLOW_PERIOD_DAYS)).toHaveLength(5);
+  test('has eight return periods including multi-year', () => {
+    expect(MARKET_FLOW_PERIODS).toEqual(['1w', '1m', '3m', '6m', '1y', '3y', '5y', '10y']);
+    expect(Object.keys(MARKET_FLOW_PERIOD_DAYS)).toHaveLength(8);
   });
 });
 
@@ -91,5 +91,60 @@ describe('format helpers', () => {
     expect(heatClass(5)).toContain('green');
     expect(heatClass(-5)).toContain('red');
     expect(heatClass(null)).toContain('gray');
+  });
+
+  test('cap-relative spread flips by card type', () => {
+    expect(capRelativeSpread('large', 31.46).label).toBe('vs Small-cap +31.46%');
+    expect(capRelativeSpread('small', 31.46).label).toBe('vs Large-cap -31.46%');
+    expect(lcScSpreadTooltip(3, 'large').title).toContain('Ahead of small-cap');
+    expect(lcScSpreadTooltip(3, 'small').title).toContain('Behind large-cap');
+    expect(lcScSpreadTooltip(0.2, 'large').title).toContain('Almost even');
+  });
+});
+
+describe('market flow ask-ai prompt', () => {
+  test('includes market, ETF, and investability sections', () => {
+    const { buildMarketFlowAskAiPrompt } = require('../src/app/utils/buildMarketFlowAskAiPrompt');
+    const prompt = buildMarketFlowAskAiPrompt({
+      slug: 'france',
+      market: 'France',
+      region: 'Europe',
+      capType: 'large',
+      symbol: 'EWQ',
+      fundName: 'iShares MSCI France ETF',
+      returnPct: 12.5,
+      relativeToSpy: 8.5,
+      spyReturn: 4.0,
+      spread: 4.3,
+      price: 42.1,
+      leader: true,
+      holdings: [
+        { symbol: 'MC', name: 'LVMH', weightPct: 12, rank: 1 },
+        { symbol: 'TTE', name: 'TotalEnergies', weightPct: 8.5, rank: 2 },
+      ],
+      peer: {
+        symbol: 'FLFR',
+        fundName: 'Franklin FTSE France ETF',
+        returnPct: 8.2,
+        relativeToSpy: 4.2,
+        leader: false,
+      },
+      context: {
+        period: '1m',
+        lastUpdated: '2026-07-29T12:00:00Z',
+        strongestLarge: 'France (+12.50%)',
+        strongestSmall: 'China (+9.00%)',
+        bestMarket: 'France (+10.00%)',
+        worstMarket: 'United Kingdom (+1.00%)',
+      },
+    });
+    expect(prompt).toContain('France');
+    expect(prompt).toContain('EWQ');
+    expect(prompt).toContain('Stocks pushing it');
+    expect(prompt).toContain('Invest or pass?');
+    expect(prompt).toContain('FLFR');
+    expect(prompt).toContain('vs SPY');
+    expect(prompt).toContain('LVMH');
+    expect(prompt).toContain('CACHED TOP HOLDINGS');
   });
 });

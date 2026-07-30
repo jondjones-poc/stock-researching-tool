@@ -86,7 +86,8 @@ export async function fetchMarketFlowEod(
 
 export function defaultHistoryFromDate(): string {
   const d = new Date();
-  d.setUTCFullYear(d.getUTCFullYear() - 2);
+  // Cover 10y returns with a little buffer for weekends/holidays
+  d.setUTCFullYear(d.getUTCFullYear() - 11);
   return d.toISOString().slice(0, 10);
 }
 

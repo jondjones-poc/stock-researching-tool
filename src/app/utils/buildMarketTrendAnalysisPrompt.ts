@@ -54,6 +54,7 @@ export function buildMarketTrendAnalysisPrompt(market: MarketForTrendPrompt): st
     '3. Explain the **reasons behind** the move: which stories or data points are driving it, and which stocks in the basket are leading vs lagging?',
     '4. Note any **risks or counter-narratives** that could reverse the trend.',
     '5. Give a practical **research plan**: specific filings, earnings calls, data releases, charts, and trusted sources to dig deeper (include ticker-level angles where useful).',
+    '6. List the **10 most interesting stocks to look at in this sector** right now. Prefer liquid names with a clear research angle (leadership, laggard bounce, thematic pure-play, earnings catalyst, valuation dislocation, etc.). Include names already in the basket when they deserve attention, and add other sector names that are more interesting if needed.',
     '',
     '--- OUTPUT FORMAT ---',
     '### Headline (one sentence)',
@@ -70,6 +71,18 @@ export function buildMarketTrendAnalysisPrompt(market: MarketForTrendPrompt): st
     '',
     '### How to research further',
     '- [concrete next steps: sources, metrics, events to watch]',
+    '',
+    '### 10 interesting stocks in this sector',
+    '1. TICKER — one-line why it is worth a look',
+    '2. TICKER — ...',
+    '3. TICKER — ...',
+    '4. TICKER — ...',
+    '5. TICKER — ...',
+    '6. TICKER — ...',
+    '7. TICKER — ...',
+    '8. TICKER — ...',
+    '9. TICKER — ...',
+    '10. TICKER — ...',
   ];
 
   return lines.join('\n');

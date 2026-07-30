@@ -10,18 +10,19 @@ The former sector heatmap now lives at [`/research/sectors`](https://stock-resea
 
 ---
 
-## Features
+## Card insight features
 
-- Ten markets × large-cap + small-cap funds (editable in `src/app/config/marketFlow.ts`)
-- Periods: 1w / 1m / 3m / 6m / 1y
-- Dashboard table with heat-map cells, leaders, rankings, summary cards
-- Views: large-cap · small-cap · large vs small
-- Per-market detail: prices, returns, indexed chart (base 100), history table
-- Global chart of all ten large- or small-cap funds (indexed)
-- DB-backed dashboard (no market API on page load)
-- Daily incremental price updates
-- Mock mode without API keys
-- Admin (or cron) manual refresh
+Each market card shows:
+
+- **vs Small-cap / vs Large-cap** — size gap from this card’s point of view (hover for meaning / why care / theory)
+- **Top holdings** — first three tickers from a weekly-cached holdings list
+
+Ask AI prompts include SPY-relative, spread, and the cached top 10 holdings.
+
+The bottom chart includes a dashed **vs SPY** benchmark line and series toggles.
+
+Holdings refresh about once a week during `/api/market-flow/refresh` (or immediately with `forceHoldings` / `forceFullHistory`).
+
 
 ---
 
@@ -78,7 +79,9 @@ curl -X POST http://localhost:3000/api/market-flow/refresh \
   -H "Content-Type: application/json"
 ```
 
-Use `"forceFullHistory": true` in the JSON body to re-pull ~2 years.
+Use `"forceFullHistory": true` in the JSON body to re-pull ~11 years (needed for 3y/5y/10y returns).
+
+After adding long periods (migration `027`), run an admin refresh with full history once so older prices are imported.
 
 ---
 

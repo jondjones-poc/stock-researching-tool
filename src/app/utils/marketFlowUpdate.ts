@@ -9,6 +9,7 @@ import {
   upsertMarketFlowPrices,
 } from './marketFlowDb';
 import { defaultHistoryFromDate, fetchMarketFlowEod, todayUtcDate } from './marketFlowFetch';
+import { refreshFundHoldingsIfStale } from './marketFlowHoldings';
 import { addCalendarDays, recomputeFundReturns } from './marketFlowReturns';
 
 export interface MarketFlowUpdateResult {
@@ -21,6 +22,8 @@ export interface MarketFlowUpdateResult {
     symbol: string;
     ok: boolean;
     inserted: number;
+    holdingsRefreshed?: boolean;
+    holdingsCount?: number;
     source?: string;
     error?: string;
   }>;
@@ -33,12 +36,14 @@ function sleep(ms: number): Promise<void> {
 /**
  * Daily (or admin) update:
  * - Seeds universe if empty
- * - Incremental: after first import, only fetch from last_price_date - 5 days
+ * - Incremental price import
+ * - Refreshes ETF top holdings about weekly
  * - Continues if one fund fails
  * - Recomputes returns from DB prices
  */
 export async function runMarketFlowUpdate(options?: {
   forceFullHistory?: boolean;
+  forceHoldings?: boolean;
 }): Promise<MarketFlowUpdateResult> {
   await seedMarketFlowUniverse();
 
@@ -70,7 +75,29 @@ export async function runMarketFlowUpdate(options?: {
         status: newLatest ? 'ok' : 'error',
       });
 
-      details.push({ symbol: fund.symbol, ok: true, inserted, source });
+      let holdingsRefreshed = false;
+      let holdingsCount = 0;
+      try {
+        const holdingsResult = await refreshFundHoldingsIfStale(
+          fund.id,
+          fund.symbol,
+          options?.forceHoldings === true || options?.forceFullHistory === true
+        );
+        holdingsRefreshed = holdingsResult.refreshed;
+        holdingsCount = holdingsResult.count;
+        if (!mock && holdingsRefreshed) await sleep(250);
+      } catch {
+        // holdings are optional enrichment
+      }
+
+      details.push({
+        symbol: fund.symbol,
+        ok: true,
+        inserted,
+        holdingsRefreshed,
+        holdingsCount,
+        source,
+      });
       fundsOk += 1;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -79,7 +106,6 @@ export async function runMarketFlowUpdate(options?: {
         lastError: message,
         status: 'error',
       });
-      // Still try to recompute from whatever history we already have
       try {
         await recomputeFundReturns(fund.id);
       } catch {
@@ -89,7 +115,6 @@ export async function runMarketFlowUpdate(options?: {
       fundsFailed += 1;
     }
 
-    // Stay within free API limits
     if (!mock) await sleep(350);
   }
 

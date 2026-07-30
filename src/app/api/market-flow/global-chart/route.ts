@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
       ? (periodParam as MarketFlowPeriod)
       : '1y';
 
-    const funds = (await listActiveMarketFlowFunds()).filter((f) => f.cap_type === cap);
+    const allFunds = await listActiveMarketFlowFunds();
+    const funds = allFunds.filter((f) => f.cap_type === cap);
+    const spyFund = allFunds.find((f) => f.symbol.toUpperCase() === 'SPY') ?? null;
     const asOfCandidates: string[] = [];
     for (const f of funds) {
       const latest = await getLatestClose(f.id);
@@ -52,6 +54,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    let benchmarkKey: string | null = null;
+    if (spyFund) {
+      benchmarkKey = 'benchmark_spy';
+      const prices = await getPricesForFund(spyFund.id, fromDate);
+      const normalized = normalizeSeriesTo100(
+        fromDate ? prices.filter((point) => point.date >= fromDate) : prices
+      );
+      for (const point of normalized) {
+        const row = byDate.get(point.date) ?? {};
+        row[benchmarkKey] = point.value;
+        byDate.set(point.date, row);
+      }
+    }
+
     const chart = [...byDate.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, values]) => ({ date, ...values }));
@@ -61,6 +77,13 @@ export async function GET(request: NextRequest) {
       period,
       asOf,
       series: seriesMeta,
+      benchmark: spyFund
+        ? {
+            key: benchmarkKey,
+            name: spyFund.name,
+            symbol: spyFund.symbol,
+          }
+        : null,
       chart,
     });
   } catch (e: unknown) {

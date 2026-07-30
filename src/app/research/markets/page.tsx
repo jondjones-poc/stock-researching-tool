@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -17,13 +16,16 @@ import {
   MARKET_FLOW_PERIODS,
   type MarketFlowPeriod,
 } from '@/app/config/marketFlow';
-import { useAuth } from '@/app/contexts/AuthContext';
 import {
   marketChangePctToColor,
   marketChangePctToTextColor,
 } from '@/app/utils/marketHeatColor';
+import { buildMarketFlowAskAiPrompt } from '@/app/utils/buildMarketFlowAskAiPrompt';
+import { useAuth } from '@/app/contexts/AuthContext';
 import {
+  capRelativeSpread,
   formatPct,
+  lcScSpreadTooltip,
   type MarketFlowDashboardPayload,
   type MarketFlowView,
 } from '@/app/utils/marketFlowFormat';
@@ -46,17 +48,23 @@ const CHART_COLORS = [
 export default function MarketFlowDashboardPage() {
   const { isAdmin } = useAuth();
   const [period, setPeriod] = useState<MarketFlowPeriod>('1m');
+  const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<MarketFlowView>('vs');
   const [data, setData] = useState<MarketFlowDashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [sortOrder, setSortOrder] = useState<SortOrder>('best');
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [askAiCopiedKey, setAskAiCopiedKey] = useState<string | null>(null);
+  const [askAiMessage, setAskAiMessage] = useState<string | null>(null);
+  const [cardsVisible, setCardsVisible] = useState(true);
+  const viewTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [globalCap, setGlobalCap] = useState<'large' | 'small'>('large');
   const [globalPeriod, setGlobalPeriod] = useState<MarketFlowPeriod>('1y');
+  const [hiddenChartKeys, setHiddenChartKeys] = useState<string[]>([]);
   const [globalChart, setGlobalChart] = useState<{
     series: Array<{ key: string; name: string; symbol: string }>;
+    benchmark: { key: string; name: string; symbol: string } | null;
     chart: Array<Record<string, string | number>>;
   } | null>(null);
 
@@ -82,11 +90,53 @@ export default function MarketFlowDashboardPage() {
         `/api/market-flow/global-chart?cap=${globalCap}&period=${globalPeriod}`
       );
       const json = await res.json();
-      if (res.ok) setGlobalChart(json);
+      if (res.ok) {
+        setGlobalChart(json);
+        setHiddenChartKeys([]);
+      }
     } catch {
       // non-blocking
     }
   }, [globalCap, globalPeriod]);
+
+  const chartToggleItems = useMemo(() => {
+    if (!globalChart) return [];
+    const items = globalChart.series.map((series) => ({
+      key: series.key,
+      label: `${series.name} (${series.symbol})`,
+      isBenchmark: false,
+    }));
+    if (globalChart.benchmark) {
+      items.push({
+        key: globalChart.benchmark.key,
+        label: `vs SPY (${globalChart.benchmark.symbol})`,
+        isBenchmark: true,
+      });
+    }
+    return items;
+  }, [globalChart]);
+
+  const toggleChartSeries = (key: string) => {
+    setHiddenChartKeys((prev) =>
+      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
+    );
+  };
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/market-flow/refresh', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Refresh failed');
+      await load();
+      await loadGlobal();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Refresh failed');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load, loadGlobal]);
 
   useEffect(() => {
     void load();
@@ -96,24 +146,22 @@ export default function MarketFlowDashboardPage() {
     void loadGlobal();
   }, [loadGlobal]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/market-flow/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+  useEffect(() => {
+    return () => {
+      if (viewTransitionTimer.current) clearTimeout(viewTransitionTimer.current);
+    };
+  }, []);
+
+  const handleViewChange = (nextView: MarketFlowView) => {
+    if (nextView === view) return;
+    if (viewTransitionTimer.current) clearTimeout(viewTransitionTimer.current);
+    setCardsVisible(false);
+    viewTransitionTimer.current = setTimeout(() => {
+      setView(nextView);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setCardsVisible(true));
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.details || 'Refresh failed');
-      await load();
-      await loadGlobal();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Refresh failed');
-    } finally {
-      setRefreshing(false);
-    }
+    }, 180);
   };
 
   const summaryCards = useMemo(() => {
@@ -149,6 +197,25 @@ export default function MarketFlowDashboardPage() {
   const fundCards = useMemo(() => {
     if (!data) return [];
 
+    const context = {
+      period,
+      lastUpdated: data.lastUpdated,
+      strongestLarge: data.summary.strongestLarge
+        ? `${data.summary.strongestLarge.name} (${formatPct(data.summary.strongestLarge.returnPct)})`
+        : null,
+      strongestSmall: data.summary.strongestSmall
+        ? `${data.summary.strongestSmall.name} (${formatPct(data.summary.strongestSmall.returnPct)})`
+        : null,
+      bestMarket: data.summary.bestMarket
+        ? `${data.summary.bestMarket.name} (${formatPct(data.summary.bestMarket.returnPct)})`
+        : null,
+      worstMarket: data.summary.worstMarket
+        ? `${data.summary.worstMarket.name} (${formatPct(data.summary.worstMarket.returnPct)})`
+        : null,
+    };
+
+    const spyReturn = data.benchmark.returnPct;
+
     const cards = data.rows.flatMap((row) => {
       const caps =
         view === 'vs'
@@ -157,6 +224,9 @@ export default function MarketFlowDashboardPage() {
 
       return caps.map((capType) => {
         const fund = row[capType];
+        const peerType = capType === 'large' ? 'small' : 'large';
+        const peer = row[peerType];
+        const spread = row.spread[period];
         return {
           slug: row.slug,
           market: row.name,
@@ -165,8 +235,20 @@ export default function MarketFlowDashboardPage() {
           symbol: fund.symbol,
           fundName: fund.name,
           returnPct: fund.returns[period],
+          relativeToSpy: fund.relativeToSpy,
+          spyReturn,
+          spread,
           price: fund.price,
           leader: row.leader[period] === capType,
+          holdings: fund.holdings,
+          peer: {
+            symbol: peer.symbol,
+            fundName: peer.name,
+            returnPct: peer.returns[period],
+            relativeToSpy: peer.relativeToSpy,
+            leader: row.leader[period] === peerType,
+          },
+          context,
         };
       });
     });
@@ -187,6 +269,29 @@ export default function MarketFlowDashboardPage() {
     });
   }, [data, period, sortOrder, view]);
 
+  const handleCardAskAi = async (card: (typeof fundCards)[number]) => {
+    const key = `${card.slug}-${card.capType}`;
+    try {
+      setAskAiCopiedKey(key);
+      setAskAiMessage(null);
+      const prompt = buildMarketFlowAskAiPrompt(card);
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(prompt);
+        setAskAiMessage('Prompt copied — paste into ChatGPT');
+        setTimeout(() => {
+          setAskAiCopiedKey(null);
+          setAskAiMessage(null);
+        }, 3000);
+      } else {
+        setAskAiMessage('Could not access clipboard.');
+        setAskAiCopiedKey(null);
+      }
+    } catch (e) {
+      setAskAiMessage(e instanceof Error ? e.message : 'Failed to copy prompt');
+      setAskAiCopiedKey(null);
+    }
+  };
+
   const pillClass = (active: boolean) =>
     `px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
       active
@@ -197,19 +302,50 @@ export default function MarketFlowDashboardPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       <div className="max-w-7xl mx-auto p-4 lg:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h1 className="text-2xl font-bold">Global Market Flow Tracker</h1>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            {data?.lastUpdated && (
-              <span className="whitespace-nowrap">
-                {new Date(data.lastUpdated).toLocaleString()}
-              </span>
-            )}
-            {data?.mode && (
-              <span className="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600">
-                {data.mode}
-              </span>
-            )}
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-5">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ['vs', 'Large vs Small'],
+                ['large', 'Large-cap'],
+                ['small', 'Small-cap'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => handleViewChange(id)}
+                className={pillClass(view === id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="hidden sm:block h-7 w-px shrink-0 bg-gray-300 dark:bg-gray-600"
+            aria-hidden
+          />
+
+          <div className="flex flex-wrap gap-2">
+            {MARKET_FLOW_PERIODS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPeriod(p)}
+                className={pillClass(period === p)}
+              >
+                {MARKET_FLOW_PERIOD_LABELS[p]}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="hidden sm:block h-7 w-px shrink-0 bg-gray-300 dark:bg-gray-600"
+            aria-hidden
+          />
+
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {data?.dataStale && (
               <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
                 Stale
@@ -277,40 +413,26 @@ export default function MarketFlowDashboardPage() {
                 type="button"
                 onClick={() => void handleRefresh()}
                 disabled={refreshing}
-                title="Fetch latest prices and recompute returns"
-                className="px-3 py-1.5 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title={refreshing ? 'Refreshing market data' : 'Refresh market data'}
+                aria-label={refreshing ? 'Refreshing market data' : 'Refresh market data'}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-green-600 text-white shadow-sm transition-colors hover:bg-green-700 disabled:opacity-60"
               >
-                {refreshing ? 'Refreshing…' : 'Refresh'}
+                <svg
+                  className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.25}
+                    d="M4 4v6h6M20 20v-6h-6M5.5 15.5A7 7 0 0018 17l2-3M18.5 8.5A7 7 0 006 7L4 10"
+                  />
+                </svg>
               </button>
             )}
-          </div>
-        </div>
-
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
-          <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ['vs', 'Large vs Small'],
-                ['large', 'Large-cap'],
-                ['small', 'Small-cap'],
-              ] as const
-            ).map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setView(id)} className={pillClass(view === id)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {MARKET_FLOW_PERIODS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPeriod(p)}
-                className={pillClass(period === p)}
-              >
-                {MARKET_FLOW_PERIOD_LABELS[p]}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -346,58 +468,145 @@ export default function MarketFlowDashboardPage() {
               ))}
             </div>
 
+            {askAiMessage && (
+              <p className="mb-3 text-xs text-green-700 dark:text-green-300">{askAiMessage}</p>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 mb-6">
               {fundCards.map((card, index) => {
                 const pct = card.returnPct;
                 const backgroundColor =
                   pct == null ? '#9ca3af' : marketChangePctToColor(pct);
                 const color = pct == null ? '#ffffff' : marketChangePctToTextColor(pct);
-                const arrow = pct == null ? '→' : pct > 0 ? '↑' : pct < 0 ? '↓' : '→';
+                const cardKey = `${card.slug}-${card.capType}`;
+                const comparison = capRelativeSpread(card.capType, card.spread);
 
                 return (
-                  <Link
-                    key={`${card.slug}-${card.capType}`}
-                    href={`/research/markets/${card.slug}`}
-                    className="rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden shadow-sm min-h-[180px] flex flex-col transition-transform hover:-translate-y-0.5 hover:shadow-md"
-                    style={{ backgroundColor, color }}
+                  <div
+                    key={cardKey}
+                    className={`rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden shadow-sm min-h-[180px] flex flex-col transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-md ${
+                      cardsVisible
+                        ? 'opacity-100 translate-y-0 scale-100'
+                        : 'opacity-0 translate-y-3 scale-[0.98]'
+                    }`}
+                    style={{
+                      backgroundColor,
+                      color,
+                      transitionDelay: cardsVisible ? `${Math.min(index * 25, 225)}ms` : '0ms',
+                    }}
                   >
                     <div className="p-4 flex-1 flex flex-col">
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h2 className="font-bold text-lg leading-tight">{card.market}</h2>
-                            <span className="text-xs font-semibold opacity-70">#{index + 1}</span>
-                          </div>
-                          <p className="text-xs opacity-75">{card.region}</p>
-                        </div>
-                        <span className="text-2xl font-bold tabular-nums leading-none">{arrow}</span>
-                      </div>
-
-                      <div className="text-3xl font-bold tabular-nums mb-3">
-                        {formatPct(pct)}
-                      </div>
-
-                      <div className="mt-auto">
-                        <div className="flex items-center justify-between gap-2 text-sm">
-                          <span className="font-bold">{card.symbol}</span>
+                        <Link href={`/research/markets/${card.slug}`} className="min-w-0">
+                          <h2 className="font-bold text-lg leading-tight">{card.market}</h2>
+                        </Link>
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <span className="rounded border border-current/30 px-2 py-0.5 text-[10px] font-bold uppercase">
                             {card.capType === 'large' ? 'Large-cap' : 'Small-cap'}
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleCardAskAi(card)}
+                            title="Ask AI why this market is moving"
+                            className={`min-w-10 text-[10px] px-2.5 py-1 rounded font-medium border transition-colors ${
+                              askAiCopiedKey === cardKey
+                                ? 'border-green-600 bg-green-600/20'
+                                : 'border-current/40 hover:bg-black/10'
+                            }`}
+                          >
+                            {askAiCopiedKey === cardKey ? '✓' : 'AI'}
+                          </button>
                         </div>
-                        <p className="mt-1 truncate text-xs opacity-80">{card.fundName}</p>
-                        <div className="mt-2 flex items-center justify-between text-xs opacity-80">
-                          <span>
-                            {card.price != null ? `$${card.price.toFixed(2)}` : 'Price unavailable'}
-                          </span>
-                          {view === 'vs' && (
-                            <span className="font-semibold">
-                              {card.leader ? 'Leading' : 'Trailing'}
+                      </div>
+
+                      <Link href={`/research/markets/${card.slug}`} className="flex-1 flex flex-col">
+                        <div className="text-3xl font-bold tabular-nums mb-2">
+                          {formatPct(pct)}
+                        </div>
+
+                        <div className="mb-3 flex flex-wrap gap-1.5">
+                          {card.spread != null && (
+                            <span className="group/spread relative inline-flex">
+                              <span
+                                className="cursor-help rounded border border-black/10 px-2 py-0.5 text-[10px] font-bold tabular-nums shadow-sm"
+                                style={
+                                  comparison.relative == null
+                                    ? undefined
+                                    : {
+                                        backgroundColor: marketChangePctToColor(
+                                          comparison.relative
+                                        ),
+                                        color: marketChangePctToTextColor(comparison.relative),
+                                      }
+                                }
+                                tabIndex={0}
+                                aria-describedby={`spread-tip-${cardKey}`}
+                              >
+                                {comparison.label}
+                              </span>
+                              <span
+                                id={`spread-tip-${cardKey}`}
+                                role="tooltip"
+                                className="pointer-events-none absolute left-0 top-full z-40 mt-1.5 w-64 rounded-lg border border-gray-200 bg-white p-3 text-left text-[11px] leading-snug text-gray-700 opacity-0 shadow-lg transition-opacity duration-150 group-hover/spread:opacity-100 group-focus-within/spread:opacity-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                              >
+                                {(() => {
+                                  const tip = lcScSpreadTooltip(card.spread, card.capType);
+                                  return (
+                                    <>
+                                      <span className="mb-1.5 block font-semibold text-gray-900 dark:text-white">
+                                        {tip.title}
+                                      </span>
+                                      <span className="mb-1.5 block">
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">
+                                          What it means:{' '}
+                                        </span>
+                                        {tip.meaning}
+                                      </span>
+                                      <span className="mb-1.5 block">
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">
+                                          Why care:{' '}
+                                        </span>
+                                        {tip.whyCare}
+                                      </span>
+                                      <span className="block">
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">
+                                          Theory:{' '}
+                                        </span>
+                                        {tip.theory}
+                                      </span>
+                                    </>
+                                  );
+                                })()}
+                              </span>
                             </span>
                           )}
                         </div>
-                      </div>
+
+                        <div className="mt-auto">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="font-bold">{card.symbol}</span>
+                          </div>
+                          <p className="mt-1 truncate text-xs opacity-80">{card.fundName}</p>
+                          {card.holdings.length > 0 && (
+                            <p className="mt-2 text-[11px] leading-snug opacity-85">
+                              Top:{' '}
+                              {card.holdings
+                                .slice(0, 3)
+                                .map((h) => h.symbol)
+                                .join(' · ')}
+                            </p>
+                          )}
+                          <div className="mt-2 text-xs opacity-80">
+                            <span>
+                              {card.price != null
+                                ? `$${card.price.toFixed(2)}`
+                                : 'Price unavailable'}
+                            </span>
+                          </div>
+                        </div>
+                      </Link>
                     </div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
@@ -443,9 +652,39 @@ export default function MarketFlowDashboardPage() {
                       <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11 }} width={44} />
                       <Tooltip
                         contentStyle={{ fontSize: 12 }}
-                        formatter={(v: number) => v.toFixed(1)}
+                        wrapperStyle={{ zIndex: 1000 }}
+                        formatter={(
+                          value: number,
+                          name: string,
+                          item: { dataKey?: unknown; payload?: unknown }
+                        ) => {
+                          const benchmarkKey = globalChart.benchmark?.key;
+                          const payload = item.payload as
+                            | Record<string, string | number>
+                            | undefined;
+                          const benchmarkValue =
+                            benchmarkKey && payload
+                              ? Number(payload[benchmarkKey])
+                              : Number.NaN;
+                          const numericValue = Number(value);
+                          const isBenchmark = item.dataKey === benchmarkKey;
+                          const difference =
+                            !isBenchmark &&
+                            Number.isFinite(benchmarkValue) &&
+                            benchmarkValue !== 0
+                              ? (numericValue / benchmarkValue - 1) * 100
+                              : null;
+
+                          return [
+                            `${numericValue.toFixed(1)}${
+                              difference == null
+                                ? ''
+                                : ` (${difference >= 0 ? '+' : ''}${difference.toFixed(1)}% vs SPY)`
+                            }`,
+                            name,
+                          ];
+                        }}
                       />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
                       {globalChart.series.map((s, i) => (
                         <Line
                           key={s.key}
@@ -453,11 +692,25 @@ export default function MarketFlowDashboardPage() {
                           dataKey={s.key}
                           name={`${s.name} (${s.symbol})`}
                           stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                          hide={hiddenChartKeys.includes(s.key)}
                           dot={false}
                           strokeWidth={1.75}
                           connectNulls
                         />
                       ))}
+                      {globalChart.benchmark && (
+                        <Line
+                          type="monotone"
+                          dataKey={globalChart.benchmark.key}
+                          name={`vs SPY (${globalChart.benchmark.symbol})`}
+                          stroke="#111827"
+                          strokeDasharray="7 5"
+                          hide={hiddenChartKeys.includes(globalChart.benchmark.key)}
+                          dot={false}
+                          strokeWidth={2.5}
+                          connectNulls
+                        />
+                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -466,12 +719,51 @@ export default function MarketFlowDashboardPage() {
                   </div>
                 )}
               </div>
+              {chartToggleItems.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {chartToggleItems.map((item, index) => {
+                    const checked = !hiddenChartKeys.includes(item.key);
+                    const color = item.isBenchmark
+                      ? '#111827'
+                      : CHART_COLORS[index % CHART_COLORS.length];
+                    return (
+                      <label
+                        key={item.key}
+                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs ${
+                          checked
+                            ? item.isBenchmark
+                              ? 'border-gray-800 bg-gray-100 text-gray-900 dark:border-gray-200 dark:bg-gray-700 dark:text-white'
+                              : 'border-gray-300 bg-gray-50 text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100'
+                            : 'border-gray-200 text-gray-400 dark:border-gray-700 dark:text-gray-500'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-gray-300"
+                          checked={checked}
+                          onChange={() => toggleChartSeries(item.key)}
+                        />
+                        <span
+                          className="inline-block h-2 w-4 rounded-sm"
+                          style={{
+                            backgroundColor: checked ? color : 'transparent',
+                            borderBottom: item.isBenchmark
+                              ? `2px dashed ${checked ? color : '#9ca3af'}`
+                              : undefined,
+                            opacity: checked ? 1 : 0.35,
+                          }}
+                          aria-hidden
+                        />
+                        <span className={item.isBenchmark ? 'font-semibold' : undefined}>
+                          {item.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-              Tracks price momentum and market leadership. Does not show confirmed investor cash
-              flows.
-            </p>
           </>
         ) : null}
       </div>

@@ -6,9 +6,18 @@
 
 export type MarketFlowCapType = 'large' | 'small';
 
-export type MarketFlowPeriod = '1w' | '1m' | '3m' | '6m' | '1y';
+export type MarketFlowPeriod = '1w' | '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | '10y';
 
-export const MARKET_FLOW_PERIODS: MarketFlowPeriod[] = ['1w', '1m', '3m', '6m', '1y'];
+export const MARKET_FLOW_PERIODS: MarketFlowPeriod[] = [
+  '1w',
+  '1m',
+  '3m',
+  '6m',
+  '1y',
+  '3y',
+  '5y',
+  '10y',
+];
 
 export const MARKET_FLOW_PERIOD_LABELS: Record<MarketFlowPeriod, string> = {
   '1w': '1 Week',
@@ -16,6 +25,9 @@ export const MARKET_FLOW_PERIOD_LABELS: Record<MarketFlowPeriod, string> = {
   '3m': '3 Months',
   '6m': '6 Months',
   '1y': '1 Year',
+  '3y': '3 Years',
+  '5y': '5 Years',
+  '10y': '10 Years',
 };
 
 /** Approximate calendar days for return lookback (trading-day gaps handled at query time). */
@@ -25,6 +37,9 @@ export const MARKET_FLOW_PERIOD_DAYS: Record<MarketFlowPeriod, number> = {
   '3m': 93,
   '6m': 186,
   '1y': 372,
+  '3y': 1096,
+  '5y': 1827,
+  '10y': 3653,
 };
 
 export interface MarketFlowFundSeed {

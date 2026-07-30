@@ -1,7 +1,6 @@
 import {
   MARKET_FLOW_PERIODS,
   MARKET_FLOW_STALE_DAYS,
-  type MarketFlowCapType,
   type MarketFlowPeriod,
 } from '../config/marketFlow';
 import {
@@ -13,65 +12,39 @@ import {
   type MarketFlowFundRow,
   type MarketFlowReturnRow,
 } from './marketFlowDb';
+import {
+  type MarketFlowDashboardPayload,
+  type MarketFlowDashboardRow,
+  type MarketFlowFundSleeve,
+  type MarketFlowView,
+} from './marketFlowFormat';
+import { listHoldingsForFunds } from './marketFlowHoldings';
 import { addCalendarDays, toIsoDay } from './marketFlowReturns';
 
-export type MarketFlowView = 'large' | 'small' | 'vs';
+export type { MarketFlowDashboardPayload, MarketFlowView } from './marketFlowFormat';
+export { capRelativeSpread, formatPct, heatClass, lcScSpreadTooltip } from './marketFlowFormat';
 
-export interface MarketFlowDashboardRow {
-  slug: string;
-  name: string;
-  region: string;
-  large: {
-    symbol: string;
-    name: string;
-    returns: Record<MarketFlowPeriod, number | null>;
-    price: number | null;
-    asOf: string | null;
-  };
-  small: {
-    symbol: string;
-    name: string;
-    returns: Record<MarketFlowPeriod, number | null>;
-    price: number | null;
-    asOf: string | null;
-  };
-  leader: Record<MarketFlowPeriod, 'large' | 'small' | 'tie' | 'n/a'>;
-  spread: Record<MarketFlowPeriod, number | null>;
-}
-
-export interface MarketFlowDashboardPayload {
-  disclaimer: string;
-  period: MarketFlowPeriod;
-  view: MarketFlowView;
-  lastUpdated: string | null;
-  dataStale: boolean;
-  staleWarning: string | null;
-  mode: string | null;
-  runStatus: string | null;
-  summary: {
-    bestMarket: { slug: string; name: string; returnPct: number } | null;
-    worstMarket: { slug: string; name: string; returnPct: number } | null;
-    strongestLarge: { slug: string; name: string; returnPct: number } | null;
-    strongestSmall: { slug: string; name: string; returnPct: number } | null;
-  };
-  ranked: {
-    byMarket: Array<{ slug: string; name: string; returnPct: number }>;
-    byLarge: Array<{ slug: string; name: string; symbol: string; returnPct: number }>;
-    bySmall: Array<{ slug: string; name: string; symbol: string; returnPct: number }>;
-  };
-  rows: MarketFlowDashboardRow[];
-}
+const SPY_BENCHMARK_SYMBOL = 'SPY';
 
 function emptyReturns(): Record<MarketFlowPeriod, number | null> {
-  return { '1w': null, '1m': null, '3m': null, '6m': null, '1y': null };
+  return Object.fromEntries(MARKET_FLOW_PERIODS.map((p) => [p, null])) as Record<
+    MarketFlowPeriod,
+    number | null
+  >;
 }
 
 function emptyLeaders(): Record<MarketFlowPeriod, 'large' | 'small' | 'tie' | 'n/a'> {
-  return { '1w': 'n/a', '1m': 'n/a', '3m': 'n/a', '6m': 'n/a', '1y': 'n/a' };
+  return Object.fromEntries(MARKET_FLOW_PERIODS.map((p) => [p, 'n/a'])) as Record<
+    MarketFlowPeriod,
+    'large' | 'small' | 'tie' | 'n/a'
+  >;
 }
 
 function emptySpreads(): Record<MarketFlowPeriod, number | null> {
-  return { '1w': null, '1m': null, '3m': null, '6m': null, '1y': null };
+  return Object.fromEntries(MARKET_FLOW_PERIODS.map((p) => [p, null])) as Record<
+    MarketFlowPeriod,
+    number | null
+  >;
 }
 
 function leaderOf(large: number | null, small: number | null): 'large' | 'small' | 'tie' | 'n/a' {
@@ -98,6 +71,12 @@ function pickExtreme(
   );
 }
 
+function relativeToSpy(fundReturn: number | null, spyReturn: number | null): number | null {
+  if (fundReturn == null || spyReturn == null) return null;
+  if (!Number.isFinite(fundReturn) || !Number.isFinite(spyReturn)) return null;
+  return fundReturn - spyReturn;
+}
+
 export async function buildMarketFlowDashboard(
   period: MarketFlowPeriod = '1m',
   view: MarketFlowView = 'vs'
@@ -110,12 +89,20 @@ export async function buildMarketFlowDashboard(
     getLatestMarketFlowRun(),
   ]);
 
+  const holdingsByFund = await listHoldingsForFunds(funds.map((f) => f.id));
+
   const returnsByFund = new Map<number, Map<MarketFlowPeriod, MarketFlowReturnRow>>();
   for (const r of returns) {
     const m = returnsByFund.get(r.fund_id) ?? new Map();
     m.set(r.period, r);
     returnsByFund.set(r.fund_id, m);
   }
+
+  const spyFund = funds.find((f) => f.symbol.toUpperCase() === SPY_BENCHMARK_SYMBOL) ?? null;
+  const spyReturn =
+    spyFund != null
+      ? (returnsByFund.get(spyFund.id)?.get(period)?.return_pct ?? null)
+      : null;
 
   const fundsByMarket = new Map<number, { large?: MarketFlowFundRow; small?: MarketFlowFundRow }>();
   for (const f of funds) {
@@ -166,24 +153,27 @@ export async function buildMarketFlowDashboard(
       }
     }
 
+    const buildSleeve = (
+      fund: MarketFlowFundRow | undefined,
+      ret: Record<MarketFlowPeriod, number | null>,
+      price: number | null,
+      asOf: string | null
+    ): MarketFlowFundSleeve => ({
+      symbol: fund?.symbol ?? '—',
+      name: fund?.name ?? '—',
+      returns: ret,
+      price,
+      asOf,
+      relativeToSpy: relativeToSpy(ret[period], spyReturn),
+      holdings: fund ? holdingsByFund.get(fund.id) ?? [] : [],
+    });
+
     rows.push({
       slug: market.slug,
       name: market.name,
       region: market.region,
-      large: {
-        symbol: pair.large?.symbol ?? '—',
-        name: pair.large?.name ?? '—',
-        returns: largeReturns,
-        price: largePrice,
-        asOf: largeAsOf,
-      },
-      small: {
-        symbol: pair.small?.symbol ?? '—',
-        name: pair.small?.name ?? '—',
-        returns: smallReturns,
-        price: smallPrice,
-        asOf: smallAsOf,
-      },
+      large: buildSleeve(pair.large, largeReturns, largePrice, largeAsOf),
+      small: buildSleeve(pair.small, smallReturns, smallPrice, smallAsOf),
       leader: leaders,
       spread: spreads,
     });
@@ -268,6 +258,11 @@ export async function buildMarketFlowDashboard(
     staleWarning,
     mode: run?.mode ?? null,
     runStatus: run?.status ?? null,
+    benchmark: {
+      symbol: SPY_BENCHMARK_SYMBOL,
+      name: spyFund?.name ?? 'SPDR S&P 500 ETF',
+      returnPct: spyReturn,
+    },
     summary: {
       bestMarket: pickExtreme(byMarket, 'max'),
       worstMarket: pickExtreme(byMarket, 'min'),
@@ -282,24 +277,3 @@ export async function buildMarketFlowDashboard(
     rows,
   };
 }
-
-export function heatClass(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return 'bg-slate-100 text-slate-500';
-  if (value >= 8) return 'bg-emerald-600 text-white';
-  if (value >= 4) return 'bg-emerald-500 text-white';
-  if (value >= 1.5) return 'bg-emerald-200 text-emerald-900';
-  if (value >= 0.25) return 'bg-emerald-50 text-emerald-800';
-  if (value > -0.25) return 'bg-slate-100 text-slate-700';
-  if (value > -1.5) return 'bg-red-50 text-red-800';
-  if (value > -4) return 'bg-red-200 text-red-900';
-  if (value > -8) return 'bg-red-500 text-white';
-  return 'bg-red-700 text-white';
-}
-
-export function formatPct(value: number | null, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return '—';
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(digits)}%`;
-}
-
-export type { MarketFlowCapType, MarketFlowPeriod };
