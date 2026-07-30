@@ -250,6 +250,13 @@ export const dashboardConfig: DashboardConfig = {
         fredSeriesId: 'DCOILWTICO'
       },
       {
+        symbol: 'GREED',
+        name: 'Fear & Greed Index',
+        category: 'MARKETS',
+        icon: '🎭',
+        color: 'orange'
+      },
+      {
         symbol: 'AII',
         name: 'AAII Sentiment Survey',
         category: 'MARKETS',

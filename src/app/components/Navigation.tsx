@@ -21,7 +21,6 @@ export default function Navigation() {
     pathname === '/' ||
     pathname === '/stocks' ||
     pathname?.startsWith('/stocks/') ||
-    pathname === '/monthly-watchlist' ||
     pathname === '/research/dividend-fcf-analysis'
   ) || false;
 
@@ -231,7 +230,7 @@ export default function Navigation() {
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  🌍 World Index Performance
+                  🌍 World Indexes Map
                 </Link>
               </>
             )}
@@ -286,8 +285,7 @@ export default function Navigation() {
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/stocks' ||
                     pathname === '/stocks/watchlist' ||
-                    pathname === '/stocks/portfolio' ||
-                    pathname === '/monthly-watchlist'
+                    pathname === '/stocks/portfolio'
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}

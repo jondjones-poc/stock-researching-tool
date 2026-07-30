@@ -14,6 +14,10 @@ import { FearGreedGauge } from './components/FearGreedGauge';
 import { ConsumerSentimentGauge, getConsumerSentimentLabel, UMCSENT_MIN, UMCSENT_MAX } from './components/ConsumerSentimentGauge';
 import { VixVolatilityGauge } from './components/VixVolatilityGauge';
 import { WtiOilGauge } from './components/WtiOilGauge';
+import {
+  marketChangePctToColor,
+  marketChangePctToTextColor,
+} from './utils/marketHeatColor';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -86,6 +90,9 @@ export default function DashboardPage() {
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [dashboardView, setDashboardView] = useState<'cards' | 'graphs'>(() =>
+    searchParams.get('symbol') ? 'graphs' : 'cards'
+  );
   const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
@@ -115,6 +122,20 @@ function DashboardContent() {
   const [fearGreedData, setFearGreedData] = useState<FearGreedPoint[]>([]);
   const [fearGreedLoading, setFearGreedLoading] = useState(false);
   const [fearGreedError, setFearGreedError] = useState<string | null>(null);
+  const [fearGreedRefreshing, setFearGreedRefreshing] = useState(false);
+  const [fearGreedMeta, setFearGreedMeta] = useState<{
+    fetchedAt: string | null;
+    fromCache: boolean;
+    stale: boolean;
+    latestValue: number | null;
+    latestDate: string | null;
+  }>({
+    fetchedAt: null,
+    fromCache: false,
+    stale: false,
+    latestValue: null,
+    latestDate: null,
+  });
   const [aaiiSentimentData, setAaiiSentimentData] = useState<AAIISentimentPoint[]>([]);
   const [aaiiSentimentLatest, setAaiiSentimentLatest] = useState<AAIISentimentPoint | null>(null);
   const [aaiiSentimentLoading, setAaiiSentimentLoading] = useState(false);
@@ -250,7 +271,7 @@ function DashboardContent() {
     try {
       let symbolsToFetch: WatchlistSymbol[] = [];
       
-      if (categoryFilter === 'ALL') {
+      if (dashboardView === 'cards' || categoryFilter === 'ALL') {
         symbolsToFetch = allWatchlistSymbolsRef.current;
       } else {
         const merged = mergeConfigSymbolsIntoWatchlistData(
@@ -285,7 +306,7 @@ function DashboardContent() {
       // Don't set error state - just use empty data
       setWatchlistData([]);
     }
-  }, [categoryFilter]);
+  }, [categoryFilter, dashboardView]);
 
   // Calculate date range based on selected period
   const getDateRange = (period: string) => {
@@ -387,24 +408,39 @@ function DashboardContent() {
       setFearGreedLoading(true);
       setFearGreedError(null);
 
-      // Fetch directly from CNN Fear & Greed endpoint from the browser.
-      // This avoids any server-side networking restrictions.
-      const response = await fetch('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
-      if (!response.ok) {
-        throw new Error('Failed to fetch Fear & Greed data');
+      // DB-backed cache (24h TTL). Avoids hitting CNN on every page load.
+      const response = await fetch('/api/fear-greed');
+      const result = await response.json();
+      if (!response.ok && result.error) {
+        throw new Error(result.error || result.hint || 'Failed to fetch Fear & Greed data');
       }
 
-      const result = await response.json();
-      const fngHist = result.fear_and_greed_historical;
-      const rawData = Array.isArray(fngHist?.data) ? fngHist.data : [];
+      const allPoints: FearGreedPoint[] = Array.isArray(result.points)
+        ? result.points
+        : Array.isArray(result.historical)
+          ? result.historical.map((item: { date: string; close: number }) => ({
+              date: item.date,
+              value: Number(item.close),
+            }))
+          : [];
 
-      // Build points from all available data
-      const allPoints: FearGreedPoint[] = rawData.map((item: any) => ({
-        date: new Date(item.x).toISOString().split('T')[0],
-        value: typeof item.y === 'number' ? item.y : Number(item.y || 0),
-      }));
+      setFearGreedMeta({
+        fetchedAt: result.fetchedAt ?? null,
+        fromCache: Boolean(result.fromCache),
+        stale: Boolean(result.stale),
+        latestValue:
+          result.latestValue != null && Number.isFinite(Number(result.latestValue))
+            ? Number(result.latestValue)
+            : allPoints.length
+              ? allPoints[allPoints.length - 1].value
+              : null,
+        latestDate: result.latestDate ?? (allPoints.length ? allPoints[allPoints.length - 1].date : null),
+      });
 
-      // Apply the same date-range filtering logic as the main chart
+      if (result.error && !allPoints.length) {
+        setFearGreedError(result.error);
+      }
+
       const { from, to } = getDateRange(period);
       const fromDate = new Date(from);
       const toDate = new Date(to);
@@ -414,14 +450,30 @@ function DashboardContent() {
         return d >= fromDate && d <= toDate;
       });
 
-      console.log(`Loaded ${points.length} Fear & Greed points for period ${period}`);
-      setFearGreedData(points);
+      setFearGreedData(points.length ? points : allPoints);
     } catch (error: any) {
       console.error('Error fetching Fear & Greed data:', error);
-      setFearGreedError('Failed to load Fear & Greed data');
+      setFearGreedError(error?.message || 'Failed to load Fear & Greed data');
       setFearGreedData([]);
     } finally {
       setFearGreedLoading(false);
+    }
+  };
+
+  const refreshFearGreedCache = async () => {
+    try {
+      setFearGreedRefreshing(true);
+      setFearGreedError(null);
+      const response = await fetch('/api/fear-greed', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || result.hint || 'Refresh failed');
+      }
+      await fetchFearGreedData(selectedPeriod);
+    } catch (error: unknown) {
+      setFearGreedError(error instanceof Error ? error.message : 'Failed to refresh Fear & Greed');
+    } finally {
+      setFearGreedRefreshing(false);
     }
   };
 
@@ -649,6 +701,10 @@ function DashboardContent() {
   useEffect(() => {
     if (!loadingWatchlist) {
       fetchWatchlistData();
+      if (dashboardView === 'cards') {
+        void fetchFearGreedData(selectedPeriod);
+        return;
+      }
       if (selectedSymbol === 'GREED') {
         fetchFearGreedData(selectedPeriod);
       } else if (selectedSymbol === 'AII') {
@@ -657,7 +713,7 @@ function DashboardContent() {
         fetchChartData(selectedSymbol, selectedPeriod);
       }
     }
-  }, [selectedSymbol, selectedPeriod, categoryFilter, loadingWatchlist, fetchWatchlistData, fetchAAIISentiment]);
+  }, [selectedSymbol, selectedPeriod, categoryFilter, dashboardView, loadingWatchlist, fetchWatchlistData, fetchAAIISentiment]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -832,8 +888,226 @@ function DashboardContent() {
     }
   };
 
+  const dashboardSections = mergeConfigSymbolsIntoWatchlistData(
+    watchlistSymbols,
+    Object.values(watchlistSymbols).flat()
+  ).data;
+  const graphOnlySymbols = new Set(['GREED', 'AII']);
+  const graphOnlyChipSymbols = new Set(['AII']); // GREED is featured at top of cards view
+  const openGraph = (symbol: string) => {
+    setSelectedSymbol(symbol);
+    setDashboardView('graphs');
+    router.push(`/?symbol=${symbol}`);
+  };
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+      <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <h1 className="text-base font-semibold">Market dashboard</h1>
+          <div className="inline-flex rounded-lg border border-gray-300 bg-white p-1 dark:border-gray-600 dark:bg-gray-900">
+            <button
+              type="button"
+              onClick={() => {
+                setDashboardView('cards');
+                router.push('/');
+              }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                dashboardView === 'cards'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+              }`}
+            >
+              Cards
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDashboardView('graphs');
+                router.push(`/?symbol=${selectedSymbol}`);
+              }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                dashboardView === 'graphs'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+              }`}
+            >
+              Graphs
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {dashboardView === 'cards' ? (
+        <main className="mx-auto max-w-7xl space-y-8 p-4 lg:p-6">
+          <section className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold">Fear &amp; Greed Index</h2>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {fearGreedMeta.fetchedAt
+                    ? `${fearGreedMeta.fromCache ? 'Cached' : 'Live'} · updated ${new Date(
+                        fearGreedMeta.fetchedAt
+                      ).toLocaleString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}${fearGreedMeta.stale ? ' · stale fallback' : ''} · refreshes every 24h`
+                    : 'Cached in database · refreshes every 24h'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void refreshFearGreedCache()}
+                  disabled={fearGreedRefreshing || fearGreedLoading}
+                  title="Clear cache and fetch live Fear & Greed"
+                  aria-label="Refresh Fear and Greed cache"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-green-600 text-white shadow-sm transition-colors hover:bg-green-700 disabled:opacity-60"
+                >
+                  <svg
+                    className={`h-3.5 w-3.5 ${fearGreedRefreshing ? 'animate-spin' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2.25}
+                      d="M4 4v6h6M20 20v-6h-6M5.5 15.5A7 7 0 0018 17l2-3M18.5 8.5A7 7 0 006 7L4 10"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {fearGreedLoading && !fearGreedData.length ? (
+              <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                Loading Fear &amp; Greed…
+              </div>
+            ) : fearGreedError && !fearGreedData.length ? (
+              <div className="py-6 text-center text-sm text-red-600 dark:text-red-400">
+                {fearGreedError}
+              </div>
+            ) : fearGreedMeta.latestValue != null ? (
+              <FearGreedGauge
+                value={fearGreedMeta.latestValue}
+                asOfDate={fearGreedMeta.latestDate ?? undefined}
+              />
+            ) : (
+              <div className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                No Fear &amp; Greed data yet
+              </div>
+            )}
+            {fearGreedError && fearGreedData.length > 0 && (
+              <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">{fearGreedError}</p>
+            )}
+          </section>
+
+          {loadingWatchlist ? (
+            <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+              Loading dashboard cards...
+            </div>
+          ) : (
+            (Object.keys(WATCHLIST_CATEGORY_LABELS) as WatchlistCategory[]).map((category) => {
+              const symbols = dashboardSections[category] ?? [];
+              const cardSymbols = symbols.filter(
+                (symbol) => !graphOnlySymbols.has(symbol.symbol)
+              );
+              const graphSymbols = symbols.filter((symbol) =>
+                graphOnlyChipSymbols.has(symbol.symbol)
+              );
+
+              return (
+                <section key={category}>
+                  <div className="mb-3 flex items-end justify-between gap-3">
+                    <h2 className="text-lg font-bold">
+                      {WATCHLIST_CATEGORY_LABELS[category]}
+                    </h2>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Daily change
+                    </span>
+                  </div>
+
+                  {cardSymbols.length > 0 ? (
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {cardSymbols.map((symbol) => {
+                        const data = getWatchlistData(symbol.symbol);
+                        const changePercent = data?.changePercent ?? null;
+                        const backgroundColor =
+                          changePercent == null
+                            ? '#9ca3af'
+                            : marketChangePctToColor(changePercent);
+                        const textColor =
+                          changePercent == null
+                            ? '#ffffff'
+                            : marketChangePctToTextColor(changePercent);
+
+                        return (
+                          <button
+                            key={symbol.symbol}
+                            type="button"
+                            onClick={() => openGraph(symbol.symbol)}
+                            className="min-h-36 rounded-xl p-4 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            style={{ backgroundColor, color: textColor }}
+                            title={`Open ${symbol.name} graph`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-bold">{symbol.name}</div>
+                                <div className="mt-0.5 text-xs font-semibold opacity-75">
+                                  {symbol.symbol}
+                                </div>
+                              </div>
+                              <span className="text-xl" aria-hidden>
+                                {symbol.icon || '📌'}
+                              </span>
+                            </div>
+                            <div className="mt-5 text-3xl font-bold tabular-nums">
+                              {changePercent == null
+                                ? '—'
+                                : formatChangePercent(changePercent)}
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-3 text-xs font-medium opacity-80">
+                              <span>{data ? formatPrice(data.last) : 'Data unavailable'}</span>
+                              <span>View graph →</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No card-compatible items in this section.
+                    </p>
+                  )}
+
+                  {graphSymbols.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Graph-only:
+                      </span>
+                      {graphSymbols.map((symbol) => (
+                        <button
+                          key={symbol.symbol}
+                          type="button"
+                          onClick={() => openGraph(symbol.symbol)}
+                          className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-blue-400 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                        >
+                          {symbol.icon || '📊'} {symbol.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })
+          )}
+        </main>
+      ) : (
       <div className="flex">
         {/* Main Chart Area */}
         <div className="flex-1 bg-white dark:bg-gray-900">
@@ -2032,6 +2306,7 @@ function DashboardContent() {
           
         </div>
       </div>
+      )}
 
       {/* Add Stock Modal */}
       {showAddModal && (

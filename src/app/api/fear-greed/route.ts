@@ -1,75 +1,100 @@
 import { NextRequest, NextResponse } from 'next/server';
-import axios from 'axios';
+import {
+  FEAR_GREED_MIGRATION_HINT,
+  getFearGreedCached,
+} from '@/app/utils/fearGreedCache';
 
-interface FearGreedPoint {
-  date: string;
-  value: number;
-}
-
+/**
+ * GET /api/fear-greed
+ * Returns CNN Fear & Greed history from DB cache (24h TTL).
+ * Fetches live and stores when cache is missing/expired.
+ *
+ * Query: ?period=1Y|1M|5D|YTD|ALL — optional client-side filter hint only
+ *        (full series is returned; clients may filter).
+ */
 export async function GET(_request: NextRequest) {
   try {
-    const url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
-    const response = await axios.get(url, { timeout: 10000 });
-
-    const data = response.data || {};
-
-    let points: FearGreedPoint[] = [];
-
-    // CNN Fear & Greed API (current structure):
-    // "fear_and_greed_historical": {
-    //   "timestamp": 1772154000000,
-    //   "score": 44.42,
-    //   "rating": "fear",
-    //   "data": [ { "x": 1740614400000, "y": 12.75, "rating": "extreme fear" }, ... ]
-    // }
-    const fngHist = data.fear_and_greed_historical;
-    if (fngHist && Array.isArray(fngHist.data)) {
-      points = fngHist.data
-        .filter((p: any) => typeof p?.x !== 'undefined' && typeof p?.y !== 'undefined')
-        .map((p: any) => ({
-          date: new Date(p.x).toISOString().split('T')[0],
-          value: Number(p.y),
-        }));
-    }
-
-    // Defensive fallbacks for any legacy/alternative shapes
-    if (!points.length) {
-      // Legacy structure: array of { x, y } or object with x[] / y[]
-      const historical = data.historical || data.data;
-      if (historical) {
-        if (Array.isArray(historical)) {
-          points = historical
-            .filter((p: any) => typeof p?.x !== 'undefined' && typeof p?.y !== 'undefined')
-            .map((p: any) => ({
-              date: new Date(p.x).toISOString().split('T')[0],
-              value: Number(p.y),
-            }));
-        } else if (Array.isArray(historical.x) && Array.isArray(historical.y)) {
-          points = historical.x.map((x: any, idx: number) => ({
-            date: new Date(x).toISOString().split('T')[0],
-            value: Number(historical.y[idx]),
-          }));
-        }
-      }
-    }
-
-    // Sort by date ascending
-    points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-    const historicalData = points.map(p => ({
+    const payload = await getFearGreedCached();
+    const historical = payload.points.map((p) => ({
       date: p.date,
       close: p.value,
       volume: 0,
     }));
 
-    return NextResponse.json({ historical: historicalData }, { status: 200 });
-  } catch (error: any) {
-    console.error('Error fetching Fear & Greed data:', error?.message || error);
-    // Return empty historical array but keep 200 so the frontend can degrade gracefully
+    return NextResponse.json({
+      historical,
+      points: payload.points,
+      latestValue: payload.latestValue,
+      latestDate: payload.latestDate,
+      fetchedAt: payload.fetchedAt,
+      fromCache: payload.fromCache,
+      stale: payload.stale,
+      ttlHours: 24,
+    });
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    if (err.code === '42P01') {
+      return NextResponse.json(
+        {
+          historical: [],
+          points: [],
+          error: 'Fear & Greed cache table missing',
+          hint: FEAR_GREED_MIGRATION_HINT,
+        },
+        { status: 500 }
+      );
+    }
+    console.error('fear-greed GET error:', err.message || e);
     return NextResponse.json(
-      { historical: [], error: 'Failed to fetch Fear & Greed Index data' },
+      {
+        historical: [],
+        points: [],
+        error: err.message || 'Failed to load Fear & Greed Index',
+      },
       { status: 200 }
     );
   }
 }
 
+/**
+ * POST /api/fear-greed
+ * Clears DB cache and fetches live from CNN, then stores the new snapshot.
+ */
+export async function POST(_request: NextRequest) {
+  try {
+    const payload = await getFearGreedCached({ forceRefresh: true });
+    const historical = payload.points.map((p) => ({
+      date: p.date,
+      close: p.value,
+      volume: 0,
+    }));
+
+    return NextResponse.json({
+      ok: true,
+      historical,
+      points: payload.points,
+      latestValue: payload.latestValue,
+      latestDate: payload.latestDate,
+      fetchedAt: payload.fetchedAt,
+      fromCache: false,
+      stale: payload.stale,
+      ttlHours: 24,
+    });
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    if (err.code === '42P01') {
+      return NextResponse.json(
+        {
+          error: 'Fear & Greed cache table missing',
+          hint: FEAR_GREED_MIGRATION_HINT,
+        },
+        { status: 500 }
+      );
+    }
+    console.error('fear-greed POST refresh error:', err.message || e);
+    return NextResponse.json(
+      { error: err.message || 'Failed to refresh Fear & Greed Index' },
+      { status: 502 }
+    );
+  }
+}
