@@ -361,23 +361,27 @@ export default function CompanyFinderPage() {
 
   const handleRefresh = async () => {
     const ok = window.confirm(
-      'This scrape batch hits SEC and quote APIs and can be resource intensive (rate limits, DB writes, several minutes for larger runs).\n\nContinue?'
+      'This will trigger the Cloudflare worker to run a scrape batch on the app host (SEC + quotes, rate limits, several minutes).\n\nContinue?'
     );
     if (!ok) return;
 
     setRefreshing(true);
     setError(null);
     try {
-      const res = await fetch('/api/company-finder/refresh', {
+      const res = await fetch('/api/company-finder/trigger-scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchSize: 40 }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.hint || 'Refresh failed');
-      await load();
+      if (!res.ok) throw new Error(json.error || json.hint || 'Trigger failed');
+      setAskAiMessage(null);
+      setSaveMessage('Scrape batch triggered via Cloudflare — refresh in a few minutes for new rows.');
+      // Status may still be the previous run until the worker finishes kicking off refresh.
+      window.setTimeout(() => {
+        void load();
+      }, 4000);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Refresh failed');
+      setError(e instanceof Error ? e.message : 'Trigger failed');
     } finally {
       setRefreshing(false);
     }
@@ -831,7 +835,7 @@ export default function CompanyFinderPage() {
               disabled={refreshing}
               className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
             >
-              {refreshing ? 'Scraping…' : 'Run scrape batch'}
+              {refreshing ? 'Triggering…' : 'Run scrape batch'}
             </button>
           </div>
         )}

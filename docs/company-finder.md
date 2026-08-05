@@ -37,7 +37,7 @@ node scripts/apply-company-finder.mjs --warm --reset --batch=40
 
 ## Daily scrape
 
-Schedule once per day:
+Schedule once per day via the Cloudflare worker (`cloudflare/supabase-keepalive`), which POSTs:
 
 ```bash
 curl -X POST https://YOUR-APP/api/company-finder/refresh \
@@ -46,8 +46,14 @@ curl -X POST https://YOUR-APP/api/company-finder/refresh \
   -d '{"batchSize":75}'
 ```
 
+Worker setup:
+
+1. `npx wrangler secret put COMPANY_FINDER_REFRESH_URL` → `https://YOUR-APP/api/company-finder/refresh`
+2. Redeploy: `cd cloudflare/supabase-keepalive && npm run deploy`
+3. On the Next.js host set `COMPANY_FINDER_WORKER_URL` → `https://share-research-supabase-keepalive.<account>.workers.dev/company-finder`
+
+Admin **Run scrape batch** calls `/api/company-finder/trigger-scrape`, which hits that worker URL (scrape runs on the app host, not in the browser).
+
 Each run advances a cursor through the SEC ticker universe (~thousands of names), so the full set warms over multiple days.
 
 Warrants / units / rights (e.g. `ABLVW` / `ASPSZ` when the common ticker exists for the same CIK) are excluded from the scrape universe and hidden in the UI — company cash was incorrectly applied to those tickers.
-
-Admin can also click **Run scrape batch** on the page.
