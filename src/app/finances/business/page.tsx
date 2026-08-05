@@ -72,6 +72,11 @@ function moneyClass(amount: number | null): string {
     : 'text-red-700 dark:text-red-400';
 }
 
+function formatPct(amount: number | null): string {
+  if (amount == null || !Number.isFinite(amount)) return '—';
+  return `${amount > 0 ? '+' : ''}${amount.toFixed(1)}%`;
+}
+
 export default function BusinessPage() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [availableYears, setAvailableYears] = useState<number[]>([]);
@@ -264,9 +269,13 @@ export default function BusinessPage() {
         }
       }
 
-      const pctOfCompany =
+      const profitPct =
         hasAnyProfit && hasAnyBalance && companyValue !== 0
           ? (profit / companyValue) * 100
+          : null;
+      const valuationPct =
+        hasAnyValuation && hasAnyBalance && companyValue !== 0
+          ? (monthlyValuation / companyValue) * 100
           : null;
 
       return {
@@ -276,7 +285,8 @@ export default function BusinessPage() {
         companyValue: hasAnyBalance ? companyValue : null,
         profit: hasAnyProfit ? profit : null,
         monthlyValuation: hasAnyValuation ? monthlyValuation : null,
-        pctOfCompany,
+        profitPct,
+        valuationPct,
       };
     });
   }, [businessAccounts, selectedYear, balanceLookup]);
@@ -337,6 +347,11 @@ export default function BusinessPage() {
           ? valuationTotal
           : null;
 
+    const profitPct =
+      hasProfit && latestCompanyValue != null && latestCompanyValue !== 0
+        ? (profitTotal / latestCompanyValue) * 100
+        : null;
+
     return {
       profitTotal: hasProfit ? profitTotal : null,
       valuationTotal: hasValuation ? valuationTotal : null,
@@ -344,6 +359,7 @@ export default function BusinessPage() {
       latestMonth,
       priorDecCompanyValue,
       companyValueChange,
+      profitPct,
       yoyPct,
     };
   }, [businessAccounts, selectedYear, balanceLookup, monthRows]);
@@ -413,14 +429,24 @@ export default function BusinessPage() {
                   </th>
                   <th
                     className="w-32 px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300"
+                    title="Monthly profit as a percentage of company value"
+                  >
+                    <span className="block">Profit</span>
+                    <span className="block">%</span>
+                  </th>
+                  <th
+                    className="w-32 px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300"
                     title="Month-over-month change including inventory"
                   >
-                    <span className="block">Monthly company</span>
-                    <span className="block">valuation</span>
+                    <span className="block">Valuation</span>
+                    <span className="block">change</span>
                   </th>
-                  <th className="w-32 px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300">
-                    <span className="block">% of company</span>
-                    <span className="block">value</span>
+                  <th
+                    className="w-32 px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300"
+                    title="Valuation change as a percentage of company value"
+                  >
+                    <span className="block">Valuation</span>
+                    <span className="block">%</span>
                   </th>
                 </tr>
               </thead>
@@ -447,16 +473,19 @@ export default function BusinessPage() {
                       {formatGbp(row.profit)}
                     </td>
                     <td
+                      className={`px-3 py-2.5 text-center text-sm font-semibold tabular-nums ${moneyClass(row.profitPct)}`}
+                    >
+                      {formatPct(row.profitPct)}
+                    </td>
+                    <td
                       className={`px-3 py-2.5 text-center text-sm font-semibold tabular-nums ${moneyClass(row.monthlyValuation)}`}
                     >
                       {formatGbp(row.monthlyValuation)}
                     </td>
                     <td
-                      className={`px-3 py-2.5 text-center text-sm font-semibold tabular-nums ${moneyClass(row.pctOfCompany)}`}
+                      className={`px-3 py-2.5 text-center text-sm font-semibold tabular-nums ${moneyClass(row.valuationPct)}`}
                     >
-                      {row.pctOfCompany == null
-                        ? '—'
-                        : `${row.pctOfCompany > 0 ? '+' : ''}${row.pctOfCompany.toFixed(1)}%`}
+                      {formatPct(row.valuationPct)}
                     </td>
                   </tr>
                 ))}
@@ -495,8 +524,14 @@ export default function BusinessPage() {
                     {formatGbp(yearSummary.profitTotal)}
                   </td>
                   <td
+                    className={`px-3 py-3 text-center text-sm tabular-nums ${moneyClass(yearSummary.profitPct)}`}
+                    title="Year-to-date profit as a percentage of latest company value"
+                  >
+                    {formatPct(yearSummary.profitPct)}
+                  </td>
+                  <td
                     className={`px-3 py-3 text-center text-sm tabular-nums ${moneyClass(yearSummary.valuationTotal)}`}
-                    title="Year-to-date company valuation change including inventory"
+                    title="Year-to-date valuation change including inventory"
                   >
                     {formatGbp(yearSummary.valuationTotal)}
                   </td>
@@ -509,9 +544,7 @@ export default function BusinessPage() {
                         : undefined
                     }
                   >
-                    {yearSummary.yoyPct == null
-                      ? '—'
-                      : `${yearSummary.yoyPct > 0 ? '+' : ''}${yearSummary.yoyPct.toFixed(1)}%`}
+                    {formatPct(yearSummary.yoyPct)}
                   </td>
                 </tr>
               </tbody>
