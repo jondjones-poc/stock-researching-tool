@@ -9,9 +9,13 @@ export async function GET(_request: NextRequest) {
         ins.id, 
         ins.name, 
         ins.income_type_id,
-        it.name as income_type_name
+        ins.account_id,
+        it.name as income_type_name,
+        it.isbusinessincome,
+        a.name as account_name
       FROM income_source ins
       JOIN income_type it ON ins.income_type_id = it.id
+      LEFT JOIN accounts a ON a.id = ins.account_id
       ORDER BY it.id, ins.id`,
       []
     );

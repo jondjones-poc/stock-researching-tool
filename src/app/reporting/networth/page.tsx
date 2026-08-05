@@ -105,11 +105,6 @@ export default function ReportingNetworthPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-          Networth
-        </h1>
-        <hr className="border-gray-200 dark:border-gray-700 mb-10" />
-
         {/* 1. Networth over time */}
         <section className="mb-12">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">

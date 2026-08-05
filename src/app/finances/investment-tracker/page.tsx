@@ -16,6 +16,35 @@ interface Account {
   name: string;
 }
 
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function formatMonthName(month: string): string {
+  // Prefer YYYY-MM
+  const yyyyMm = month.match(/^(\d{4})-(\d{2})/);
+  if (yyyyMm) {
+    const monthIndex = parseInt(yyyyMm[2], 10) - 1;
+    if (monthIndex >= 0 && monthIndex < 12) return MONTH_NAMES[monthIndex];
+  }
+  const date = new Date(month);
+  if (!Number.isNaN(date.getTime())) {
+    return MONTH_NAMES[date.getMonth()];
+  }
+  return month;
+}
+
 export default function InvestmentTrackerPage() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [availableYears, setAvailableYears] = useState<number[]>([]);
@@ -342,7 +371,7 @@ export default function InvestmentTrackerPage() {
                       return (
                         <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                            {entry.month}
+                            {formatMonthName(entry.month)}
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-300">
                             {entry.description || '-'}

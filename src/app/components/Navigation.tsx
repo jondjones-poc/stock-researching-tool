@@ -169,6 +169,16 @@ export default function Navigation() {
                   💼 Cashflow
                 </Link>
                 <Link 
+                  href="/finances/business" 
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/finances/business' 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  🏪 Business
+                </Link>
+                <Link 
                   href="/finances/investment-tracker" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
                     pathname === '/finances/investment-tracker' 
