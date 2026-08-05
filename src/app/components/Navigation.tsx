@@ -232,6 +232,16 @@ export default function Navigation() {
                 >
                   🌍 World Indexes Map
                 </Link>
+                <Link
+                  href="/research/company-finder"
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/research/company-finder'
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  🔎 Company Finder
+                </Link>
               </>
             )}
             {isReportingTab && (
