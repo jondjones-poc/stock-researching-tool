@@ -15,7 +15,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Feature docs
 
 - **Global Market Flow Tracker** (`/research/markets`) — [docs/market-flow-tracker.md](docs/market-flow-tracker.md)
-- **Company Finder** (`/research/company-finder`) — [docs/company-finder.md](docs/company-finder.md)
+- **Deep Value Stocks** (`/research/company-finder`) — [docs/company-finder.md](docs/company-finder.md)
 - **Sector heatmap** — `/research/sectors` (formerly `/research/markets`)
 - **Migrations** — `scripts/migrations/`
 

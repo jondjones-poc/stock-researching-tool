@@ -63,6 +63,18 @@ await client.connect();
 const sql = readFileSync(join(__dirname, 'migrations', '030_company_finder.sql'), 'utf8');
 await client.query(sql);
 console.log('Applied 030_company_finder.sql');
+const sqlFcf = readFileSync(join(__dirname, 'migrations', '031_company_finder_fcf.sql'), 'utf8');
+await client.query(sqlFcf);
+console.log('Applied 031_company_finder_fcf.sql');
+const sqlSector = readFileSync(join(__dirname, 'migrations', '032_company_finder_sector_country.sql'), 'utf8');
+await client.query(sqlSector);
+console.log('Applied 032_company_finder_sector_country.sql');
+const sqlConfidence = readFileSync(join(__dirname, 'migrations', '033_company_finder_confidence.sql'), 'utf8');
+await client.query(sqlConfidence);
+console.log('Applied 033_company_finder_confidence.sql');
+const sqlNetCash = readFileSync(join(__dirname, 'migrations', '034_company_finder_net_cash.sql'), 'utf8');
+await client.query(sqlNetCash);
+console.log('Applied 034_company_finder_net_cash.sql');
 await client.end();
 
 if (doWarm) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  getCompanyFinderFacets,
   getCompanyFinderStats,
   getLatestCompanyFinderRun,
   listCompanyFinder,
@@ -11,39 +12,61 @@ function parseNum(v: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** GET /api/company-finder — list cached companies with buy-candidate filters. */
+/** GET /api/company-finder — list cached deep-value candidates. */
 export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
-    const candidatesOnly = sp.get('candidatesOnly') !== '0' && sp.get('candidatesOnly') !== 'false';
+    const minCashToMarketPct = parseNum(sp.get('minCashToMarketPct')) ?? 90;
+    const minFcfToMarketPct = parseNum(sp.get('minFcfToMarketPct')) ?? 20;
+    const minNetCashToMarketPct = parseNum(sp.get('minNetCashToMarketPct')) ?? 0;
+    const includeMissingNetCash = sp.get('includeMissingNetCash') === 'true';
+    const minConfidenceStars = parseNum(sp.get('minConfidenceStars')) ?? 5;
+    const sector = sp.get('sector')?.trim() || null;
+    const country = sp.get('country')?.trim() || null;
     const result = await listCompanyFinder({
-      candidatesOnly,
+      minCashToMarketPct,
+      minNetCashToMarketPct,
+      includeMissingNetCash,
       q: sp.get('q') ?? undefined,
+      sector,
+      country,
       minMarketCap: parseNum(sp.get('minMarketCap')),
       maxMarketCap: parseNum(sp.get('maxMarketCap')),
       minCash: parseNum(sp.get('minCash')),
       minOcfYtd: parseNum(sp.get('minOcfYtd')),
+      minFcfYtd: parseNum(sp.get('minFcfYtd')),
+      minFcfToMarketPct,
+      minConfidenceStars,
       maxScore: parseNum(sp.get('maxScore')),
       limit: parseNum(sp.get('limit')) ?? 100,
       offset: parseNum(sp.get('offset')) ?? 0,
     });
-    const [stats, latestRun] = await Promise.all([
+    const [stats, latestRun, facets] = await Promise.all([
       getCompanyFinderStats(),
       getLatestCompanyFinderRun(),
+      getCompanyFinderFacets(),
     ]);
 
     return NextResponse.json({
       disclaimer:
-        'Score = market cap − cash − operating cash flow (YTD/TTM). Negative means cash + OCF exceed equity value. Not investment advice.',
+        'Deep value here means cash (and short-term investments when available) covers a large share of market value. Not investment advice.',
       filters: {
-        candidatesOnly,
+        minCashToMarketPct,
+        minNetCashToMarketPct,
+        includeMissingNetCash,
+        minFcfToMarketPct,
+        minConfidenceStars,
         q: sp.get('q'),
+        sector,
+        country,
         minMarketCap: parseNum(sp.get('minMarketCap')),
         maxMarketCap: parseNum(sp.get('maxMarketCap')),
         minCash: parseNum(sp.get('minCash')),
         minOcfYtd: parseNum(sp.get('minOcfYtd')),
+        minFcfYtd: parseNum(sp.get('minFcfYtd')),
         maxScore: parseNum(sp.get('maxScore')),
       },
+      facets,
       stats,
       latestRun,
       total: result.total,
