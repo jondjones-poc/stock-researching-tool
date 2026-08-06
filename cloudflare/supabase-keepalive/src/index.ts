@@ -7,6 +7,12 @@ export interface Env {
    * e.g. https://your-app.onrender.com/api/company-finder/refresh
    */
   COMPANY_FINDER_REFRESH_URL?: string;
+  /**
+   * Full URL to POST /api/dashboard-watchlist/refresh on the Next.js host.
+   * Warms homepage stock quotes via Finnhub into dashboard_stock_quotes.
+   * e.g. https://your-app.onrender.com/api/dashboard-watchlist/refresh
+   */
+  DASHBOARD_STOCK_QUOTES_REFRESH_URL?: string;
 }
 
 async function pingKeepalive(env: Env): Promise<Response> {
@@ -71,6 +77,41 @@ async function runCompanyFinderScrape(env: Env): Promise<Response> {
   );
 }
 
+/** Warm homepage stock quotes (Finnhub → dashboard_stock_quotes). */
+async function runDashboardStockQuotesRefresh(env: Env): Promise<Response> {
+  const url = env.DASHBOARD_STOCK_QUOTES_REFRESH_URL?.trim();
+  const secret = env.KEEPALIVE_SECRET?.trim();
+  if (!url || !secret) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: 'DASHBOARD_STOCK_QUOTES_REFRESH_URL and KEEPALIVE_SECRET must be set',
+      }),
+      { status: 500, headers: { 'content-type': 'application/json' } }
+    );
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cron-secret': secret,
+      'x-keepalive-secret': secret,
+    },
+    body: JSON.stringify({}),
+  });
+
+  const bodyText = await res.text();
+  return new Response(
+    JSON.stringify({
+      ok: res.ok,
+      status: res.status,
+      body: bodyText.slice(0, 4000),
+    }),
+    { status: res.ok ? 200 : 502, headers: { 'content-type': 'application/json' } }
+  );
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -83,6 +124,14 @@ export default {
     const keepalive = await pingKeepalive(env);
     if (!keepalive.ok) {
       console.error('keepalive ping failed', await keepalive.text());
+    }
+
+    if (env.DASHBOARD_STOCK_QUOTES_REFRESH_URL) {
+      ctx.waitUntil(
+        runDashboardStockQuotesRefresh(env).then(async (out) => {
+          if (!out.ok) console.error('dashboard stock quotes refresh failed', await out.text());
+        })
+      );
     }
 
     if (env.COMPANY_FINDER_REFRESH_URL) {
@@ -115,6 +164,23 @@ export default {
         accepted: true,
         job: 'company-finder',
         message: 'Scrape batch accepted; running on app host via /api/company-finder/refresh',
+      });
+    }
+
+    // Manual trigger: /dashboard-stocks
+    if (path === '/dashboard-stocks' || path.endsWith('/dashboard-stocks')) {
+      const refreshPromise = runDashboardStockQuotesRefresh(env);
+      ctx.waitUntil(
+        refreshPromise.then(async (out) => {
+          if (!out.ok) console.error('dashboard stock quotes refresh failed', await out.text());
+        })
+      );
+      return json({
+        ok: true,
+        accepted: true,
+        job: 'dashboard-stock-quotes',
+        message:
+          'Homepage stock quote refresh accepted; running on app host via /api/dashboard-watchlist/refresh',
       });
     }
 

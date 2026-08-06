@@ -96,6 +96,9 @@ function DashboardContent() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
+  const [stockQuotesCacheUpdatedAt, setStockQuotesCacheUpdatedAt] = useState<string | null>(null);
+  const [stockQuotesRefreshing, setStockQuotesRefreshing] = useState(false);
+  const [stockQuotesRefreshError, setStockQuotesRefreshError] = useState<string | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -301,12 +304,37 @@ function DashboardContent() {
       
       const result = await response.json();
       setWatchlistData(result.data || []);
+      if (result.cacheUpdatedAt) {
+        setStockQuotesCacheUpdatedAt(result.cacheUpdatedAt);
+      }
     } catch (error) {
       console.error('Error fetching watchlist data:', error);
       // Don't set error state - just use empty data
       setWatchlistData([]);
     }
   }, [categoryFilter, dashboardView]);
+
+  const refreshStockQuotesCache = async () => {
+    try {
+      setStockQuotesRefreshing(true);
+      setStockQuotesRefreshError(null);
+      const response = await fetch('/api/dashboard-watchlist/refresh', { method: 'POST' });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || result.hint || 'Failed to refresh stock quotes');
+      }
+      if (result.cacheUpdatedAt) {
+        setStockQuotesCacheUpdatedAt(result.cacheUpdatedAt);
+      }
+      await fetchWatchlistData();
+    } catch (error: unknown) {
+      setStockQuotesRefreshError(
+        error instanceof Error ? error.message : 'Failed to refresh stock quotes'
+      );
+    } finally {
+      setStockQuotesRefreshing(false);
+    }
+  };
 
   // Calculate date range based on selected period
   const getDateRange = (period: string) => {
@@ -1106,6 +1134,50 @@ function DashboardContent() {
               );
             })
           )}
+
+          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4 dark:border-gray-700">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Stock prices cache updated:{' '}
+              <span className="font-medium text-gray-700 dark:text-gray-200">
+                {stockQuotesCacheUpdatedAt
+                  ? new Date(stockQuotesCacheUpdatedAt).toLocaleString('en-GB', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : '—'}
+              </span>
+              {stockQuotesRefreshError ? (
+                <span className="ml-2 text-amber-700 dark:text-amber-300">
+                  · {stockQuotesRefreshError}
+                </span>
+              ) : null}
+            </p>
+            <button
+              type="button"
+              onClick={() => void refreshStockQuotesCache()}
+              disabled={stockQuotesRefreshing || loadingWatchlist}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <svg
+                className={`h-3.5 w-3.5 ${stockQuotesRefreshing ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.25}
+                  d="M4 4v6h6M20 20v-6h-6M5.5 15.5A7 7 0 0018 17l2-3M18.5 8.5A7 7 0 006 7L4 10"
+                />
+              </svg>
+              {stockQuotesRefreshing ? 'Updating…' : 'Refresh prices'}
+            </button>
+          </footer>
         </main>
       ) : (
       <div className="flex">

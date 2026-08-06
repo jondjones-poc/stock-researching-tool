@@ -49,8 +49,11 @@ curl -X POST https://YOUR-APP/api/company-finder/refresh \
 Worker setup:
 
 1. `npx wrangler secret put COMPANY_FINDER_REFRESH_URL` → `https://YOUR-APP/api/company-finder/refresh`
-2. Redeploy: `cd cloudflare/supabase-keepalive && npm run deploy`
-3. On the Next.js host set `COMPANY_FINDER_WORKER_URL` → `https://share-research-supabase-keepalive.<account>.workers.dev/company-finder`
+2. `npx wrangler secret put DASHBOARD_STOCK_QUOTES_REFRESH_URL` → `https://YOUR-APP/api/dashboard-watchlist/refresh`
+3. Redeploy: `cd cloudflare/supabase-keepalive && npm run deploy`
+4. On the Next.js host set `COMPANY_FINDER_WORKER_URL` → `https://share-research-supabase-keepalive.<account>.workers.dev/company-finder`
+
+Daily cron (`0 8 * * *` UTC) also warms homepage stock quotes (Finnhub → `dashboard_stock_quotes`) when `DASHBOARD_STOCK_QUOTES_REFRESH_URL` is set. Manual: `…/dashboard-stocks`.
 
 Admin **Run scrape batch** calls `/api/company-finder/trigger-scrape`, which hits that worker URL (scrape runs on the app host, not in the browser).
 

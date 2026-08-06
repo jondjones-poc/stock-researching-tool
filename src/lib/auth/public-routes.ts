@@ -11,6 +11,7 @@ const PUBLIC_API_ROUTES: Array<{ method: string | '*'; path: string }> = [
   // Cron / Cloudflare worker — route still requires x-cron-secret / x-keepalive-secret
   { method: 'POST', path: '/api/company-finder/refresh' },
   { method: 'POST', path: '/api/market-flow/refresh' },
+  { method: 'POST', path: '/api/dashboard-watchlist/refresh' },
 ];
 
 export function isPublicApiRoute(pathname: string, method: string): boolean {

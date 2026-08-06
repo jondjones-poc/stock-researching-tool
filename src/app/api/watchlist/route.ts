@@ -1,158 +1,203 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { getAllWatchlistSymbols } from '../../config/dashboard';
+import { query } from '../../utils/db';
+import {
+  getDashboardStockQuotesCacheUpdatedAt,
+  isDashboardStockSymbol,
+  resolveDashboardStockQuotes,
+} from '../../utils/dashboardStockQuotes';
 
-const FMP_API_KEY = process.env.FMP_API_KEY;
 const FRED_API_KEY = process.env.FRED_API_KEY;
+
+type SymbolMeta = {
+  symbol: string;
+  name: string;
+  dataSource?: string | null;
+  fredSeriesId?: string | null;
+};
+
+async function loadSymbolMeta(symbols: string[]): Promise<Map<string, SymbolMeta>> {
+  const map = new Map<string, SymbolMeta>();
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()))];
+
+  for (const cfg of getAllWatchlistSymbols()) {
+    map.set(cfg.symbol.toUpperCase(), {
+      symbol: cfg.symbol.toUpperCase(),
+      name: cfg.name,
+      dataSource: cfg.dataSource || null,
+      fredSeriesId: cfg.fredSeriesId || null,
+    });
+  }
+
+  try {
+    const rows = await query(
+      `SELECT symbol, name, data_source, fred_series_id
+       FROM dashboard_watchlist
+       WHERE UPPER(symbol) = ANY($1::text[])`,
+      [unique]
+    );
+    for (const row of rows.rows) {
+      const symbol = String(row.symbol).toUpperCase();
+      const existing = map.get(symbol);
+      map.set(symbol, {
+        symbol,
+        name: row.name || existing?.name || symbol,
+        dataSource: row.data_source || existing?.dataSource || null,
+        fredSeriesId: row.fred_series_id || existing?.fredSeriesId || null,
+      });
+    }
+  } catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err.code !== '42P01') throw error;
+  }
+
+  for (const symbol of unique) {
+    if (!map.has(symbol)) {
+      map.set(symbol, { symbol, name: symbol });
+    }
+  }
+
+  return map;
+}
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const symbols = searchParams.get('symbols');
-    
+
     if (!symbols) {
       return NextResponse.json({ error: 'Symbols parameter is required' }, { status: 400 });
     }
 
-    const symbolList = symbols.split(',');
-    const allSymbols = getAllWatchlistSymbols();
-    
-    if (!FMP_API_KEY) {
-      return NextResponse.json({ error: 'FMP API key not configured' }, { status: 500 });
-    }
+    const symbolList = symbols.split(',').map((s) => s.trim()).filter(Boolean);
+    const metaBySymbol = await loadSymbolMeta(symbolList);
 
-    // Separate FMP and FRED symbols
-    const fmpSymbols: string[] = [];
+    const stockItems: { symbol: string; name: string }[] = [];
     const fredSymbols: { symbol: string; seriesId: string }[] = [];
-    
-    symbolList.forEach(symbol => {
-      const config = allSymbols.find(s => s.symbol === symbol);
-      if (config?.dataSource === 'FRED' && config.fredSeriesId) {
-        fredSymbols.push({ symbol, seriesId: config.fredSeriesId });
-      } else {
-        fmpSymbols.push(symbol);
+
+    for (const raw of symbolList) {
+      const symbol = raw.toUpperCase();
+      const meta = metaBySymbol.get(symbol) || { symbol, name: symbol };
+      if (
+        String(meta.dataSource || '').toUpperCase() === 'FRED' &&
+        meta.fredSeriesId
+      ) {
+        fredSymbols.push({ symbol, seriesId: meta.fredSeriesId });
+        continue;
       }
-    });
-
-    const watchlistData: any[] = [];
-
-    // Fetch FMP quotes - try batch first, fall back to individual if it fails
-    if (fmpSymbols.length > 0) {
-      try {
-        const response = await axios.get(
-          `https://financialmodelingprep.com/stable/quote?symbol=${fmpSymbols.join(',')}&apikey=${FMP_API_KEY}`,
-          { timeout: 10000 }
-        );
-
-        if (response.data && Array.isArray(response.data)) {
-          response.data.forEach((quote: any) => {
-            const change = quote.change || 0;
-            const changePercent = quote.changesPercentage || 0;
-            
-            watchlistData.push({
-              symbol: quote.symbol,
-              name: quote.name,
-              last: quote.price || 0,
-              change: change,
-              changePercent: changePercent,
-              volume: quote.volume || 0,
-              marketCap: quote.marketCap || 0,
-              isPositive: change >= 0
-            });
-          });
-        }
-      } catch (fmpError: any) {
-        console.error('FMP batch request failed:', fmpError.message);
-        // If batch fails (e.g., rate limit), fetch individually
-        for (const symbol of fmpSymbols) {
-          try {
-            const response = await axios.get(
-              `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${FMP_API_KEY}`,
-              { timeout: 5000 }
-            );
-            
-            if (response.data && response.data[0]) {
-              const quote = response.data[0];
-              const change = quote.change || 0;
-              const changePercent = quote.changesPercentage || 0;
-              
-              watchlistData.push({
-                symbol: quote.symbol,
-                name: quote.name,
-                last: quote.price || 0,
-                change: change,
-                changePercent: changePercent,
-                volume: quote.volume || 0,
-                marketCap: quote.marketCap || 0,
-                isPositive: change >= 0
-              });
-            }
-          } catch (individualError) {
-            console.error(`Failed to fetch ${symbol}, skipping:`, individualError);
-            // Continue with next symbol
-          }
-        }
+      if (
+        isDashboardStockSymbol({
+          symbol,
+          dataSource: meta.dataSource,
+          fredSeriesId: meta.fredSeriesId,
+        })
+      ) {
+        stockItems.push({ symbol, name: meta.name });
       }
     }
 
-    // Fetch FRED data (latest value for each series)
+    const watchlistData: Array<{
+      symbol: string;
+      name: string;
+      last: number;
+      change: number;
+      changePercent: number;
+      volume: number;
+      marketCap: number;
+      isPositive: boolean;
+    }> = [];
+
+    let stockWarning: string | undefined;
+    let stockMeta: { fromCache: number; liveFilled: number } | undefined;
+
+    if (stockItems.length > 0) {
+      const resolved = await resolveDashboardStockQuotes(stockItems, {
+        fillMissingLive: true,
+      });
+      stockWarning = resolved.warning;
+      stockMeta = {
+        fromCache: resolved.fromCache,
+        liveFilled: resolved.liveFilled,
+      };
+
+      for (const item of stockItems) {
+        const quote = resolved.quotes.get(item.symbol);
+        if (!quote) continue;
+        watchlistData.push({
+          symbol: quote.symbol,
+          name: quote.name || item.name,
+          last: quote.price,
+          change: quote.change,
+          changePercent: quote.changePercent,
+          volume: quote.volume || 0,
+          marketCap: quote.marketCap || 0,
+          isPositive: quote.change >= 0,
+        });
+      }
+    }
+
     if (fredSymbols.length > 0 && FRED_API_KEY) {
-      console.log('Fetching FRED symbols:', fredSymbols);
       for (const fredSymbol of fredSymbols) {
         try {
           const fredUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${fredSymbol.seriesId}&api_key=${FRED_API_KEY}&file_type=json&limit=2&sort_order=desc`;
-          console.log(`Fetching FRED watchlist data for ${fredSymbol.symbol} (${fredSymbol.seriesId}):`, fredUrl);
-          
           const fredResponse = await axios.get(fredUrl, { timeout: 10000 });
-          console.log(`FRED response for ${fredSymbol.symbol}:`, fredResponse.status, fredResponse.data);
-          
+
           if (fredResponse.data?.observations) {
-            const observations = fredResponse.data.observations.filter((obs: any) => obs.value !== '.');
-            
+            const observations = fredResponse.data.observations.filter(
+              (obs: { value: string }) => obs.value !== '.'
+            );
+
             if (observations.length >= 1) {
               const latest = observations[0];
               const previous = observations.length >= 2 ? observations[1] : latest;
-              
+
               const latestValue = parseFloat(latest.value);
               const previousValue = parseFloat(previous.value);
               const change = latestValue - previousValue;
-              const changePercent = previousValue !== 0 ? (change / previousValue) * 100 : 0;
-              
+              const changePercent =
+                previousValue !== 0 ? (change / previousValue) * 100 : 0;
+
               watchlistData.push({
                 symbol: fredSymbol.symbol,
-                name: allSymbols.find(s => s.symbol === fredSymbol.symbol)?.name || fredSymbol.symbol,
+                name: metaBySymbol.get(fredSymbol.symbol)?.name || fredSymbol.symbol,
                 last: latestValue,
-                change: change,
-                changePercent: changePercent,
-                volume: 0, // FRED doesn't provide volume
-                marketCap: 0, // Not applicable for indices
-                isPositive: change >= 0
+                change,
+                changePercent,
+                volume: 0,
+                marketCap: 0,
+                isPositive: change >= 0,
               });
             }
           }
         } catch (fredError) {
           console.error(`Error fetching FRED data for ${fredSymbol.symbol}:`, fredError);
-          // Continue with other symbols even if one fails
         }
       }
     }
 
     return NextResponse.json({
       data: watchlistData,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      cacheUpdatedAt: await getDashboardStockQuotesCacheUpdatedAt(),
+      source: {
+        stocks: 'FINNHUB_CACHE',
+        ...stockMeta,
+        warning: stockWarning,
+      },
     });
+  } catch (error: unknown) {
+    const err = error as { message?: string; response?: { status?: number }; code?: string };
+    console.error('Watchlist API error:', err.message);
 
-  } catch (error: any) {
-    console.error('Watchlist API error:', error.message);
-    
-    if (error.response?.status === 429) {
+    if (err.response?.status === 429) {
       return NextResponse.json({ error: 'API rate limit exceeded' }, { status: 429 });
     }
-    
-    if (error.code === 'ECONNABORTED') {
+
+    if (err.code === 'ECONNABORTED') {
       return NextResponse.json({ error: 'Request timeout' }, { status: 408 });
     }
-    
+
     return NextResponse.json({ error: 'Failed to fetch watchlist data' }, { status: 500 });
   }
 }
