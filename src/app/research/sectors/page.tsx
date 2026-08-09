@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   formatChangePct,
   marketChangePctToColor,
@@ -89,6 +90,7 @@ function Modal({
 }
 
 export default function MarketsHeatmapPage() {
+  const router = useRouter();
   const [heatmap, setHeatmap] = useState<HeatmapMarket[]>([]);
   const [marketList, setMarketList] = useState<MarketListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -620,7 +622,7 @@ export default function MarketsHeatmapPage() {
                 const directionArrow =
                   market.direction === 'up' ? '↑' : market.direction === 'down' ? '↓' : '→';
                 const showIndex = view === 'index' || region !== 'us';
-                const yahooSymbol =
+                const chartSymbol =
                   market.index_symbol?.trim() ||
                   (showIndex ? market.stocks[0]?.symbol : null) ||
                   null;
@@ -628,34 +630,30 @@ export default function MarketsHeatmapPage() {
                 return (
                   <div
                     key={market.id}
-                    role={yahooSymbol ? 'link' : undefined}
-                    tabIndex={yahooSymbol ? 0 : undefined}
+                    role={chartSymbol ? 'link' : undefined}
+                    tabIndex={chartSymbol ? 0 : undefined}
                     title={
-                      yahooSymbol
-                        ? `Open ${yahooSymbol} on Yahoo Finance`
+                      chartSymbol
+                        ? `Open ${chartSymbol} in Stock search`
                         : undefined
                     }
                     onClick={() => {
-                      if (!yahooSymbol) return;
-                      window.open(
-                        yahooFinanceQuoteUrl(yahooSymbol),
-                        '_blank',
-                        'noopener,noreferrer'
+                      if (!chartSymbol) return;
+                      router.push(
+                        `/research/stock-search?symbol=${encodeURIComponent(chartSymbol)}&from=sectors`
                       );
                     }}
                     onKeyDown={(e) => {
-                      if (!yahooSymbol) return;
+                      if (!chartSymbol) return;
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        window.open(
-                          yahooFinanceQuoteUrl(yahooSymbol),
-                          '_blank',
-                          'noopener,noreferrer'
+                        router.push(
+                          `/research/stock-search?symbol=${encodeURIComponent(chartSymbol)}&from=sectors`
                         );
                       }
                     }}
                     className={`rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden shadow-sm min-h-[160px] flex flex-col ${
-                      yahooSymbol ? 'cursor-pointer hover:brightness-[1.03]' : ''
+                      chartSymbol ? 'cursor-pointer hover:brightness-[1.03]' : ''
                     }`}
                     style={{ backgroundColor: bg, color: fg }}
                   >
@@ -676,7 +674,7 @@ export default function MarketsHeatmapPage() {
                               e.stopPropagation();
                               void handleHeatmapAskAi(market);
                             }}
-                            title="Ask AI: explain trend, money flow, and 3 stocks to research (does not open Yahoo)"
+                            title="Ask AI: explain trend, money flow, and 3 stocks to research"
                             className={`text-[10px] px-1.5 py-1 rounded font-medium border transition-colors ${
                               heatmapAskAiCopiedId === market.id
                                 ? 'border-green-600 bg-green-600/20'
