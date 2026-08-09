@@ -20,7 +20,8 @@ import {
 } from './utils/marketHeatColor';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, ComposedChart } from 'recharts';
+import { annotateHeartbeatBreakoutSignals } from './utils/heartbeatBreakoutSignals';
 
 interface WatchlistData {
   symbol: string;
@@ -37,6 +38,13 @@ interface ChartData {
   date: string;
   price: number;
   volume: number;
+  sma30?: number | null;
+  sma90?: number | null;
+  buyMarker?: number | null;
+  sellMarker?: number | null;
+  signalNote?: string | null;
+  /** True when close is up vs prior close (for volume bar colour). */
+  upDay?: boolean;
 }
 
 interface EarningsData {
@@ -95,6 +103,10 @@ function DashboardContent() {
   );
   const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
+  const [showTrailingLines, setShowTrailingLines] = useState(true);
+  const [showSma30, setShowSma30] = useState(true);
+  const [showSma90, setShowSma90] = useState(true);
+  const [showSignals, setShowSignals] = useState(true);
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
   const [stockQuotesCacheUpdatedAt, setStockQuotesCacheUpdatedAt] = useState<string | null>(null);
   const [stockQuotesRefreshing, setStockQuotesRefreshing] = useState(false);
@@ -348,6 +360,15 @@ function DashboardContent() {
       case '1M':
         fromDate.setMonth(today.getMonth() - 1);
         break;
+      case '3M':
+        fromDate.setMonth(today.getMonth() - 3);
+        break;
+      case '6M':
+        fromDate.setMonth(today.getMonth() - 6);
+        break;
+      case '9M':
+        fromDate.setMonth(today.getMonth() - 9);
+        break;
       case 'YTD':
         fromDate = new Date(today.getFullYear(), 0, 1); // January 1st of current year
         break;
@@ -589,24 +610,60 @@ function DashboardContent() {
         setChartData([]);
         return;
       }
-      
-      const chartData: ChartData[] = historicalData
+
+      const rawBars = historicalData
         .filter((item: any) => item && item.close !== undefined && item.close !== null && !isNaN(item.close))
         .map((item: any) => ({
           date: item.date,
-          price: item.close, // Use closing price or index value
-          volume: item.volume || 0
+          open: Number(item.open ?? item.close),
+          high: Number(item.high ?? item.close),
+          low: Number(item.low ?? item.close),
+          close: Number(item.close),
+          volume: item.volume || 0,
+          change: Number(item.change ?? 0),
+          changePercent: Number(item.changePercent ?? 0),
+          sma30:
+            item.sma30 !== undefined && item.sma30 !== null && !isNaN(Number(item.sma30))
+              ? Number(item.sma30)
+              : null,
+          sma90:
+            item.sma90 !== undefined && item.sma90 !== null && !isNaN(Number(item.sma90))
+              ? Number(item.sma90)
+              : item.sma150 !== undefined && item.sma150 !== null && !isNaN(Number(item.sma150))
+                ? Number(item.sma150)
+                : null,
         }));
-      
-      console.log(`Loaded ${chartData.length} valid data points for ${symbol} (${period})`);
-      
+
+      const annotated = annotateHeartbeatBreakoutSignals(rawBars, { primaryMaKey: 'sma90' });
+
+      const chartData: ChartData[] = annotated.map((item, index) => {
+        const prevClose = index > 0 ? annotated[index - 1].close : item.close;
+        return {
+          date: item.date,
+          price: item.close,
+          volume: item.volume || 0,
+          sma30: item.sma30 ?? null,
+          sma90: item.sma90 ?? null,
+          buyMarker: item.buyMarker ?? null,
+          sellMarker: item.sellMarker ?? null,
+          signalNote: item.signalNote ?? null,
+          upDay: item.close >= prevClose,
+        };
+      });
+
+      const buyCount = chartData.filter((d) => d.buyMarker != null).length;
+      const sellCount = chartData.filter((d) => d.sellMarker != null).length;
+      console.log(
+        `Loaded ${chartData.length} points for ${symbol} (${period}); buys=${buyCount} sells=${sellCount}`
+      );
+
       if (chartData.length === 0) {
         console.warn(`All data points filtered out for ${symbol} - no valid prices found`);
         setError(`No valid price data found for ${symbol}. All data points were filtered out.`);
       } else {
-        setError(null); // Clear any previous errors
+        setError(null);
       }
-      
+
       setChartData(chartData);
     } catch (error: any) {
       console.error('Error fetching chart data:', error);
@@ -1180,30 +1237,11 @@ function DashboardContent() {
           </footer>
         </main>
       ) : (
-      <div className="flex">
+      <div className="flex h-[calc(100vh-4.5rem)] overflow-hidden">
         {/* Main Chart Area */}
-        <div className="flex-1 bg-white dark:bg-gray-900">
-          {/* Chart Controls */}
-          <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <button className="px-3 py-1 bg-red-600 text-white rounded text-sm font-medium">
-                  SELL {formatPrice(getWatchlistData(selectedSymbol)?.last || 0)}
-                </button>
-                <button className="px-3 py-1 bg-blue-600 text-white rounded text-sm font-medium">
-                  BUY {formatPrice((getWatchlistData(selectedSymbol)?.last || 0) + 0.18)}
-                </button>
-                <span className="text-sm text-gray-400">Spread: 0.18</span>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                <span className="text-sm text-gray-400">Vol {getWatchlistData(selectedSymbol)?.volume ? Math.round(getWatchlistData(selectedSymbol)!.volume / 1000000) + 'M' : 'N/A'}</span>
-              </div>
-            </div>
-          </div>
-
+        <div className="flex-1 bg-white dark:bg-gray-900 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Chart Title */}
-          <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
             <h2 className="text-lg font-semibold">
               {allWatchlistSymbols.find(s => s.symbol === selectedSymbol)?.name || selectedSymbol}
             </h2>
@@ -1228,14 +1266,14 @@ function DashboardContent() {
 
           {/* Chart Area */}
           <div
-            className={`bg-white dark:bg-gray-900 p-4 ${
+            className={`bg-white dark:bg-gray-900 p-4 min-h-0 ${
               (selectedSymbol === 'GREED' && fearGreedData.length > 0 && !fearGreedLoading) ||
               (selectedSymbol === 'VIX' && chartData.length > 0 && !loading) ||
               (selectedSymbol === 'WTI' && chartData.length > 0 && !loading) ||
               (selectedSymbol === 'UMCSENT' && chartData.length > 0 && !loading) ||
               (selectedSymbol === 'AII' && aaiiSentimentData.length > 0 && !aaiiSentimentLoading)
-                ? ''
-                : 'h-96'
+                ? 'overflow-y-auto'
+                : 'flex-1 flex flex-col overflow-hidden'
             }`}
           >
             {selectedSymbol === 'GREED' ? (
@@ -1617,10 +1655,10 @@ function DashboardContent() {
                   );
                 })()
               ) : (
-              <div className="h-full bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4">
-                <div className="h-3/4 mb-2">
+              <div className="h-full min-h-0 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-4 flex flex-col">
+                <div className="flex-[3] min-h-0 mb-2">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
+                    <ComposedChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                       <XAxis
                         dataKey="date"
@@ -1628,13 +1666,21 @@ function DashboardContent() {
                         fontSize={12}
                         tickFormatter={(value) => {
                           const date = new Date(value);
-                          if (selectedPeriod === '5D' || selectedPeriod === '1M' || selectedPeriod === 'YTD' || selectedPeriod === '1Y') {
+                          if (
+                            selectedPeriod === '5D' ||
+                            selectedPeriod === '1M' ||
+                            selectedPeriod === '3M' ||
+                            selectedPeriod === '6M' ||
+                            selectedPeriod === '9M' ||
+                            selectedPeriod === 'YTD' ||
+                            selectedPeriod === '1Y'
+                          ) {
                             return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
                           }
                           return date.getFullYear().toString();
                         }}
                       />
-                      <YAxis stroke="#9CA3AF" fontSize={12} tickFormatter={(value) => `$${value.toFixed(0)}`} />
+                      <YAxis stroke="#9CA3AF" fontSize={12} tickFormatter={(value) => `$${value.toFixed(0)}`} domain={['auto', 'auto']} />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: '#1F2937',
@@ -1642,28 +1688,176 @@ function DashboardContent() {
                           borderRadius: '6px',
                           color: '#F9FAFB',
                         }}
-                        formatter={(value: number) => [`$${value.toFixed(2)}`, 'Price']}
-                        labelFormatter={(label) => {
-                          const date = new Date(label);
-                          return date.toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                          });
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const row = payload[0]?.payload as ChartData | undefined;
+                          const dateLabel = label
+                            ? new Date(label).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })
+                            : '';
+                          const pricePoint = payload.find((p) => p.dataKey === 'price');
+                          const price =
+                            typeof pricePoint?.value === 'number'
+                              ? pricePoint.value
+                              : row?.price;
+                          const isBuy = row?.buyMarker != null;
+                          const isSell = row?.sellMarker != null;
+
+                          return (
+                            <div className="rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-xs text-gray-100 shadow-lg max-w-xs">
+                              <div className="font-medium text-gray-200 mb-1">{dateLabel}</div>
+                              {typeof price === 'number' && (
+                                <div className="tabular-nums mb-1">
+                                  Price: <span className="font-semibold">${price.toFixed(2)}</span>
+                                </div>
+                              )}
+                              {showTrailingLines && showSma30 && row?.sma30 != null && (
+                                <div className="text-amber-300 tabular-nums">
+                                  30d MA: ${Number(row.sma30).toFixed(2)}
+                                </div>
+                              )}
+                              {showTrailingLines && showSma90 && row?.sma90 != null && (
+                                <div className="text-red-300 tabular-nums">
+                                  90d MA: ${Number(row.sma90).toFixed(2)}
+                                </div>
+                              )}
+                              {showSignals && (isBuy || isSell) && row?.signalNote && (
+                                <div
+                                  className={`mt-2 pt-2 border-t border-gray-600 leading-snug ${
+                                    isBuy ? 'text-green-300' : 'text-red-300'
+                                  }`}
+                                >
+                                  <div className="font-semibold mb-0.5">
+                                    {isBuy ? '▲ Buy' : '▼ Sell'}
+                                  </div>
+                                  <div>{row.signalNote}</div>
+                                </div>
+                              )}
+                            </div>
+                          );
                         }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 12 }}
+                        formatter={(value) =>
+                          value === 'sma30'
+                            ? '30d MA'
+                            : value === 'sma90'
+                              ? '90d MA'
+                              : value === 'buyMarker'
+                                ? 'Buy'
+                                : value === 'sellMarker'
+                                  ? 'Sell'
+                                  : 'Price'
+                        }
                       />
                       <Line
                         type="monotone"
                         dataKey="price"
+                        name="price"
                         stroke="#3B82F6"
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2 }}
                       />
-                    </LineChart>
+                      {showTrailingLines && showSma30 && (
+                        <Line
+                          type="monotone"
+                          dataKey="sma30"
+                          name="sma30"
+                          stroke="#F59E0B"
+                          strokeWidth={1.5}
+                          dot={false}
+                          connectNulls
+                          strokeDasharray="4 3"
+                        />
+                      )}
+                      {showTrailingLines && showSma90 && (
+                        <Line
+                          type="monotone"
+                          dataKey="sma90"
+                          name="sma90"
+                          stroke="#EF4444"
+                          strokeWidth={1.5}
+                          dot={false}
+                          connectNulls
+                        />
+                      )}
+                      {showSignals && (
+                        <Line
+                          type="monotone"
+                          dataKey="buyMarker"
+                          name="buyMarker"
+                          stroke="none"
+                          legendType="triangle"
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          dot={(props: any) => {
+                            const { cx, cy, payload } = props;
+                            if (
+                              cx == null ||
+                              cy == null ||
+                              payload?.buyMarker == null ||
+                              !Number.isFinite(payload.buyMarker)
+                            ) {
+                              return <g key={props.index ?? `buy-empty-${cx}-${cy}`} />;
+                            }
+                            return (
+                              <g key={props.index ?? `buy-${cx}-${cy}`}>
+                                <title>{payload.signalNote || 'Buy signal'}</title>
+                                <polygon
+                                  points={`${cx},${cy - 7} ${cx - 6},${cy + 4} ${cx + 6},${cy + 4}`}
+                                  fill="#16a34a"
+                                  stroke="#14532d"
+                                  strokeWidth={1}
+                                />
+                              </g>
+                            );
+                          }}
+                          activeDot={false}
+                          isAnimationActive={false}
+                        />
+                      )}
+                      {showSignals && (
+                        <Line
+                          type="monotone"
+                          dataKey="sellMarker"
+                          name="sellMarker"
+                          stroke="none"
+                          legendType="triangle"
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          dot={(props: any) => {
+                            const { cx, cy, payload } = props;
+                            if (
+                              cx == null ||
+                              cy == null ||
+                              payload?.sellMarker == null ||
+                              !Number.isFinite(payload.sellMarker)
+                            ) {
+                              return <g key={props.index ?? `sell-empty-${cx}-${cy}`} />;
+                            }
+                            return (
+                              <g key={props.index ?? `sell-${cx}-${cy}`}>
+                                <title>{payload.signalNote || 'Sell signal'}</title>
+                                <polygon
+                                  points={`${cx},${cy + 7} ${cx - 6},${cy - 4} ${cx + 6},${cy - 4}`}
+                                  fill="#dc2626"
+                                  stroke="#7f1d1d"
+                                  strokeWidth={1}
+                                />
+                              </g>
+                            );
+                          }}
+                          activeDot={false}
+                          isAnimationActive={false}
+                        />
+                      )}
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="h-1/4">
+                <div className="h-28 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -1699,7 +1893,14 @@ function DashboardContent() {
                           });
                         }}
                       />
-                      <Bar dataKey="volume" fill="#6B7280" opacity={0.6} />
+                      <Bar dataKey="volume" opacity={0.85}>
+                        {chartData.map((entry, index) => (
+                          <Cell
+                            key={`vol-${entry.date}-${index}`}
+                            fill={entry.upDay ? '#16a34a' : '#dc2626'}
+                          />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1712,9 +1913,10 @@ function DashboardContent() {
             )}
           </div>
 
-          {/* Time Period Filters */}
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex space-x-2">
+          {/* Time Period Filters + optional symbol guides (kept on-screen; guides scroll if tall) */}
+          <div className="shrink-0 max-h-[42vh] overflow-y-auto border-t border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-3 space-y-3">
+            <div className="flex flex-wrap gap-2">
               {dashboardConfig.timePeriods.map((period) => (
                 <button
                   key={period.value}
@@ -1729,6 +1931,64 @@ function DashboardContent() {
                 </button>
               ))}
             </div>
+            {![
+              'GREED',
+              'AII',
+              'VIX',
+              'WTI',
+              'UMCSENT',
+            ].includes(selectedSymbol) && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-gray-500 dark:text-gray-400 mr-1">Trailing:</span>
+                <button
+                  type="button"
+                  onClick={() => setShowTrailingLines((v) => !v)}
+                  className={`px-2.5 py-1 rounded font-medium border ${
+                    showTrailingLines
+                      ? 'border-gray-400 dark:border-gray-500 bg-white dark:bg-gray-800'
+                      : 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-500 line-through'
+                  }`}
+                >
+                  All lines
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSma30((v) => !v)}
+                  disabled={!showTrailingLines}
+                  className={`px-2.5 py-1 rounded font-medium border disabled:opacity-40 ${
+                    showSma30 && showTrailingLines
+                      ? 'border-amber-500 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-500 line-through'
+                  }`}
+                >
+                  30d
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSma90((v) => !v)}
+                  disabled={!showTrailingLines}
+                  className={`px-2.5 py-1 rounded font-medium border disabled:opacity-40 ${
+                    showSma90 && showTrailingLines
+                      ? 'border-red-500 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-500 line-through'
+                  }`}
+                >
+                  90d
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSignals((v) => !v)}
+                  className={`px-2.5 py-1 rounded font-medium border ${
+                    showSignals
+                      ? 'border-green-600 text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-500 line-through'
+                  }`}
+                  title="Buy: 3-day heartbeat, rising 90d MA, breakout to new high. Sell: close back under 90d MA."
+                >
+                  Buy/Sell
+                </button>
+              </div>
+            )}
           </div>
 
           {/* VIX Information Panel */}
@@ -2213,10 +2473,11 @@ function DashboardContent() {
               )}
             </div>
           )}
+          </div>
         </div>
 
         {/* Watchlist Sidebar */}
-        <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col h-screen">
+        <div className="w-80 bg-gray-50 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col h-[calc(100vh-4.5rem)] shrink-0">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-gray-900 dark:text-white">Watchlist</h3>

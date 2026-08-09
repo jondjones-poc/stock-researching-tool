@@ -16,16 +16,25 @@ function normalizeOptionalSymbols(symbols: unknown): string[] {
   return out;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const markets = await fetchMarketsWithStocks();
-    return NextResponse.json({ markets });
+    const groupParam = request.nextUrl.searchParams.get('group');
+    const group =
+      groupParam === 'sector' || groupParam === 'country' || groupParam === 'all'
+        ? groupParam
+        : 'all';
+    const markets = await fetchMarketsWithStocks(group);
+    return NextResponse.json(
+      { markets, group },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };
     console.error('GET /api/markets:', error);
     let hint = '';
-    if (err.code === '42P01') {
-      hint = 'Run scripts/migrations/011_markets_heatmap.sql in Supabase SQL Editor';
+    if (err.code === '42P01' || err.message?.includes('market_group')) {
+      hint =
+        'Run scripts/migrations/038_markets_country_indexes.sql (node scripts/apply-markets-country-indexes.mjs)';
     }
     return NextResponse.json(
       { error: 'Failed to fetch markets', details: err.message, hint },
@@ -39,9 +48,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const name = String(body.name || '').trim();
     const symbols = normalizeOptionalSymbols(body.symbols);
+    const indexSymbol =
+      body.index_symbol === null || body.index_symbol === undefined || body.index_symbol === ''
+        ? null
+        : normalizeSymbol(body.index_symbol);
+    const marketGroup = body.market_group === 'country' ? 'country' : 'sector';
 
     if (!name) {
       return NextResponse.json({ error: 'Market name is required' }, { status: 400 });
+    }
+    if (body.index_symbol && !indexSymbol) {
+      return NextResponse.json({ error: 'Invalid index symbol' }, { status: 400 });
     }
 
     const orderResult = await query(
@@ -50,8 +67,10 @@ export async function POST(request: NextRequest) {
     const displayOrder = orderResult.rows[0].next_order;
 
     const marketResult = await query(
-      `INSERT INTO markets (name, display_order) VALUES ($1, $2) RETURNING id, name, display_order`,
-      [name, displayOrder]
+      `INSERT INTO markets (name, display_order, index_symbol, market_group)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, display_order, index_symbol, market_group`,
+      [name, displayOrder, indexSymbol, marketGroup]
     );
     const market = marketResult.rows[0];
 
@@ -68,6 +87,8 @@ export async function POST(request: NextRequest) {
           id: market.id,
           name: market.name,
           display_order: market.display_order,
+          index_symbol: market.index_symbol,
+          market_group: market.market_group,
           stocks: symbols,
         },
       },

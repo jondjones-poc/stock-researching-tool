@@ -12,12 +12,86 @@ export interface StockQuote {
   price: number;
   change: number;
   changePercent: number;
-  dataSource: 'FMP' | 'FINNHUB' | 'CACHE';
+  dataSource: 'FMP' | 'FINNHUB' | 'NASDAQ' | 'CACHE';
   fetchedAt?: string;
 }
 
 function isFmpErrorPayload(data: unknown): boolean {
   return typeof data === 'object' && data !== null && 'Error Message' in data;
+}
+
+function parseMoney(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value == null) return null;
+  const n = Number(String(value).replace(/[$,+%]/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchFinnhubQuotes(
+  symbols: string[],
+  token: string
+): Promise<Map<string, StockQuote>> {
+  const quotes = new Map<string, StockQuote>();
+  await Promise.all(
+    symbols.map(async (symbol) => {
+      try {
+        const response = await axios.get(
+          `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`,
+          { timeout: 8000, validateStatus: () => true }
+        );
+        const q = response.data;
+        if (response.status === 200 && q && typeof q.c === 'number' && Number.isFinite(q.c)) {
+          quotes.set(symbol, {
+            symbol,
+            name: symbol,
+            price: q.c,
+            change: Number(q.d) || 0,
+            changePercent: Number(q.dp) || 0,
+            dataSource: 'FINNHUB',
+          });
+        }
+      } catch {
+        /* keep missing */
+      }
+    })
+  );
+  return quotes;
+}
+
+async function fetchNasdaqQuote(symbol: string): Promise<StockQuote | null> {
+  for (const assetclass of ['etf', 'stocks'] as const) {
+    try {
+      const response = await axios.get(
+        `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=${assetclass}`,
+        {
+          timeout: 10000,
+          validateStatus: () => true,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'application/json',
+            Origin: 'https://www.nasdaq.com',
+            Referer: `https://www.nasdaq.com/market-activity/${assetclass}/${symbol.toLowerCase()}`,
+          },
+        }
+      );
+      const primary = response.data?.data?.primaryData;
+      if (!primary) continue;
+      const price = parseMoney(primary.lastSalePrice);
+      if (price == null) continue;
+      return {
+        symbol,
+        name: response.data?.data?.companyName || symbol,
+        price,
+        change: parseMoney(primary.netChange) ?? 0,
+        changePercent: parseMoney(primary.percentageChange) ?? 0,
+        dataSource: 'NASDAQ',
+      };
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
 }
 
 export async function fetchLiveStockQuotes(symbols: string[]): Promise<{
@@ -32,15 +106,24 @@ export async function fetchLiveStockQuotes(symbols: string[]): Promise<{
   const finnhubKey = process.env.FINNHUB_API_KEY?.trim();
   const warnings: string[] = [];
 
-  if (fmpKey) {
+  // Finnhub first — FMP free/legacy plans often return 402 for quote batches.
+  if (finnhubKey) {
+    const fh = await fetchFinnhubQuotes(unique, finnhubKey);
+    for (const [symbol, quote] of fh) quotes.set(symbol, quote);
+  } else {
+    warnings.push('FINNHUB_API_KEY not set');
+  }
+
+  const missingAfterFh = unique.filter((s) => !quotes.has(s));
+  if (missingAfterFh.length > 0 && fmpKey) {
     try {
       const response = await axios.get(
-        `https://financialmodelingprep.com/stable/quote?symbol=${unique.join(',')}&apikey=${fmpKey}`,
-        { timeout: 15000 }
+        `https://financialmodelingprep.com/stable/quote?symbol=${missingAfterFh.join(',')}&apikey=${fmpKey}`,
+        { timeout: 15000, validateStatus: () => true }
       );
-      if (isFmpErrorPayload(response.data)) {
-        warnings.push('FMP daily limit reached');
-      } else if (Array.isArray(response.data)) {
+      if (response.status === 402 || isFmpErrorPayload(response.data)) {
+        warnings.push('FMP quote endpoint gated (402/plan)');
+      } else if (response.status === 200 && Array.isArray(response.data)) {
         for (const quote of response.data) {
           if (!quote?.symbol) continue;
           const symbol = String(quote.symbol).toUpperCase();
@@ -54,45 +137,28 @@ export async function fetchLiveStockQuotes(symbols: string[]): Promise<{
           });
         }
       } else {
-        warnings.push('FMP returned an unexpected response');
+        warnings.push(`FMP quote failed (${response.status})`);
       }
     } catch {
       warnings.push('FMP quote request failed');
     }
-  } else {
-    warnings.push('FMP_API_KEY not set');
   }
 
-  const missing = unique.filter((s) => !quotes.has(s));
-  if (missing.length > 0 && finnhubKey) {
+  const stillMissing = unique.filter((s) => !quotes.has(s));
+  if (stillMissing.length > 0) {
     await Promise.all(
-      missing.map(async (symbol) => {
-        try {
-          const response = await axios.get(
-            `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`,
-            { timeout: 8000 }
-          );
-          const q = response.data;
-          if (q && typeof q.c === 'number' && Number.isFinite(q.c)) {
-            quotes.set(symbol, {
-              symbol,
-              name: symbol,
-              price: q.c,
-              change: Number(q.d) || 0,
-              changePercent: Number(q.dp) || 0,
-              dataSource: 'FINNHUB',
-            });
-          }
-        } catch {
-          /* keep missing */
-        }
+      stillMissing.map(async (symbol) => {
+        const q = await fetchNasdaqQuote(symbol);
+        if (q) quotes.set(symbol, q);
       })
     );
-    if (missing.some((s) => quotes.has(s))) {
-      warnings.push('Using Finnhub for live prices');
-    }
-  } else if (missing.length > 0 && !finnhubKey) {
-    warnings.push('FINNHUB_API_KEY not set');
+  }
+
+  const unresolved = unique.filter((s) => !quotes.has(s));
+  if (unresolved.length > 0) {
+    warnings.push(
+      `No quote for ${unresolved.slice(0, 5).join(', ')}${unresolved.length > 5 ? '…' : ''}`
+    );
   }
 
   if (quotes.size === 0 && !fmpKey && !finnhubKey) {

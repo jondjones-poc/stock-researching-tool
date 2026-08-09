@@ -1,18 +1,48 @@
 import { query } from './db';
 
+export type MarketGroup = 'sector' | 'country';
+
 export interface MarketRow {
   id: number;
   name: string;
   display_order: number;
+  index_symbol: string | null;
+  /** True when index_symbol is a broad country stand-in for this region */
+  index_is_proxy?: boolean;
+  market_group: MarketGroup;
   stocks: string[];
 }
 
-export async function fetchMarketsWithStocks(): Promise<MarketRow[]> {
+export type MarketHeatmapView = 'index' | 'stocks';
+
+export function parseMarketHeatmapView(value: string | null): MarketHeatmapView {
+  return value === 'index' ? 'index' : 'stocks';
+}
+
+export function parseMarketGroup(value: string | null): MarketGroup | 'all' {
+  if (value === 'sector' || value === 'country') return value;
+  return 'all';
+}
+
+export async function fetchMarketsWithStocks(
+  group: MarketGroup | 'all' = 'all'
+): Promise<MarketRow[]> {
+  const params: unknown[] = [];
+  let groupSql = '';
+  if (group !== 'all') {
+    params.push(group);
+    groupSql = ` WHERE m.market_group = $1`;
+  }
+
   const result = await query(
-    `SELECT m.id, m.name, m.display_order, ms.symbol, ms.stock_order
+    `SELECT m.id, m.name, m.display_order, m.index_symbol,
+            COALESCE(m.market_group, 'sector') AS market_group,
+            ms.symbol, ms.stock_order
      FROM markets m
      LEFT JOIN market_stocks ms ON ms.market_id = m.id
-     ORDER BY m.display_order, m.name, ms.stock_order`
+     ${groupSql}
+     ORDER BY m.display_order, m.name, ms.stock_order`,
+    params
   );
 
   const byId = new Map<number, MarketRow>();
@@ -22,6 +52,9 @@ export async function fetchMarketsWithStocks(): Promise<MarketRow[]> {
         id: row.id,
         name: row.name,
         display_order: row.display_order,
+        index_symbol: row.index_symbol ? String(row.index_symbol).toUpperCase() : null,
+        index_is_proxy: false,
+        market_group: row.market_group === 'country' ? 'country' : 'sector',
         stocks: [],
       });
     }

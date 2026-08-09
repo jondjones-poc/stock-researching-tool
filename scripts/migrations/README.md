@@ -49,6 +49,14 @@ Run against your Postgres/Supabase database in order when needed.
    Per-period heatmap quote cache (`market_stock_period_cache`) keyed by symbol + period (`today`, `1m`, `ytd`, `1y`, `2y`).  
    - Each period has its own `fetched_at` for stale warnings and selective refresh.
 
+12. **036–041 markets / sector indexes / stock search**  
+   - `036` `markets.index_symbol` (US Index ETF)  
+   - `037` price history cache (24h chart bars)  
+   - `038` `market_group` + country index rows  
+   - `039` `market_region_etfs` (per-country sector ETF lens)  
+   - `040` missing common + emerging sectors with region ETFs — run `node scripts/apply-missing-sector-indexes.mjs`  
+   - `041` `stock_research_cache` (24h fundamentals for `/research/stock-search`) — run `node scripts/apply-stock-research-cache.mjs`
+
 10. **016_stock_valuations_fundamentals_ranges.sql**  
    PE / FCF historical range snapshots on `stock_valuations` (`pe_range_low`, `pe_range_high`, `fcf_range_low`, `fcf_range_high`, `fundamentals_refreshed_at`).  
    - Populated on Stock Details **Refresh**; read by range gauges without extra API calls.

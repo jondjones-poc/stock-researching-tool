@@ -81,6 +81,31 @@ export async function fetchFmpEod(symbol: string, from: string, to: string): Pro
   return parseFmpEodRows(response.data);
 }
 
+/** Free EOD via Yahoo / Nasdaq when FMP is gated. */
+export async function fetchFreeEod(symbol: string, from: string, to: string): Promise<EodBar[]> {
+  const { fetchYahooHistoricalPrices, fetchNasdaqHistoricalPrices } = await import(
+    './yahooHistoricalPrices'
+  );
+
+  try {
+    const bars = await fetchYahooHistoricalPrices(symbol, from, to);
+    return bars.map((b) => ({ date: b.date, close: b.close }));
+  } catch {
+    const bars = await fetchNasdaqHistoricalPrices(symbol, from, to);
+    return bars.map((b) => ({ date: b.date, close: b.close }));
+  }
+}
+
+export async function fetchEodBars(symbol: string, from: string, to: string): Promise<EodBar[]> {
+  try {
+    const bars = await fetchFmpEod(symbol, from, to);
+    if (bars.length > 0) return bars;
+  } catch {
+    // fall through to free sources
+  }
+  return fetchFreeEod(symbol, from, to);
+}
+
 export async function loadCachedBars(symbols: string[]): Promise<Map<string, EodBar[]>> {
   const result = new Map<string, EodBar[]>();
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
@@ -227,7 +252,7 @@ export async function refreshStaleEodCache(symbols: string[]): Promise<{
 
   for (const symbol of toRefresh) {
     try {
-      const bars = await fetchFmpEod(symbol, from, to);
+      const bars = await fetchEodBars(symbol, from, to);
       if (bars.length === 0) {
         warnings.push(`${symbol}: no EOD data`);
         continue;
@@ -264,7 +289,7 @@ export async function forceRefreshEodCache(symbols: string[]): Promise<{
 
   for (const symbol of unique) {
     try {
-      const bars = await fetchFmpEod(symbol, from, to);
+      const bars = await fetchEodBars(symbol, from, to);
       if (bars.length === 0) {
         warnings.push(`${symbol}: no EOD data`);
         continue;

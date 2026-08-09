@@ -39,7 +39,8 @@ function formatStockLine(stock: StockForMoneyFlowPrompt, period: MarketHeatmapPe
 export function buildMarketMoneyFlowPrompt(
   markets: MarketForMoneyFlowPrompt[],
   period: MarketHeatmapPeriod,
-  fetchedAt?: string | null
+  fetchedAt?: string | null,
+  context?: { regionLabel?: string; view?: string }
 ): string {
   const sorted = [...markets].sort((a, b) => {
     const aPct = a.meanChangePct;
@@ -102,11 +103,13 @@ export function buildMarketMoneyFlowPrompt(
 
   const lines: string[] = [
     'You are a US equity macro strategist reading a custom sector money-flow heatmap.',
-    'Each market is a basket of large, liquid tickers representing a macro theme.',
+    'Each market is a basket of large, liquid tickers or country/region ETF proxies representing a macro theme.',
     `Analyze where Wall Street money appears to be moving ${periodWord} and **why** — focus on sector rotation, risk-on vs risk-off, and the dominant narrative.`,
     '',
     '--- HEATMAP SNAPSHOT ---',
     `Period: ${periodLabel(period)}`,
+    context?.regionLabel ? `Region / country lens: ${context.regionLabel}` : null,
+    context?.view ? `View: ${context.view}` : null,
     fetchedAt ? `Data as of: ${new Date(fetchedAt).toLocaleString()}` : 'Data as of: (not specified)',
     `Markets tracked: ${sorted.length}`,
     '',
@@ -118,7 +121,7 @@ export function buildMarketMoneyFlowPrompt(
     '',
     '--- MOVING DOWN ---',
     ...listMarkets(down),
-  ];
+  ].filter((line): line is string => line !== null);
 
   if (flat.length > 0) {
     lines.push('', '--- FLAT / MIXED ---', ...listMarkets(flat));
@@ -150,28 +153,28 @@ export function buildMarketMoneyFlowPrompt(
   lines.push(
     '',
     '--- TASK ---',
-    `1. Search and summarize the most relevant news and macro context from ${newsWindow} that explains this heatmap.`,
-    '2. Identify the **overall theme**: where is money rotating *into* vs *out of*? Is this risk-on, defensive, growth-led, value-led, rates-sensitive, etc.?',
-    '3. Explain **why** — connect sector winners and losers to concrete drivers (Fed/rates, earnings season, geopolitics, commodities, AI capex, consumer data, regulation, etc.).',
-    '4. Call out **leadership vs laggards**: which baskets are leading the move and which stocks within them matter most?',
-    '5. Note **contradictions or fragility** — anything that does not fit the main story, or risks that could reverse the trend.',
-    '6. Give a concise **so-what for an investor**: what this implies for positioning and what to watch next (events, data, tickers).',
+    `1. **Validate the findings**: do the heatmap rankings look coherent? Call out data quirks, proxy ETFs that may misrepresent the sector, thin coverage, or contradictions vs recent news from ${newsWindow}.`,
+    '2. Identify the **overall theme**: where is institutional / Wall Street money rotating *into* vs *out of*? Risk-on, defensive, growth, value, rates-sensitive, commodities, AI capex, etc.',
+    '3. Explain **why** — connect winners and losers to concrete drivers (Fed/rates, earnings, geopolitics, commodities, consumer data, regulation).',
+    '4. **Areas to invest in (follow the money)**: rank 3–6 sectors/themes from this heatmap worth leaning into now, with the ETF/ticker evidence from the data and the thesis.',
+    '5. **Areas to avoid / underweight**: rank 3–6 sectors/themes to avoid or reduce, with evidence and the risk.',
+    '6. Note **fragility**: what would reverse this map; key events, data, or tickers to watch.',
     '',
     '--- OUTPUT FORMAT ---',
     '### Headline (one sentence)',
     '[The dominant money-flow story in plain English]',
     '',
+    '### Validation',
+    '- [what looks solid vs what to take with caution in this heatmap]',
+    '',
     '### Macro read',
     '[2–4 sentences: risk appetite, rotation, and the main “why”]',
     '',
-    '### Winners & where money is going',
-    '- [sectors/themes attracting capital and why]',
+    '### Invest — follow Wall Street money',
+    '- [sector/theme + why + supporting tickers/ETFs from the data]',
     '',
-    '### Losers & where money is leaving',
-    '- [sectors/themes under pressure and why]',
-    '',
-    '### Stock-level signals',
-    '- [notable individual movers that confirm or complicate the theme]',
+    '### Avoid — leave / underweight',
+    '- [sector/theme + why + supporting tickers/ETFs from the data]',
     '',
     '### Risks & watchlist',
     '- [what could change the narrative; key dates and data]',

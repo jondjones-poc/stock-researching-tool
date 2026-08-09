@@ -1,8 +1,21 @@
-export type MarketHeatmapPeriod = 'today' | '1m' | 'ytd' | '1y' | '2y';
+export type MarketHeatmapPeriod =
+  | 'today'
+  | '1w'
+  | '2w'
+  | '1m'
+  | '3m'
+  | '6m'
+  | 'ytd'
+  | '1y'
+  | '2y';
 
 export const MARKET_PERIOD_OPTIONS: { id: MarketHeatmapPeriod; label: string }[] = [
   { id: 'today', label: 'Today' },
+  { id: '1w', label: '1 Week' },
+  { id: '2w', label: '2 Weeks' },
   { id: '1m', label: '1 Month' },
+  { id: '3m', label: '3 Months' },
+  { id: '6m', label: '6 Months' },
   { id: 'ytd', label: 'YTD' },
   { id: '1y', label: '1 Year' },
   { id: '2y', label: '2 Years' },
@@ -29,8 +42,24 @@ export function periodStartDate(period: MarketHeatmapPeriod, asOf: Date = new Da
   d.setHours(12, 0, 0, 0);
 
   switch (period) {
+    case '1w': {
+      d.setDate(d.getDate() - 7);
+      return toDateString(d);
+    }
+    case '2w': {
+      d.setDate(d.getDate() - 14);
+      return toDateString(d);
+    }
     case '1m': {
       d.setMonth(d.getMonth() - 1);
+      return toDateString(d);
+    }
+    case '3m': {
+      d.setMonth(d.getMonth() - 3);
+      return toDateString(d);
+    }
+    case '6m': {
+      d.setMonth(d.getMonth() - 6);
       return toDateString(d);
     }
     case 'ytd':

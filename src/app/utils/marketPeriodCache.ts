@@ -201,6 +201,15 @@ async function backfillPeriodCacheFromSources(
   if (unique.length === 0) return;
 
   if (period === 'today') {
+    // Prefer live refresh when quote cache is empty (common for new index ETFs).
+    const existing = await loadCachedStockQuotes(unique);
+    const missingQuotes = unique.filter((s) => !existing.has(s));
+    if (missingQuotes.length > 0) {
+      const refreshed = await refreshStaleStockQuotes(missingQuotes);
+      for (const quote of refreshed.quotes.values()) {
+        await upsertTodayPeriodCacheFromQuote(quote);
+      }
+    }
     const quotes = await loadCachedStockQuotes(unique);
     for (const quote of quotes.values()) {
       await upsertTodayPeriodCacheFromQuote(quote);
@@ -208,7 +217,16 @@ async function backfillPeriodCacheFromSources(
     return;
   }
 
-  const barsBySymbol = await loadCachedBars(unique);
+  // Longer periods need EOD history. Prefer DB; fetch only a small batch of
+  // missing symbols so the heatmap request cannot hang for minutes.
+  let barsBySymbol = await loadCachedBars(unique);
+  const missingEod = unique.filter((s) => (barsBySymbol.get(s) ?? []).length === 0);
+  if (missingEod.length > 0) {
+    const batch = missingEod.slice(0, 8);
+    await refreshStaleEodCache(batch);
+    barsBySymbol = await loadCachedBars(unique);
+  }
+
   for (const symbol of unique) {
     const bars = barsBySymbol.get(symbol) ?? [];
     if (bars.length > 0) {

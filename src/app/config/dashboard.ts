@@ -328,6 +328,9 @@ export const dashboardConfig: DashboardConfig = {
     { value: 'ALL', label: 'ALL', days: undefined },
     { value: 'YTD', label: 'YTD', days: undefined },
     { value: '1Y', label: '1Y', days: 365 },
+    { value: '9M', label: '9M', days: 270 },
+    { value: '6M', label: '6M', days: 180 },
+    { value: '3M', label: '3M', days: 90 },
     { value: '1M', label: '1M', days: 30 },
     { value: '5D', label: '5D', days: 5 }
   ]

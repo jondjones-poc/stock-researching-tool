@@ -1,4 +1,8 @@
 import { formatChangePct } from './marketHeatColor';
+import {
+  MARKET_PERIOD_OPTIONS,
+  type MarketHeatmapPeriod,
+} from './marketPeriods';
 
 interface StockForTrendPrompt {
   symbol: string;
@@ -8,23 +12,40 @@ interface StockForTrendPrompt {
 
 export interface MarketForTrendPrompt {
   name: string;
+  index_symbol?: string | null;
+  index_is_proxy?: boolean;
   stocks: StockForTrendPrompt[];
   meanChangePct: number | null;
   direction: 'up' | 'down' | 'flat' | 'unknown';
 }
 
-export function buildMarketTrendAnalysisPrompt(market: MarketForTrendPrompt): string {
+function periodLabel(period: MarketHeatmapPeriod): string {
+  return MARKET_PERIOD_OPTIONS.find((o) => o.id === period)?.label ?? period;
+}
+
+export function buildMarketTrendAnalysisPrompt(
+  market: MarketForTrendPrompt,
+  period: MarketHeatmapPeriod = 'today',
+  context?: { regionLabel?: string; view?: string }
+): string {
   const directionLabel =
     market.direction === 'up'
-      ? 'up (positive)'
+      ? 'up (money flowing in / positive)'
       : market.direction === 'down'
-        ? 'down (negative)'
+        ? 'down (money flowing out / negative)'
         : market.direction === 'flat'
-          ? 'flat'
+          ? 'flat (little net flow)'
           : 'unknown';
 
   const meanLabel =
     market.meanChangePct !== null ? formatChangePct(market.meanChangePct) : 'unavailable';
+
+  const periodWord =
+    period === 'today' ? 'today' : `over the ${periodLabel(period).toLowerCase()} period`;
+  const newsWindow =
+    period === 'today' || period === '1w' || period === '2w'
+      ? 'the last 7–14 days'
+      : 'recent weeks and the macro backdrop for this timeframe';
 
   const stockLines =
     market.stocks.length > 0
@@ -32,58 +53,69 @@ export function buildMarketTrendAnalysisPrompt(market: MarketForTrendPrompt): st
           const pct =
             s.changePercent !== null ? formatChangePct(s.changePercent) : 'change unavailable';
           const label = s.name ? `${s.symbol} (${s.name})` : s.symbol;
-          return `- ${label}: ${pct} today`;
+          return `- ${label}: ${pct} ${periodWord}`;
         })
-      : ['- (no stocks in this basket yet)'];
+      : ['- (no tickers in this basket yet)'];
+
+  const ranked = [...market.stocks]
+    .filter((s) => s.changePercent !== null)
+    .sort((a, b) => Math.abs(b.changePercent!) - Math.abs(a.changePercent!));
 
   const lines: string[] = [
-    'You are a US equity macro analyst helping explain short-term sector money flows.',
-    'Use recent news and market context — focus on developments from the **last 7 days**.',
+    'You are a US equity sector strategist explaining institutional money flow in one sector heatmap card.',
+    `Use recent news and market context from ${newsWindow}.`,
     '',
-    '--- SECTOR ---',
-    `Name: ${market.name}`,
-    `Today's mean move: ${meanLabel}`,
+    '--- SECTOR CARD ---',
+    `Sector: ${market.name}`,
+    context?.regionLabel ? `Region / country lens: ${context.regionLabel}` : null,
+    context?.view ? `View: ${context.view}` : null,
+    `Period: ${periodLabel(period)}`,
+    `Mean move ${periodWord}: ${meanLabel}`,
     `Direction: ${directionLabel}`,
+    market.index_symbol
+      ? `Primary ETF / index proxy: ${market.index_symbol}${market.index_is_proxy ? ' (broad country proxy — interpret carefully)' : ''}`
+      : null,
     '',
-    '--- STOCKS IN THIS BASKET ---',
+    '--- TICKERS ON THIS CARD ---',
     ...stockLines,
     '',
+    ranked.length > 0
+      ? `Largest absolute movers on the card: ${ranked
+          .slice(0, 5)
+          .map((s) => `${s.symbol} ${formatChangePct(s.changePercent!)}`)
+          .join(', ')}`
+      : null,
+    '',
     '--- TASK ---',
-    '1. Search and summarize the most relevant news from the past week affecting this sector and these tickers (earnings, guidance, macro, regulation, commodities, rates, geopolitics, sector rotation, etc.).',
-    '2. Form a clear **hypothesis** for why this sector is moving in this direction today — what is the dominant narrative?',
-    '3. Explain the **reasons behind** the move: which stories or data points are driving it, and which stocks in the basket are leading vs lagging?',
-    '4. Note any **risks or counter-narratives** that could reverse the trend.',
-    '5. Give a practical **research plan**: specific filings, earnings calls, data releases, charts, and trusted sources to dig deeper (include ticker-level angles where useful).',
-    '6. List the **10 most interesting stocks to look at in this sector** right now. Prefer liquid names with a clear research angle (leadership, laggard bounce, thematic pure-play, earnings catalyst, valuation dislocation, etc.). Include names already in the basket when they deserve attention, and add other sector names that are more interesting if needed.',
+    `1. **Explain the trend** for ${market.name} ${periodWord} in plain English — what is happening on this card?`,
+    '2. **Why is money flowing in or going away?** Tie the direction to concrete drivers (earnings, guidance, Fed/rates, commodities, geopolitics, AI capex, regulation, sector rotation, risk-on/off). Say whether this looks like institutional accumulation, distribution, or noise.',
+    '3. Call out which tickers on the card are **leading** the move vs **lagging**, and what that implies.',
+    '4. Note **risks / counter-narratives** that could reverse the flow.',
+    '5. Recommend the **3 best stocks for further research** right now related to this sector theme. Prefer liquid names with a clear angle (leadership, pure-play, earnings catalyst, valuation dislocation, or recovery). Use names on the card when they deserve it; otherwise suggest better sector peers. For each, give a one-line research thesis and what to check next.',
     '',
     '--- OUTPUT FORMAT ---',
     '### Headline (one sentence)',
-    '[The single best explanation in plain English]',
+    '[The trend in plain English]',
     '',
-    '### News recap (last 7 days)',
-    '- [bullet per major story, with date if known]',
+    '### Trend explanation',
+    '[2–4 sentences: what the heatmap is showing for this sector]',
     '',
-    '### Hypothesis',
-    '[2–4 sentences on why this trend exists]',
+    '### Why money is flowing in / going away',
+    '- [driver 1]',
+    '- [driver 2]',
+    '- [driver 3]',
     '',
-    '### Drivers & stock-level read',
-    '- [what is moving the sector and which symbols matter most]',
+    '### Leaders vs laggards on this card',
+    '- [ticker — role in the move]',
     '',
-    '### How to research further',
-    '- [concrete next steps: sources, metrics, events to watch]',
+    '### Risks',
+    '- [what could reverse the flow]',
     '',
-    '### 10 interesting stocks in this sector',
-    '1. TICKER — one-line why it is worth a look',
-    '2. TICKER — ...',
-    '3. TICKER — ...',
-    '4. TICKER — ...',
-    '5. TICKER — ...',
-    '6. TICKER — ...',
-    '7. TICKER — ...',
-    '8. TICKER — ...',
-    '9. TICKER — ...',
-    '10. TICKER — ...',
-  ];
+    '### Top 3 stocks for further research',
+    '1. TICKER — thesis; what to research next',
+    '2. TICKER — thesis; what to research next',
+    '3. TICKER — thesis; what to research next',
+  ].filter((line): line is string => line !== null);
 
   return lines.join('\n');
 }

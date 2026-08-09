@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeSymbol } from '../../../utils/marketsDb';
 import { query } from '../../../utils/db';
 
 export async function PUT(
@@ -13,15 +14,50 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const name = String(body.name || '').trim();
+    const hasName = body.name !== undefined;
+    const hasIndex = body.index_symbol !== undefined;
+    const name = hasName ? String(body.name || '').trim() : null;
 
-    if (!name) {
+    if (hasName && !name) {
       return NextResponse.json({ error: 'Market name is required' }, { status: 400 });
     }
+    if (!hasName && !hasIndex) {
+      return NextResponse.json(
+        { error: 'Provide name and/or index_symbol to update' },
+        { status: 400 }
+      );
+    }
+
+    let indexSymbol: string | null | undefined;
+    if (hasIndex) {
+      if (body.index_symbol === null || body.index_symbol === '') {
+        indexSymbol = null;
+      } else {
+        indexSymbol = normalizeSymbol(body.index_symbol);
+        if (!indexSymbol) {
+          return NextResponse.json({ error: 'Invalid index symbol' }, { status: 400 });
+        }
+      }
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    if (hasName) {
+      sets.push(`name = $${i++}`);
+      values.push(name);
+    }
+    if (hasIndex) {
+      sets.push(`index_symbol = $${i++}`);
+      values.push(indexSymbol);
+    }
+    sets.push('updated_at = NOW()');
+    values.push(marketId);
 
     const result = await query(
-      `UPDATE markets SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING id, name`,
-      [name, marketId]
+      `UPDATE markets SET ${sets.join(', ')} WHERE id = $${i}
+       RETURNING id, name, display_order, index_symbol`,
+      values
     );
     if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Market not found' }, { status: 404 });
