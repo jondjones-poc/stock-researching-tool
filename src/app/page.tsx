@@ -39,7 +39,7 @@ interface ChartData {
   price: number;
   volume: number;
   sma30?: number | null;
-  sma90?: number | null;
+  sma150?: number | null;
   buyMarker?: number | null;
   sellMarker?: number | null;
   signalNote?: string | null;
@@ -105,7 +105,7 @@ function DashboardContent() {
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
   const [showTrailingLines, setShowTrailingLines] = useState(true);
   const [showSma30, setShowSma30] = useState(true);
-  const [showSma90, setShowSma90] = useState(true);
+  const [showSma150, setShowSma150] = useState(true);
   const [showSignals, setShowSignals] = useState(true);
   const [watchlistData, setWatchlistData] = useState<WatchlistData[]>([]);
   const [stockQuotesCacheUpdatedAt, setStockQuotesCacheUpdatedAt] = useState<string | null>(null);
@@ -626,15 +626,15 @@ function DashboardContent() {
             item.sma30 !== undefined && item.sma30 !== null && !isNaN(Number(item.sma30))
               ? Number(item.sma30)
               : null,
-          sma90:
-            item.sma90 !== undefined && item.sma90 !== null && !isNaN(Number(item.sma90))
-              ? Number(item.sma90)
-              : item.sma150 !== undefined && item.sma150 !== null && !isNaN(Number(item.sma150))
-                ? Number(item.sma150)
+          sma150:
+            item.sma150 !== undefined && item.sma150 !== null && !isNaN(Number(item.sma150))
+              ? Number(item.sma150)
+              : item.sma90 !== undefined && item.sma90 !== null && !isNaN(Number(item.sma90))
+                ? Number(item.sma90)
                 : null,
         }));
 
-      const annotated = annotateHeartbeatBreakoutSignals(rawBars, { primaryMaKey: 'sma90' });
+      const annotated = annotateHeartbeatBreakoutSignals(rawBars, { primaryMaKey: 'sma150' });
 
       const chartData: ChartData[] = annotated.map((item, index) => {
         const prevClose = index > 0 ? annotated[index - 1].close : item.close;
@@ -643,7 +643,7 @@ function DashboardContent() {
           price: item.close,
           volume: item.volume || 0,
           sma30: item.sma30 ?? null,
-          sma90: item.sma90 ?? null,
+          sma150: item.sma150 ?? item.sma90 ?? null,
           buyMarker: item.buyMarker ?? null,
           sellMarker: item.sellMarker ?? null,
           signalNote: item.signalNote ?? null,
@@ -1719,9 +1719,9 @@ function DashboardContent() {
                                   30d MA: ${Number(row.sma30).toFixed(2)}
                                 </div>
                               )}
-                              {showTrailingLines && showSma90 && row?.sma90 != null && (
+                              {showTrailingLines && showSma150 && row?.sma150 != null && (
                                 <div className="text-red-300 tabular-nums">
-                                  90d MA: ${Number(row.sma90).toFixed(2)}
+                                  150d MA: ${Number(row.sma150).toFixed(2)}
                                 </div>
                               )}
                               {showSignals && (isBuy || isSell) && row?.signalNote && (
@@ -1745,8 +1745,8 @@ function DashboardContent() {
                         formatter={(value) =>
                           value === 'sma30'
                             ? '30d MA'
-                            : value === 'sma90'
-                              ? '90d MA'
+                            : value === 'sma150'
+                              ? '150d MA'
                               : value === 'buyMarker'
                                 ? 'Buy'
                                 : value === 'sellMarker'
@@ -1775,15 +1775,16 @@ function DashboardContent() {
                           strokeDasharray="4 3"
                         />
                       )}
-                      {showTrailingLines && showSma90 && (
+                      {showTrailingLines && showSma150 && (
                         <Line
                           type="monotone"
-                          dataKey="sma90"
-                          name="sma90"
+                          dataKey="sma150"
+                          name="sma150"
                           stroke="#EF4444"
                           strokeWidth={1.5}
                           dot={false}
                           connectNulls
+                          strokeDasharray="4 3"
                         />
                       )}
                       {showSignals && (
@@ -1965,15 +1966,15 @@ function DashboardContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowSma90((v) => !v)}
+                  onClick={() => setShowSma150((v) => !v)}
                   disabled={!showTrailingLines}
                   className={`px-2.5 py-1 rounded font-medium border disabled:opacity-40 ${
-                    showSma90 && showTrailingLines
+                    showSma150 && showTrailingLines
                       ? 'border-red-500 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20'
                       : 'border-gray-300 dark:border-gray-600 text-gray-500 line-through'
                   }`}
                 >
-                  90d
+                  150d
                 </button>
                 <button
                   type="button"
@@ -1983,7 +1984,7 @@ function DashboardContent() {
                       ? 'border-green-600 text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20'
                       : 'border-gray-300 dark:border-gray-600 text-gray-500 line-through'
                   }`}
-                  title="Buy: 3-day heartbeat, rising 90d MA, breakout to new high. Sell: close back under 90d MA."
+                  title="Buy: 3-day heartbeat, rising 150d MA, breakout to new high. Sell: close back under 150d MA."
                 >
                   Buy/Sell
                 </button>

@@ -16,7 +16,9 @@ import {
 import { dashboardConfig } from '../config/dashboard';
 import {
   annotateHeartbeatBreakoutSignals,
+  extractHeartbeatSignalEvents,
   heartbeatZonesFromSignals,
+  type HeartbeatSignalEvent,
 } from '../utils/heartbeatBreakoutSignals';
 
 type ChartRow = {
@@ -26,7 +28,7 @@ type ChartRow = {
   volumeUp: number | null;
   volumeDown: number | null;
   sma30?: number | null;
-  sma90?: number | null;
+  sma150?: number | null;
   buyMarker?: number | null;
   sellMarker?: number | null;
   signalNote?: string | null;
@@ -61,9 +63,11 @@ const PERIODS = PERIOD_ORDER.map(
 export default function StockPriceChart({
   symbol,
   onMeta,
+  onSignals,
 }: {
   symbol: string;
   onMeta?: (meta: ChartMeta) => void;
+  onSignals?: (events: HeartbeatSignalEvent[]) => void;
 }) {
   const [period, setPeriod] = useState('1M');
   const [loading, setLoading] = useState(false);
@@ -72,16 +76,20 @@ export default function StockPriceChart({
   const [heartbeatZones, setHeartbeatZones] = useState<{ x1: string; x2: string }[]>([]);
   const [showTrailingLines, setShowTrailingLines] = useState(true);
   const [showSma30, setShowSma30] = useState(true);
-  const [showSma90, setShowSma90] = useState(true);
+  const [showSma150, setShowSma150] = useState(true);
   const [showSignals, setShowSignals] = useState(true);
   const [showHeartbeats, setShowHeartbeats] = useState(true);
 
-  // Keep latest onMeta without putting it in load deps (inline parent callbacks
-  // would otherwise re-trigger fetch → setState → re-render → infinite loop).
+  // Keep latest callbacks without putting them in load deps (inline parent
+  // callbacks would otherwise re-trigger fetch → setState → re-render loop).
   const onMetaRef = useRef(onMeta);
+  const onSignalsRef = useRef(onSignals);
   useEffect(() => {
     onMetaRef.current = onMeta;
   }, [onMeta]);
+  useEffect(() => {
+    onSignalsRef.current = onSignals;
+  }, [onSignals]);
 
   const lastMetaKeyRef = useRef<string>('');
 
@@ -126,10 +134,12 @@ export default function StockPriceChart({
             item.sma30 !== undefined && item.sma30 !== null && !Number.isNaN(Number(item.sma30))
               ? Number(item.sma30)
               : null,
-          sma90:
-            item.sma90 !== undefined && item.sma90 !== null && !Number.isNaN(Number(item.sma90))
-              ? Number(item.sma90)
-              : null,
+          sma150:
+            item.sma150 !== undefined && item.sma150 !== null && !Number.isNaN(Number(item.sma150))
+              ? Number(item.sma150)
+              : item.sma90 !== undefined && item.sma90 !== null && !Number.isNaN(Number(item.sma90))
+                ? Number(item.sma90)
+                : null,
         }));
 
       const annotated = annotateHeartbeatBreakoutSignals(raw);
@@ -142,7 +152,7 @@ export default function StockPriceChart({
           volumeUp: up ? b.volume : null,
           volumeDown: up ? null : b.volume,
           sma30: b.sma30,
-          sma90: b.sma90,
+          sma150: b.sma150,
           buyMarker: b.buyMarker,
           sellMarker: b.sellMarker,
           signalNote: b.signalNote,
@@ -150,6 +160,7 @@ export default function StockPriceChart({
       });
       setChartData(rows);
       setHeartbeatZones(heartbeatZonesFromSignals(annotated));
+      onSignalsRef.current?.(extractHeartbeatSignalEvents(annotated));
 
       const last = rows[rows.length - 1];
       const first = rows[0];
@@ -165,6 +176,7 @@ export default function StockPriceChart({
     } catch (e) {
       setChartData([]);
       setHeartbeatZones([]);
+      onSignalsRef.current?.([]);
       setError(e instanceof Error ? e.message : 'Failed to load chart');
       emitMeta({ price: null, changePercent: null, periodLabel: period });
     } finally {
@@ -181,6 +193,7 @@ export default function StockPriceChart({
     lastMetaKeyRef.current = '';
     setChartData([]);
     setHeartbeatZones([]);
+    onSignalsRef.current?.([]);
     setError(null);
   }, [symbol]);
 
@@ -204,49 +217,54 @@ export default function StockPriceChart({
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <label className="inline-flex items-center gap-1 cursor-pointer">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+          <label className="inline-flex items-center gap-1.5 cursor-pointer">
             <input
               type="checkbox"
               checked={showTrailingLines}
               onChange={(e) => setShowTrailingLines(e.target.checked)}
+              className="accent-blue-600"
             />
             Trailing MAs
           </label>
-          <label className="inline-flex items-center gap-1 cursor-pointer disabled:opacity-40">
+          <label className="inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40">
             <input
               type="checkbox"
               checked={showSma30}
               disabled={!showTrailingLines}
               onChange={(e) => setShowSma30(e.target.checked)}
+              className="accent-blue-600"
             />
             30d
           </label>
-          <label className="inline-flex items-center gap-1 cursor-pointer">
+          <label className="inline-flex items-center gap-1.5 cursor-pointer">
             <input
               type="checkbox"
-              checked={showSma90}
+              checked={showSma150}
               disabled={!showTrailingLines}
-              onChange={(e) => setShowSma90(e.target.checked)}
+              onChange={(e) => setShowSma150(e.target.checked)}
+              className="accent-blue-600"
             />
-            90d
+            150d
           </label>
-          <label className="inline-flex items-center gap-1 cursor-pointer">
+          <label className="inline-flex items-center gap-1.5 cursor-pointer">
             <input
               type="checkbox"
               checked={showSignals}
               onChange={(e) => setShowSignals(e.target.checked)}
+              className="accent-blue-600"
             />
             Signals
           </label>
           <label
-            className="inline-flex items-center gap-1 cursor-pointer"
+            className="inline-flex items-center gap-1.5 cursor-pointer"
             title="Shade quiet 3-day consolidation (heartbeat) before each buy breakout"
           >
             <input
               type="checkbox"
               checked={showHeartbeats}
               onChange={(e) => setShowHeartbeats(e.target.checked)}
+              className="accent-blue-600"
             />
             Heartbeats
           </label>
@@ -332,9 +350,9 @@ export default function StockPriceChart({
                               30d MA: ${Number(row.sma30).toFixed(2)}
                             </div>
                           )}
-                          {showTrailingLines && showSma90 && row?.sma90 != null && (
+                          {showTrailingLines && showSma150 && row?.sma150 != null && (
                             <div className="text-red-300 tabular-nums">
-                              90d MA: ${Number(row.sma90).toFixed(2)}
+                              150d MA: ${Number(row.sma150).toFixed(2)}
                             </div>
                           )}
                           {showSignals && (isBuy || isSell) && row?.signalNote && (
@@ -356,8 +374,8 @@ export default function StockPriceChart({
                     formatter={(value) =>
                       value === 'sma30'
                         ? '30d MA'
-                        : value === 'sma90'
-                          ? '90d MA'
+                        : value === 'sma150'
+                          ? '150d MA'
                           : value === 'buyMarker'
                             ? 'Buy'
                             : value === 'sellMarker'
@@ -384,18 +402,20 @@ export default function StockPriceChart({
                       strokeWidth={1.5}
                       dot={false}
                       connectNulls
+                      strokeDasharray="4 3"
                       isAnimationActive={false}
                     />
                   )}
-                  {showTrailingLines && showSma90 && (
+                  {showTrailingLines && showSma150 && (
                     <Line
                       type="monotone"
-                      dataKey="sma90"
-                      name="sma90"
+                      dataKey="sma150"
+                      name="sma150"
                       stroke="#EF4444"
                       strokeWidth={1.5}
                       dot={false}
                       connectNulls
+                      strokeDasharray="4 3"
                       isAnimationActive={false}
                     />
                   )}

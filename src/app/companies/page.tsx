@@ -15,6 +15,7 @@ import { PeRangeGauge } from '../components/PeRangeGauge';
 import { FcfRangeGauge } from '../components/FcfRangeGauge';
 import { SharesOutstandingRangeGauge } from '../components/SharesOutstandingRangeGauge';
 import DcfStatusLink from '../components/DcfStatusLink';
+import StockChartWithSignals from '../components/StockChartWithSignals';
 import {
   getDcfLastUpdated,
   isDcfUpdatedWithinMonths,
@@ -131,6 +132,7 @@ export default function CompanyWatchlistPage() {
   const [newLink, setNewLink] = useState('');
   const [addingLink, setAddingLink] = useState(false);
   const [showSections, setShowSections] = useState(false);
+  const [contentTab, setContentTab] = useState<'summary' | 'details' | 'valuations'>('summary');
   const [buyReasons, setBuyReasons] = useState<WatchlistReason[]>([]);
   const [avoidReasons, setAvoidReasons] = useState<WatchlistReason[]>([]);
   const [loadingReasons, setLoadingReasons] = useState(false);
@@ -892,6 +894,7 @@ export default function CompanyWatchlistPage() {
 
   const startNewStock = () => {
     setShowSections(true);
+    setContentTab('summary');
     setSelectedStockId('');
     setStockValuationId(null);
     setBuyReasons([]);
@@ -1086,6 +1089,7 @@ export default function CompanyWatchlistPage() {
 
       // Show sections when stock is selected
       setShowSections(true);
+      setContentTab('summary');
       
       // Update URL with stock symbol (only if different from current URL)
       if (data.stock) {
@@ -2674,9 +2678,50 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         </div>
         )}
 
-        {/* Form Section */}
+        {/* Summary / Details / Valuations tabs */}
         {showSections && (
-        <>
+          <div className="mb-6 flex flex-wrap gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900/60 p-1">
+            {(
+              [
+                { id: 'summary' as const, label: 'Summary' },
+                { id: 'details' as const, label: 'Stock details' },
+                { id: 'valuations' as const, label: 'Valuations' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setContentTab(tab.id)}
+                className={`flex-1 min-w-[7rem] px-4 py-2.5 text-sm font-medium rounded-md transition-colors ${
+                  contentTab === tab.id
+                    ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Summary — price chart + signals */}
+        {showSections && contentTab === 'summary' && formData.stock && (
+          <StockChartWithSignals
+            symbol={formData.stock}
+            name={formData.stock}
+            sector={null}
+            industry={null}
+            showTitle
+            title="Price chart"
+            chartHeightClassName="h-[520px]"
+            onMessage={(msg) => {
+              if (msg) setMessage({ type: 'success', text: msg });
+            }}
+          />
+        )}
+
+        {/* Stock details tab */}
+        {showSections && contentTab === 'details' && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -3037,11 +3082,10 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
           </div>
 
         </div>
-        </>
         )}
 
         {/* Valuation Section */}
-        {showSections && (
+        {showSections && contentTab === 'valuations' && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -3410,14 +3454,14 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
           </div>
         )}
 
-        {showSections && (
+        {showSections && contentTab === 'details' && (
           <div className="mt-6">
             <WatchlistFundamentalsPanel symbol={formData.stock} />
           </div>
         )}
 
         {/* DCF Summary */}
-        {showSections && formData.stock && (matchingDcfEntries.length > 0 || formData.bear_case_low_price || formData.base_case_low_price || formData.bull_case_low_price) && (
+        {showSections && contentTab === 'valuations' && formData.stock && (matchingDcfEntries.length > 0 || formData.bear_case_low_price || formData.base_case_low_price || formData.bull_case_low_price) && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-3">
@@ -3648,7 +3692,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* DDM Projections Section */}
-        {showSections && formData.stock && ddmData && (
+        {showSections && contentTab === 'valuations' && formData.stock && ddmData && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
             <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white text-center">DDM Projections</h2>
             {ddmLoading ? (
@@ -3711,7 +3755,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* Dividend & FCF Analysis Section */}
-        {showSections && formData.stock && dividendFcfData && (
+        {showSections && contentTab === 'valuations' && formData.stock && dividendFcfData && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Dividend & FCF Analysis</h2>
@@ -3803,7 +3847,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* Earnings Section */}
-        {showSections && formData.stock && (
+        {showSections && contentTab === 'details' && formData.stock && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 mb-8 border border-gray-200 dark:border-gray-700 transform transition-all duration-300 hover:shadow-2xl mt-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -4074,7 +4118,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* Action Buttons - Bottom of page */}
-        {showSections && (
+        {showSections && contentTab !== 'summary' && (
           <div className="flex justify-center items-center gap-4 mt-8 mb-8">
             <button
               onClick={handleSave}
@@ -4096,7 +4140,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* News Section - Bottom of page */}
-        {showSections && formData.stock && (
+        {showSections && contentTab === 'details' && formData.stock && (
           <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 mt-8">
             <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">Latest News</h2>
             {newsLoading ? (
@@ -4179,7 +4223,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* Reasons to buy / Reasons not to buy - bottom of page */}
-        {showSections && stockValuationId && (
+        {showSections && contentTab === 'details' && stockValuationId && (
           <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 text-center">Buy / Avoid reasons</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -4333,7 +4377,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* Research Section - below Buy / Avoid reasons */}
-        {showSections && stockValuationId && (
+        {showSections && contentTab === 'details' && stockValuationId && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-8 border-t border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -4412,7 +4456,7 @@ Please validate the above with a long-term (e.g. 5-year) view in mind, point out
         )}
 
         {/* Remove from watchlist - very bottom when stock is selected */}
-        {showSections && stockValuationId && (
+        {showSections && contentTab === 'details' && stockValuationId && (
           <div className="mt-10 pt-8 border-t border-gray-200 dark:border-gray-700 flex justify-center">
             <button
               type="button"

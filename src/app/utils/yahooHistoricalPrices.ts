@@ -11,12 +11,11 @@ export interface HistoricalPriceBar {
   changePercent: number;
   sma30?: number | null;
   sma90?: number | null;
-  /** @deprecated kept for older cached payloads */
   sma150?: number | null;
 }
 
-/** Extra calendar days before `from` so SMA90 can warm up. */
-export const SMA_LOOKBACK_CALENDAR_DAYS = 180;
+/** Extra calendar days before `from` so SMA150 can warm up. */
+export const SMA_LOOKBACK_CALENDAR_DAYS = 280;
 
 export function addCalendarDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T12:00:00Z`);
@@ -55,11 +54,12 @@ export function attachMovingAverages(bars: HistoricalPriceBar[]): HistoricalPric
   const closes = bars.map((b) => b.close);
   const sma30 = computeSma(closes, 30);
   const sma90 = computeSma(closes, 90);
+  const sma150 = computeSma(closes, 150);
   return bars.map((bar, i) => ({
     ...bar,
     sma30: sma30[i],
     sma90: sma90[i],
-    sma150: null,
+    sma150: sma150[i],
   }));
 }
 

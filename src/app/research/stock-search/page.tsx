@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import StockPriceChart from '../../components/StockPriceChart';
+import StockChartWithSignals from '../../components/StockChartWithSignals';
 import { buildStockResearchPrompt } from '../../utils/buildStockResearchPrompt';
 import { yahooFinanceQuoteUrl } from '../../utils/yahooFinanceQuoteUrl';
 
@@ -241,13 +241,6 @@ function StockSearchInner() {
             </button>
           </div>
         )}
-        <div>
-          <h1 className="text-2xl font-bold">Stock search</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Look up a stock or ETF chart (trailing MAs + signals), then copy an AI research brief.
-            Fundamentals and chart history are cached in the database for 24 hours.
-          </p>
-        </div>
 
         <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 items-center">
           <input
@@ -376,12 +369,16 @@ function StockSearchInner() {
               </p>
             )}
 
-            <div className="h-[560px]">
-              <StockPriceChart
-                symbol={symbol}
-                onMeta={(meta) => setChartMeta(meta)}
-              />
-            </div>
+            <StockChartWithSignals
+              symbol={symbol}
+              name={companyName}
+              sector={fundamentals.sector}
+              industry={fundamentals.industry}
+              onMeta={(meta) => setChartMeta(meta)}
+              onMessage={(msg) => {
+                if (msg) setMessage(msg);
+              }}
+            />
           </>
         )}
       </div>

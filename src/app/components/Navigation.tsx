@@ -313,14 +313,12 @@ export default function Navigation() {
                 <Link 
                   href="/stocks/portfolio" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/stocks' ||
-                    pathname === '/stocks/watchlist' ||
-                    pathname === '/stocks/portfolio'
+                    pathname === '/stocks' || pathname === '/stocks/portfolio'
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  📈 Stocks
+                  📈 My Portfolio
                 </Link>
                 <Link 
                   href="/companies" 
@@ -330,7 +328,7 @@ export default function Navigation() {
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
-                  📋 Companies
+                  📋 Companies Research
                 </Link>
                 <Link 
                   href="/compare" 
