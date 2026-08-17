@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { HeartbeatSignalEvent } from '../utils/heartbeatBreakoutSignals';
 import {
   buildSignalRiskPrompt,
@@ -42,10 +42,12 @@ export default function SignalRiskModal({
   periodLabel?: string;
   event: HeartbeatSignalEvent;
 }) {
-  const [assessment, setAssessment] = useState<SignalRiskAssessment>(() =>
-    computeLocalSignalRisk(event, { sector })
+  const localAssessment = useMemo(
+    () => computeLocalSignalRisk(event, { sector }),
+    [event, sector]
   );
-  const [confirmation] = useState(() => computeSignalConfirmation(event));
+  const confirmation = useMemo(() => computeSignalConfirmation(event), [event]);
+  const [aiAssessment, setAiAssessment] = useState<SignalRiskAssessment | null>(null);
   const [aiConfirmation, setAiConfirmation] = useState<{ label: string; text: string } | null>(
     null
   );
@@ -53,12 +55,20 @@ export default function SignalRiskModal({
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    setAssessment(computeLocalSignalRisk(event, { sector }));
+  // Reset paste/AI overrides when the modal opens on a (possibly new) signal.
+  const sessionKey = open ? event.id : '';
+  const [prevSessionKey, setPrevSessionKey] = useState(sessionKey);
+  if (prevSessionKey !== sessionKey) {
+    setPrevSessionKey(sessionKey);
+    setAiAssessment(null);
     setAiConfirmation(null);
     setPaste('');
     setPasteError(null);
+    setCopied(false);
+  }
+
+  useEffect(() => {
+    if (!open) return;
 
     const prompt = buildSignalRiskPrompt({
       symbol,
@@ -68,21 +78,30 @@ export default function SignalRiskModal({
       periodLabel,
       event,
     });
+    let cancelled = false;
     void (async () => {
       try {
         if (typeof navigator !== 'undefined' && navigator.clipboard) {
           await navigator.clipboard.writeText(prompt);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 3500);
+          if (!cancelled) {
+            setCopied(true);
+            setTimeout(() => {
+              if (!cancelled) setCopied(false);
+            }, 3500);
+          }
         }
       } catch {
         /* ignore */
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [open, event, symbol, name, sector, industry, periodLabel]);
 
   if (!open) return null;
 
+  const assessment = aiAssessment ?? localAssessment;
   const score = assessment.score;
   const emoji = signalRiskBandEmoji(score, event.type);
   const band = signalRiskBandLabel(score, event.type);
@@ -115,7 +134,7 @@ export default function SignalRiskModal({
       setPasteError('Could not parse JSON. Paste the ChatGPT JSON object and try again.');
       return;
     }
-    setAssessment(parsed.assessment);
+    setAiAssessment(parsed.assessment);
     if (parsed.confirmation) setAiConfirmation(parsed.confirmation);
     setPasteError(null);
   };

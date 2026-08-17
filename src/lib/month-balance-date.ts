@@ -61,15 +61,46 @@ export function formatUtcDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-/** Normalize API/DB values to YYYY-MM-DD (GMT calendar date, never local TZ). */
+/**
+ * Format a Date as YYYY-MM-DD using the runtime's local calendar.
+ * node-pg maps PostgreSQL `date` to a JS Date at local midnight; using UTC
+ * parts here shifts the calendar day back by one in positive UTC offsets (e.g. BST),
+ * turning 2026-07-01 into 2026-06-30.
+ */
+export function formatLocalCalendarDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Normalize API/DB values to YYYY-MM-DD for statement months.
+ * - Plain `YYYY-MM-DD` strings are kept as-is (canonical statement date).
+ * - `Date` / ISO datetimes from node-pg use local calendar parts (pg date semantics).
+ */
 export function normalizeBalanceDate(balanceDate: unknown): string {
   if (balanceDate instanceof Date) {
-    return formatUtcDate(balanceDate);
+    if (Number.isNaN(balanceDate.getTime())) {
+      throw new Error(`Invalid balance_date: ${balanceDate}`);
+    }
+    return formatLocalCalendarDate(balanceDate);
   }
   const raw = String(balanceDate).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) {
     throw new Error(`Invalid balance_date: ${balanceDate}`);
+  }
+  // Date-only prefix on a datetime string: if time is present, recover the
+  // intended calendar day via local parts (handles ...T23:00:00.000Z from BST).
+  if (/T|\s/.test(raw.slice(10))) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      return formatLocalCalendarDate(parsed);
+    }
   }
   return `${match[1]}-${match[2]}-${match[3]}`;
 }

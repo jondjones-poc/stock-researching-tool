@@ -133,6 +133,19 @@ function statementMonthKey(month: string, year: number) {
   return `${year}::${month}`;
 }
 
+/** Prefer SQL EXTRACT year/month when present; fall back to balance_date normalization. */
+function statementMonthNameFromBalance(item: {
+  year?: number | null;
+  month?: number | null;
+  balance_date: string;
+}): string {
+  const monthNum = Number(item.month);
+  if (Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12) {
+    return MONTH_ORDER[monthNum - 1];
+  }
+  return monthNameFromBalanceDate(item.balance_date);
+}
+
 function balancesForMonthFromData(
   data: MonthlyAccountBalance[],
   month: string,
@@ -140,7 +153,7 @@ function balancesForMonthFromData(
 ): Map<string, number> {
   const result = new Map<string, number>();
   data.forEach((item) => {
-    if (monthNameFromBalanceDate(item.balance_date) === month && item.year === year) {
+    if (statementMonthNameFromBalance(item) === month && Number(item.year) === year) {
       result.set(item.account_name, item.balance);
     }
   });
@@ -346,7 +359,7 @@ export default function FinancesPage() {
       const monthMap = new Map<string, Map<string, { balance: number; id: number; account_id: number; balance_date: string }>>();
       
       monthlyData.forEach(item => {
-        const monthKey = monthNameFromBalanceDate(item.balance_date);
+        const monthKey = statementMonthNameFromBalance(item);
         
         if (!monthMap.has(monthKey)) {
           monthMap.set(monthKey, new Map());
@@ -408,7 +421,7 @@ export default function FinancesPage() {
     
     // Override with actual database values (this will replace the defaults)
     monthlyData.forEach(item => {
-      const monthKey = monthNameFromBalanceDate(item.balance_date);
+      const monthKey = statementMonthNameFromBalance(item);
 
       if (!monthMap.has(monthKey)) {
         monthMap.set(monthKey, new Map());
@@ -912,7 +925,7 @@ export default function FinancesPage() {
         const yearCheckData = await yearCheckResponse.json();
         const alreadyExists = (yearCheckData.data || []).some(
           (item: MonthlyAccountBalance) =>
-            monthNameFromBalanceDate(item.balance_date) === newMonth
+            statementMonthNameFromBalance(item) === newMonth
         );
         if (alreadyExists) {
           setMessage({

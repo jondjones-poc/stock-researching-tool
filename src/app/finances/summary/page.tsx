@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 interface NetworthReportData {
@@ -23,6 +23,21 @@ interface IncomeSource {
   name: string;
   income_type_id: number;
   account_id?: number | null;
+  account_name?: string | null;
+  isbusinessincome?: boolean | null;
+}
+
+interface AccountRow {
+  id: number;
+  name: string;
+  investment_type_id: number | null;
+}
+
+interface AccountBalanceRow {
+  account_id: number;
+  balance: number | null;
+  year: number;
+  month: number;
 }
 
 interface IncomeEntry {
@@ -75,19 +90,58 @@ export default function SummaryPage() {
   const [dividendMonthlyGbp, setDividendMonthlyGbp] = useState<number | null>(null);
   const [dividendYieldPct, setDividendYieldPct] = useState<number | null>(null);
   const [dividendSource, setDividendSource] = useState<'income' | 'portfolio' | null>(null);
+  const [businessValuation, setBusinessValuation] = useState<number | null>(null);
+  const [businessValuationPrior, setBusinessValuationPrior] = useState<number | null>(null);
 
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const investmentTarget = 20000; // £20,000 per year
   const currentMonth = currentDate.getMonth() + 1; // 1-12
-  
-  // Calculate previous month (for displaying last month's data)
-  let previousMonth = currentMonth - 1;
-  let previousYear = currentYear;
-  if (previousMonth < 1) {
-    previousMonth = 12;
-    previousYear = currentYear - 1;
+
+  // Calendar fallback: last completed month
+  let defaultPreviousMonth = currentMonth - 1;
+  let defaultPreviousYear = currentYear;
+  if (defaultPreviousMonth < 1) {
+    defaultPreviousMonth = 12;
+    defaultPreviousYear = currentYear - 1;
   }
+
+  // Prefer the latest month that has a networth / finances statement (capped at current calendar month)
+  const { previousMonth, previousYear } = useMemo(() => {
+    let bestMonth = 0;
+    let bestYear = 0;
+
+    const consider = (year: number | undefined, months: Array<number | string> | undefined) => {
+      if (year == null || !months?.length) return;
+      for (const raw of months) {
+        const month = Number(raw);
+        if (!Number.isFinite(month) || month < 1 || month > 12) continue;
+        if (year > currentYear || (year === currentYear && month > currentMonth)) continue;
+        if (year > bestYear || (year === bestYear && month > bestMonth)) {
+          bestMonth = month;
+          bestYear = year;
+        }
+      }
+    };
+
+    consider(networthData?.year ?? currentYear, networthData?.monthsWithData);
+    consider(
+      previousYearNetworthData?.year ?? currentYear - 1,
+      previousYearNetworthData?.monthsWithData
+    );
+
+    if (bestMonth === 0) {
+      return { previousMonth: defaultPreviousMonth, previousYear: defaultPreviousYear };
+    }
+    return { previousMonth: bestMonth, previousYear: bestYear };
+  }, [
+    networthData,
+    previousYearNetworthData,
+    currentYear,
+    currentMonth,
+    defaultPreviousMonth,
+    defaultPreviousYear,
+  ]);
 
   // Fetch networth data for current year and previous year
   useEffect(() => {
@@ -142,6 +196,110 @@ export default function SummaryPage() {
     };
     fetchIncomeSources();
   }, []);
+
+  // Business valuation (company value) for last completed month vs prior month — same logic as /finances/business
+  useEffect(() => {
+    const fetchBusinessValuation = async () => {
+      try {
+        const [sourcesRes, accountsRes, currBalRes, priorBalRes] = await Promise.all([
+          fetch('/api/income-sources'),
+          fetch('/api/accounts'),
+          fetch(`/api/monthly-account-balances?year=${previousYear}`),
+          fetch(`/api/monthly-account-balances?year=${previousYear - 1}`),
+        ]);
+        if (!sourcesRes.ok || !accountsRes.ok || !currBalRes.ok) {
+          setBusinessValuation(null);
+          setBusinessValuationPrior(null);
+          return;
+        }
+
+        const sourcesData = await sourcesRes.json();
+        const accountsData = await accountsRes.json();
+        const currBalData = await currBalRes.json();
+        const priorBalData = priorBalRes.ok ? await priorBalRes.json() : { data: [] };
+
+        const sources: Array<{
+          isbusinessincome?: boolean | null;
+          account_id?: number | null;
+          account_name?: string | null;
+          name: string;
+        }> = sourcesData.data || [];
+        const accounts: AccountRow[] = accountsData.data || [];
+        const balances: AccountBalanceRow[] = [
+          ...(currBalData.data || []),
+          ...(priorBalData.data || []),
+        ];
+
+        const cleanName = (name: string) => name.replace(/\s+/g, ' ').trim();
+        const byAccount = new Map<number, { accountId: number; accountName: string }>();
+
+        for (const source of sources) {
+          if (!source.isbusinessincome || source.account_id == null) continue;
+          if (byAccount.has(source.account_id)) continue;
+          byAccount.set(source.account_id, {
+            accountId: source.account_id,
+            accountName: cleanName(source.account_name || source.name),
+          });
+        }
+
+        const businessTypeIds = new Set(
+          accounts
+            .filter((a) => byAccount.has(a.id) && a.investment_type_id != null)
+            .map((a) => a.investment_type_id as number)
+        );
+        for (const account of accounts) {
+          if (byAccount.has(account.id)) continue;
+          if (account.investment_type_id == null) continue;
+          if (!businessTypeIds.has(account.investment_type_id)) continue;
+          byAccount.set(account.id, {
+            accountId: account.id,
+            accountName: cleanName(account.name),
+          });
+        }
+
+        const accountIds = [...byAccount.keys()];
+        if (accountIds.length === 0) {
+          setBusinessValuation(null);
+          setBusinessValuationPrior(null);
+          return;
+        }
+
+        const balMap = new Map<string, number>();
+        for (const row of balances) {
+          if (row.balance == null || !Number.isFinite(Number(row.balance))) continue;
+          balMap.set(`${row.account_id}-${row.year}-${row.month}`, Number(row.balance));
+        }
+
+        const sumFor = (year: number, month: number): number | null => {
+          let total = 0;
+          let hasAny = false;
+          for (const id of accountIds) {
+            const v = balMap.get(`${id}-${year}-${month}`);
+            if (v != null) {
+              hasAny = true;
+              total += v;
+            }
+          }
+          return hasAny ? total : null;
+        };
+
+        let priorMonth = previousMonth - 1;
+        let priorYear = previousYear;
+        if (priorMonth < 1) {
+          priorMonth = 12;
+          priorYear -= 1;
+        }
+
+        setBusinessValuation(sumFor(previousYear, previousMonth));
+        setBusinessValuationPrior(sumFor(priorYear, priorMonth));
+      } catch (err) {
+        console.error('Error fetching business valuation:', err);
+        setBusinessValuation(null);
+        setBusinessValuationPrior(null);
+      }
+    };
+    void fetchBusinessValuation();
+  }, [previousMonth, previousYear]);
 
   // Fetch monthly retirement value from settings
   useEffect(() => {
@@ -245,23 +403,30 @@ export default function SummaryPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Get previous month networth
+  // Get networth for the latest statement month
   const getPreviousMonthNetworth = () => {
-    if (!networthData) return null;
-    
-    const networthCategory = networthData.categories.find(cat => {
+    const dataToUse =
+      previousYear === currentYear
+        ? networthData
+        : previousYear === currentYear - 1
+          ? previousYearNetworthData
+          : null;
+    if (!dataToUse) return null;
+
+    const networthCategory = dataToUse.categories.find((cat) => {
       const catLower = cat.toLowerCase().trim();
       return catLower.includes('networth') || catLower.includes('net worth');
     });
-    
-    const monthTotals = networthData.monthData[previousMonth] || {};
-    
+
+    const monthTotals = dataToUse.monthData[previousMonth] || {};
+
     if (networthCategory) {
-      return monthTotals[networthCategory] || 0;
+      const value = monthTotals[networthCategory];
+      return value !== undefined && value !== null ? Number(value) : null;
     }
-    
+
     // Fallback: sum all categories
-    return networthData.categories.reduce((sum, category) => {
+    return dataToUse.categories.reduce((sum, category) => {
       return sum + (monthTotals[category] || 0);
     }, 0);
   };
@@ -310,38 +475,65 @@ export default function SummaryPage() {
     return currentNetworth - previousNetworth;
   };
 
-  // Get HNWI value (category 9 or from category rules)
-  const getHNWIValue = () => {
-    if (!networthData) return null;
-    
-    const monthTotals = networthData.monthData[previousMonth] || {};
-    
-    // Try to find HNWI category
-    let hnwiCategory = networthData.categories.find((cat: string) => {
+  // Get HNWI value for a specific month/year (category 9 or from category rules)
+  const getHNWIForMonth = (month: number, year: number): number | null => {
+    const dataToUse =
+      year === currentYear
+        ? networthData
+        : year === currentYear - 1
+          ? previousYearNetworthData
+          : null;
+    if (!dataToUse) return null;
+
+    const monthTotals = dataToUse.monthData[month] || {};
+
+    let hnwiCategory = dataToUse.categories.find((cat: string) => {
       const catLower = cat.toLowerCase().trim();
       return catLower.includes('hnwi') || catLower.includes('high net worth');
     });
-    
-    if (!hnwiCategory && networthData.categoryRules) {
-      const networthCategoryName = networthData.categories.find((cat: string) => {
+
+    if (!hnwiCategory && dataToUse.categoryRules) {
+      const networthCategoryName = dataToUse.categories.find((cat: string) => {
         const catLower = cat.toLowerCase().trim();
         return catLower.includes('networth') || catLower.includes('net worth');
       });
-      
-      if (networthCategoryName && networthData.categoryRules[networthCategoryName]) {
-        const rule = networthData.categoryRules[networthCategoryName] as string;
-        const parts = rule.split('+').map(s => s.trim());
+
+      if (networthCategoryName && dataToUse.categoryRules[networthCategoryName]) {
+        const rule = dataToUse.categoryRules[networthCategoryName] as string;
+        const parts = rule.split('+').map((s) => s.trim());
         if (parts.length === 2) {
           hnwiCategory = parts[1];
         }
       }
     }
-    
+
     if (hnwiCategory && monthTotals[hnwiCategory] !== undefined) {
       return monthTotals[hnwiCategory] || 0;
     }
-    
+
     return null;
+  };
+
+  const getHNWIValue = () => getHNWIForMonth(previousMonth, previousYear);
+
+  const getMonthBeforePrevious = () => {
+    let month = previousMonth - 1;
+    let year = previousYear;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+    return { month, year };
+  };
+
+  const getHNWIChange = (): { amount: number; percent: number | null } | null => {
+    const current = getHNWIForMonth(previousMonth, previousYear);
+    const { month, year } = getMonthBeforePrevious();
+    const prior = getHNWIForMonth(month, year);
+    if (current === null || prior === null) return null;
+    const amount = current - prior;
+    const percent = prior !== 0 ? (amount / Math.abs(prior)) * 100 : null;
+    return { amount, percent };
   };
 
   // Fetch average monthly cashflow
@@ -436,19 +628,17 @@ export default function SummaryPage() {
     fetchCashflow();
   }, [currentYear, previousMonth, previousYear]);
 
-  // Initialize HNWI and Target Pot values
+  // Keep HNWI in sync with the latest statement month
   useEffect(() => {
-    if (networthData && currentHNWI === null) {
-      const hnwiValue = getHNWIValue();
-      if (hnwiValue !== null) {
-        setCurrentHNWI(hnwiValue);
-      }
+    const hnwiValue = getHNWIValue();
+    if (hnwiValue !== null) {
+      setCurrentHNWI(hnwiValue);
     }
     if (retirementTargetPot !== null && !targetPotInput) {
       setTargetPotInput(retirementTargetPot.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [networthData, retirementTargetPot, previousMonth]);
+  }, [networthData, previousYearNetworthData, retirementTargetPot, previousMonth, previousYear]);
 
   // Currency formatting helpers
   const formatCurrency = (value: number | null): string => {
@@ -699,6 +889,67 @@ export default function SummaryPage() {
 
   // Get business income total for previous month
   const businessIncomeTotal = getMonthlyTotalForYear(previousMonth, previousYear);
+  const monthBeforePrevious = getMonthBeforePrevious();
+  const priorBusinessIncomeTotal = getMonthlyTotalForYear(
+    monthBeforePrevious.month,
+    monthBeforePrevious.year
+  );
+  const businessIncomeChange = {
+    amount: businessIncomeTotal - priorBusinessIncomeTotal,
+    percent:
+      priorBusinessIncomeTotal !== 0
+        ? ((businessIncomeTotal - priorBusinessIncomeTotal) / Math.abs(priorBusinessIncomeTotal)) *
+          100
+        : null,
+  };
+  const businessValuationChange =
+    businessValuation != null && businessValuationPrior != null
+      ? {
+          amount: businessValuation - businessValuationPrior,
+          percent:
+            businessValuationPrior !== 0
+              ? ((businessValuation - businessValuationPrior) / Math.abs(businessValuationPrior)) *
+                100
+              : null,
+        }
+      : null;
+
+  const formatGbpAmount = (value: number) => {
+    const abs = Math.abs(value);
+    const formatted = `£${abs.toLocaleString('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    return value < 0 ? `-${formatted}` : formatted;
+  };
+
+  const renderMonthChange = (change: { amount: number; percent: number | null } | null) => {
+    if (!change) {
+      return <span className="text-sm text-gray-400 dark:text-gray-500">—</span>;
+    }
+    const isPositive = change.amount > 0;
+    const isNegative = change.amount < 0;
+    const colorClass = isPositive
+      ? 'text-green-600 dark:text-green-400'
+      : isNegative
+        ? 'text-red-600 dark:text-red-400'
+        : 'text-gray-500 dark:text-gray-400';
+    const amountStr = `${isPositive ? '+' : ''}${formatGbpAmount(change.amount)}`;
+    const percentStr =
+      change.percent != null
+        ? ` (${isPositive ? '+' : ''}${change.percent.toLocaleString('en-GB', {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}%)`
+        : '';
+    return (
+      <span className={`text-sm font-semibold tabular-nums whitespace-nowrap ${colorClass}`}>
+        {isPositive ? '↑ ' : isNegative ? '↓ ' : ''}
+        {amountStr}
+        {percentStr}
+      </span>
+    );
+  };
 
   // Last completed calendar month (not the current month)
   const wage247Hourly = get247WageHourlyFor(previousMonth, previousYear);
@@ -1013,64 +1264,44 @@ export default function SummaryPage() {
               </div>
             )}
 
-            {/* Current Business Cashflow Section */}
+            {/* Monthly Changes — full width */}
             {currentHNWI !== null && (
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Left Column */}
-                  <div className="space-y-4">
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                      Profit This Month
-                    </h2>
-                    {/* Current HNWI Number */}
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                  Monthly Changes For {monthNames[previousMonth - 1]}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {/* Current HNWI Number */}
+                  <div className="flex items-end justify-between gap-4 sm:block">
                     <div>
                       <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Current HNWI Number</div>
                       <div className="text-2xl font-semibold text-gray-900 dark:text-white">
                         £{currentHNWI.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                     </div>
-                    {/* Business Income Total */}
-                    {averageMonthlyCashflow !== null && (
-                      <div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Business Income Total</div>
-                        <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                          £{averageMonthlyCashflow.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                      </div>
-                    )}
+                    <div className="pb-1 sm:mt-2 sm:pb-0">{renderMonthChange(getHNWIChange())}</div>
                   </div>
-                  
-                  {/* Right Column */}
-                  <div className="space-y-4">
-                    {/* Expected Return */}
-                    {retirementReturnRate !== null && (
-                      <div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Expected Return ({retirementReturnRate}% of HNWI)</div>
-                        <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                          £{((currentHNWI * retirementReturnRate) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
+                  {/* Business Income */}
+                  <div className="flex items-end justify-between gap-4 sm:block">
+                    <div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Business Income</div>
+                      <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                        {formatGbpAmount(businessIncomeTotal)}
                       </div>
-                    )}
-                    {/* Yearly Business Cashflow */}
-                    {averageMonthlyCashflow !== null && (
-                      <div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Yearly Business Cashflow</div>
-                        <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                          £{(averageMonthlyCashflow * 12).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Annual Total</div>
-                        {/* Total row: Expected Return + Yearly Business Cashflow */}
-                        {retirementReturnRate !== null && (
-                          <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
-                            <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Total</div>
-                            <div className="text-2xl font-semibold text-gray-900 dark:text-white">
-                              £{(((currentHNWI * retirementReturnRate) / 100) + (averageMonthlyCashflow * 12)).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Expected Return + Yearly Business Cashflow</div>
-                          </div>
-                        )}
+                    </div>
+                    <div className="pb-1 sm:mt-2 sm:pb-0">{renderMonthChange(businessIncomeChange)}</div>
+                  </div>
+                  {/* Business Valuation */}
+                  <div className="flex items-end justify-between gap-4 sm:block">
+                    <div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Business Valuation</div>
+                      <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                        {businessValuation != null ? formatGbpAmount(businessValuation) : '—'}
                       </div>
-                    )}
+                    </div>
+                    <div className="pb-1 sm:mt-2 sm:pb-0">
+                      {renderMonthChange(businessValuationChange)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1168,26 +1399,11 @@ export default function SummaryPage() {
               </div>
             </div>
 
-            {/* Dividend Summary Section - at bottom */}
+            {/* Dividend Income Section - at bottom */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">
-                Dividend Summary
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                Dividend Income
               </h2>
-              {dividendSource === 'portfolio' && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                  Projected from saved portfolio (dividend per share × shares). Add income entries with type “Dividend” to track actual received income.
-                </p>
-              )}
-              {dividendSource === 'income' && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                  From income entries with type “Dividend”.
-                </p>
-              )}
-              {!dividendSource && dividendYearlyGbp === 0 && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                  No dividend income or portfolio data. Save your eToro portfolio or add income entries with type “Dividend”.
-                </p>
-              )}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Yearly Dividend</div>
@@ -1213,6 +1429,59 @@ export default function SummaryPage() {
                 </div>
               </div>
             </div>
+
+            {/* Retirement Income Projection — full width at bottom */}
+            {currentHNWI !== null && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 md:col-span-2">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                  Retirement Income Projection
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {retirementReturnRate !== null && (
+                    <div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                        Expected Return ({retirementReturnRate}% of HNWI)
+                      </div>
+                      <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                        £{((currentHNWI * retirementReturnRate) / 100).toLocaleString('en-GB', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {averageMonthlyCashflow !== null && (
+                    <div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Yearly Business Cashflow</div>
+                      <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                        £{(averageMonthlyCashflow * 12).toLocaleString('en-GB', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Annual Total</div>
+                    </div>
+                  )}
+                  {retirementReturnRate !== null && averageMonthlyCashflow !== null && (
+                    <div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Total</div>
+                      <div className="text-2xl font-semibold text-gray-900 dark:text-white">
+                        £{(
+                          (currentHNWI * retirementReturnRate) / 100 +
+                          averageMonthlyCashflow * 12
+                        ).toLocaleString('en-GB', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Expected Return + Yearly Business Cashflow
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
           </div>
         )}
