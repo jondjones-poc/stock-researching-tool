@@ -92,6 +92,7 @@ export default function SummaryPage() {
   const [dividendSource, setDividendSource] = useState<'income' | 'portfolio' | null>(null);
   const [businessValuation, setBusinessValuation] = useState<number | null>(null);
   const [businessValuationPrior, setBusinessValuationPrior] = useState<number | null>(null);
+  const [usdToGbp, setUsdToGbp] = useState<number | null>(null);
 
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
@@ -166,6 +167,22 @@ export default function SummaryPage() {
     };
     fetchNetworth();
   }, [currentYear]);
+
+  // USD→GBP rate for optional dollar display under Current Networth
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/usd-to-gbp')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.rate != null && Number.isFinite(Number(data.rate))) {
+          setUsdToGbp(Number(data.rate));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Fetch income types
   useEffect(() => {
@@ -1176,6 +1193,21 @@ export default function SummaryPage() {
                     return networth < 0 ? `-${formatted}` : formatted;
                   })()}
                 </div>
+                {(() => {
+                  const networth = getPreviousMonthNetworth();
+                  if (networth === null || usdToGbp == null || usdToGbp <= 0) return null;
+                  const usd = networth / usdToGbp;
+                  const absUsd = Math.abs(usd);
+                  const formatted = `$${absUsd.toLocaleString('en-US', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0,
+                  })}`;
+                  return (
+                    <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 tabular-nums">
+                      {usd < 0 ? `-${formatted}` : formatted}
+                    </div>
+                  );
+                })()}
                 <div className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                   {monthNames[previousMonth - 1]} {previousYear}
                 </div>

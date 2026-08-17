@@ -198,6 +198,16 @@ export default function Navigation() {
                 >
                   📊 Dividend Tracker
                 </Link>
+                <Link
+                  href="/finances/freedom-income"
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/finances/freedom-income'
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  🕊️ Freedom Income
+                </Link>
               </>
             )}
             {isResearchTab && (
