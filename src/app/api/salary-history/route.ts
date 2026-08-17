@@ -68,3 +68,95 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+/** PUT — update an existing salary row (amount and/or year-month). */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const id = parseInt(String(body.id), 10);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    const year =
+      body.year != null ? parseInt(String(body.year), 10) : null;
+    const month =
+      body.month != null ? parseInt(String(body.month), 10) : null;
+    const monthlySalary =
+      body.monthly_salary != null ? parseFloat(String(body.monthly_salary)) : null;
+
+    if (year != null && !Number.isFinite(year)) {
+      return NextResponse.json({ error: 'Invalid year' }, { status: 400 });
+    }
+    if (month != null && (!Number.isFinite(month) || month < 1 || month > 12)) {
+      return NextResponse.json({ error: 'Month must be 1–12' }, { status: 400 });
+    }
+    if (monthlySalary != null && (!Number.isFinite(monthlySalary) || monthlySalary < 0)) {
+      return NextResponse.json({ error: 'monthly_salary must be a non-negative number' }, { status: 400 });
+    }
+
+    const existing = await query(`SELECT id FROM salary_history WHERE id = $1`, [id]);
+    if (existing.rows.length === 0) {
+      return NextResponse.json({ error: 'Salary entry not found' }, { status: 404 });
+    }
+
+    if (year != null && month != null) {
+      const clash = await query(
+        `SELECT id FROM salary_history WHERE year = $1 AND month = $2 AND id <> $3`,
+        [year, month, id]
+      );
+      if (clash.rows.length > 0) {
+        return NextResponse.json(
+          { error: 'An entry already exists for that month' },
+          { status: 409 }
+        );
+      }
+    }
+
+    const result = await query(
+      `UPDATE salary_history SET
+         year = COALESCE($2, year),
+         month = COALESCE($3, month),
+         monthly_salary = COALESCE($4, monthly_salary),
+         updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, year, month, monthly_salary, notes, created_at, updated_at`,
+      [id, year, month, monthlySalary]
+    );
+
+    return NextResponse.json({ data: result.rows[0] });
+  } catch (error: unknown) {
+    console.error('salary-history PUT failed:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to update salary' },
+      { status: 500 }
+    );
+  }
+}
+
+/** DELETE — remove a salary row by id. */
+export async function DELETE(request: NextRequest) {
+  try {
+    const idParam = request.nextUrl.searchParams.get('id');
+    const id = parseInt(String(idParam), 10);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    const result = await query(
+      `DELETE FROM salary_history WHERE id = $1
+       RETURNING id, year, month, monthly_salary`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: 'Salary entry not found' }, { status: 404 });
+    }
+    return NextResponse.json({ data: result.rows[0] });
+  } catch (error: unknown) {
+    console.error('salary-history DELETE failed:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to delete salary' },
+      { status: 500 }
+    );
+  }
+}

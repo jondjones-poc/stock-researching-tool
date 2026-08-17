@@ -51,6 +51,60 @@ export function entryAmount(entry: {
   return parseFloat(String(entry.price)) || 0;
 }
 
+type FreedomEntry = {
+  income_source_id: number;
+  income_type_id?: number | string;
+  year: number | string;
+  month: number | string;
+  account_id?: number | null;
+  current_month_balance?: number | string | null;
+  previous_month_balance?: number | string | null;
+  price: number | string;
+};
+
+/** Latest calendar month that has non-zero non-wage (Freedom) income. */
+export function latestFreedomStatementMonth(
+  types: Array<{ id: number; Is247wage?: boolean | null }>,
+  sources: Array<{ id: number; income_type_id: number }>,
+  entries: FreedomEntry[],
+  currentYear: number,
+  currentMonth: number
+): { year: number; month: number } | null {
+  const wageTypeIds = new Set(
+    types.filter((t) => t.Is247wage === true).map((t) => Number(t.id))
+  );
+  const sourceTypeId = new Map(
+    sources.map((s) => [Number(s.id), Number(s.income_type_id)])
+  );
+
+  let bestYm = 0;
+  let best: { year: number; month: number } | null = null;
+
+  for (const e of entries) {
+    const typeId =
+      e.income_type_id != null
+        ? Number(e.income_type_id)
+        : sourceTypeId.get(Number(e.income_source_id));
+    if (typeId == null || !Number.isFinite(typeId) || wageTypeIds.has(typeId)) continue;
+
+    const y = parseInt(String(e.year), 10);
+    const m = parseInt(String(e.month), 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) continue;
+    if (y > currentYear || (y === currentYear && m > currentMonth)) continue;
+
+    const amount = entryAmount(e);
+    if (!Number.isFinite(amount) || amount === 0) continue;
+
+    const ym = y * 100 + m;
+    if (ym > bestYm) {
+      bestYm = ym;
+      best = { year: y, month: m };
+    }
+  }
+
+  return best;
+}
+
 export function buildFreedomBreakdown(
   types: Array<{
     id: number;
@@ -59,15 +113,7 @@ export function buildFreedomBreakdown(
     isbusinessincome?: boolean | null;
   }>,
   sources: Array<{ id: number; income_type_id: number }>,
-  entries: Array<{
-    income_source_id: number;
-    year: number | string;
-    month: number | string;
-    account_id?: number | null;
-    current_month_balance?: number | string | null;
-    previous_month_balance?: number | string | null;
-    price: number | string;
-  }>,
+  entries: FreedomEntry[],
   statementYear: number,
   statementMonth: number
 ): FreedomIncomeBreakdownRow[] {

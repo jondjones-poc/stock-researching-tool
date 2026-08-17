@@ -3,6 +3,7 @@ import { query } from '../../utils/db';
 import { internalApiFetch } from '../../utils/internalApiFetch';
 import {
   buildFreedomBreakdown,
+  latestFreedomStatementMonth,
   projectFreedomIncome,
   wageMonthlyTotal,
 } from '../../utils/freedomIncome';
@@ -67,8 +68,7 @@ export async function GET(request: NextRequest) {
       query(
         `SELECT id, year, month, monthly_salary, notes, created_at, updated_at
          FROM salary_history
-         ORDER BY year DESC, month DESC
-         LIMIT 24`
+         ORDER BY year DESC, month DESC`
       ).catch(() => ({ rows: [] as Array<Record<string, unknown>> })),
       internalApiFetch(request, `/api/networth-report?year=${currentYear}`),
       internalApiFetch(request, `/api/networth-report?year=${currentYear - 1}`),
@@ -94,25 +94,22 @@ export async function GET(request: NextRequest) {
     const networthCurr = networthCurrRes.ok ? await networthCurrRes.json() : null;
     const networthPrev = networthPrevRes.ok ? await networthPrevRes.json() : null;
 
-    // Statement month: prefer latest income entry month, else networth monthsWithData
+    // Statement month: latest month with non-zero Freedom Income, else networth statement
     let statementYear = currentYear;
     let statementMonth = currentMonth > 1 ? currentMonth - 1 : 12;
     if (currentMonth === 1) statementYear = currentYear - 1;
 
-    let bestYm = 0;
-    for (const e of entries) {
-      const y = parseInt(String(e.year), 10);
-      const m = parseInt(String(e.month), 10);
-      if (!Number.isFinite(y) || !Number.isFinite(m)) continue;
-      if (y > currentYear || (y === currentYear && m > currentMonth)) continue;
-      const ym = y * 100 + m;
-      if (ym > bestYm) {
-        bestYm = ym;
-        statementYear = y;
-        statementMonth = m;
-      }
-    }
-    if (bestYm === 0) {
+    const fromFreedom = latestFreedomStatementMonth(
+      types,
+      sources,
+      entries,
+      currentYear,
+      currentMonth
+    );
+    if (fromFreedom) {
+      statementYear = fromFreedom.year;
+      statementMonth = fromFreedom.month;
+    } else {
       const fromNw =
         latestStatementMonth(
           networthCurr?.monthsWithData,
