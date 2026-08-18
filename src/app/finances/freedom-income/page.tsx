@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -50,6 +52,7 @@ type FreedomPayload = {
   currentNetWorth: number;
   workOptionalYear: number | null;
   breakdown: BreakdownRow[];
+  wageTypeNames: string[];
   projections: ProjectionRow[];
   assumptions: {
     incomeGrowthRatePct: number;
@@ -116,6 +119,38 @@ function salaryYearChoices(historyYears: number[], currentYear: number): number[
 const DATE_SELECT_CLASS =
   'px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white';
 
+function InfoTip({
+  label,
+  text,
+  children,
+}: {
+  label: string;
+  text?: string;
+  children?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex group ml-1 align-middle">
+      <button
+        type="button"
+        className="cursor-help text-blue-500 dark:text-blue-400 text-sm font-semibold leading-none"
+        aria-label={label}
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setOpen(false)}
+      >
+        ⓘ
+      </button>
+      <span
+        className={`absolute z-50 left-0 top-full mt-1 w-80 max-w-[85vw] p-3 text-xs leading-relaxed bg-gray-900 text-white rounded-lg shadow-lg ${
+          open ? 'block' : 'hidden group-hover:block'
+        }`}
+      >
+        {children ?? text}
+      </span>
+    </span>
+  );
+}
+
 export default function FreedomIncomePage() {
   const [data, setData] = useState<FreedomPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,6 +162,7 @@ export default function FreedomIncomePage() {
   const [salaryMessage, setSalaryMessage] = useState<string | null>(null);
   const [addDraftYear, setAddDraftYear] = useState<number | null>(null);
   const [addDraftMonth, setAddDraftMonth] = useState<number | null>(null);
+  const [projectionView, setProjectionView] = useState<'chart' | 'table'>('chart');
   const skipSalaryBlurSave = useRef(false);
 
   const load = useCallback(async (opts?: { quiet?: boolean }) => {
@@ -240,7 +276,8 @@ export default function FreedomIncomePage() {
       setEditingValue('');
       setSalaryYear(year);
       setAddDraftYear(year);
-      setAddDraftMonth(null);
+      const amountEl = document.getElementById('add-salary-amount') as HTMLInputElement | null;
+      if (amountEl) amountEl.value = '';
       await load({ quiet: true });
     } catch (e: unknown) {
       setSalaryMessage(e instanceof Error ? e.message : 'Failed to save salary');
@@ -249,13 +286,33 @@ export default function FreedomIncomePage() {
     }
   };
 
+  const nowYear = new Date().getFullYear();
   const chartData =
-    data?.projections.slice(0, 25).map((p) => ({
-      year: p.year,
-      'Freedom Income': Math.round(p.projectedFreedomIncome),
-      'Annual expenses': Math.round(p.projectedAnnualExpenses),
-      'Salary required': Math.round(p.salaryRequired),
-    })) ?? [];
+    data?.projections
+      .filter((p) => p.year <= nowYear + 24)
+      .map((p) => ({
+        year: p.year,
+        'Freedom Income': Math.round(p.projectedFreedomIncome),
+        'Annual expenses': Math.round(p.projectedAnnualExpenses),
+        'Salary required': Math.round(p.salaryRequired),
+      })) ?? [];
+  const salaryStillNeeded = chartData.some((d) => d['Salary required'] > 0);
+
+  const yearlySalaryData = (() => {
+    const byYear = new Map<number, number>();
+    for (const row of data?.salaryHistory || []) {
+      const year = Number(row.year);
+      const amount = Number(row.monthly_salary) || 0;
+      if (!Number.isFinite(year)) continue;
+      byYear.set(year, (byYear.get(year) || 0) + amount);
+    }
+    return Array.from(byYear.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([year, total]) => ({
+        year,
+        'Take-home': Math.round(total * 100) / 100,
+      }));
+  })();
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-2 sm:px-4 lg:px-6">
@@ -280,7 +337,36 @@ export default function FreedomIncomePage() {
             {/* Key cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-5">
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Freedom Income</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Freedom Income
+                  <InfoTip label="What Freedom Income means">
+                    <p>
+                      Year-to-date non-salary income through{' '}
+                      {MONTH_NAMES[data.statementMonth - 1]} {data.statementYear}:{' '}
+                      <Link href="/finances/networth-report" className="underline">
+                        Stock Value
+                      </Link>{' '}
+                      change this year, minus{' '}
+                      <Link href="/finances/investment-tracker" className="underline">
+                        investment contributions
+                      </Link>{' '}
+                      this year, plus Business Cash change this year. Work and salary are
+                      not included.
+                    </p>
+                    <p className="mt-2 font-semibold">Included in this number</p>
+                    {data.breakdown.length > 0 ? (
+                      <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                        {data.breakdown.map((row) => (
+                          <li key={row.incomeTypeId}>
+                            {row.name} — {formatGbp(row.annual)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1">No networth or contribution data yet.</p>
+                    )}
+                  </InfoTip>
+                </div>
                 <div className="text-2xl font-bold text-gray-900 dark:text-white">
                   {formatGbp(data.freedomAnnual)}
                   <span className="text-sm font-medium text-gray-500"> / year</span>
@@ -288,9 +374,34 @@ export default function FreedomIncomePage() {
                 <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   {formatGbp(data.freedomMonthly, 2)} / month
                 </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  YTD through {MONTH_NAMES[data.statementMonth - 1]} {data.statementYear}
+                </div>
               </div>
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-5">
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Freedom Ratio</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  Freedom Ratio
+                  <InfoTip label="What Freedom Ratio means">
+                    <p>
+                      Freedom Income ÷ annual living costs (from settings key
+                      MONTHLY_RETIERMENT_VALUE).
+                    </p>
+                    <p className="mt-2 font-semibold">Freedom Income includes</p>
+                    {data.breakdown.length > 0 ? (
+                      <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                        {data.breakdown.map((row) => (
+                          <li key={row.incomeTypeId}>{row.name}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1">No networth or contribution data yet.</p>
+                    )}
+                    <p className="mt-2">
+                      100% means those sources cover living costs. Above 100% is surplus. Below 100%
+                      still needs salary.
+                    </p>
+                  </InfoTip>
+                </div>
                 <div
                   className={`text-2xl font-bold ${
                     (data.freedomRatio ?? 0) >= 100
@@ -304,16 +415,82 @@ export default function FreedomIncomePage() {
                   Freedom Income ÷ annual living costs
                 </div>
               </div>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-5">
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Salary Required</div>
-                <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatGbp(data.salaryRequired)}
-                  <span className="text-sm font-medium text-gray-500"> / year</span>
-                </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Living costs still needing salary (min £0)
-                </div>
-              </div>
+              {(() => {
+                const expenses = data.annualExpenses;
+                const surplus =
+                  expenses != null ? data.freedomAnnual - expenses : null;
+                const targetHit = surplus != null && surplus >= 0;
+                const monthlyGapOrSurplus =
+                  surplus != null ? surplus / 12 : null;
+                return (
+                  <div
+                    className={`bg-white dark:bg-gray-800 rounded-lg shadow-md p-5 ${
+                      targetHit ? 'border-l-4 border-green-500' : ''
+                    }`}
+                  >
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                      {targetHit ? 'Surplus' : 'Salary still needed'}
+                      <InfoTip
+                        label={
+                          targetHit
+                            ? 'What Surplus means'
+                            : 'What Salary still needed means'
+                        }
+                      >
+                        {targetHit ? (
+                          <>
+                            <p>
+                              Freedom Income minus annual living costs (MONTHLY_RETIERMENT_VALUE).
+                              Extra Freedom Income after covering your lifestyle.
+                            </p>
+                            <p className="mt-2 font-semibold">Freedom Income includes</p>
+                            {data.breakdown.length > 0 ? (
+                              <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                                {data.breakdown.map((row) => (
+                                  <li key={row.incomeTypeId}>{row.name}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            <p>
+                              Annual living costs (MONTHLY_RETIERMENT_VALUE) minus Freedom Income.
+                              The salary still needed to cover spending.
+                            </p>
+                            <p className="mt-2 font-semibold">Freedom Income includes</p>
+                            {data.breakdown.length > 0 ? (
+                              <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                                {data.breakdown.map((row) => (
+                                  <li key={row.incomeTypeId}>{row.name}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </>
+                        )}
+                      </InfoTip>
+                    </div>
+                    <div
+                      className={`text-2xl font-bold ${
+                        targetHit
+                          ? 'text-green-700 dark:text-green-400'
+                          : 'text-gray-900 dark:text-white'
+                      }`}
+                    >
+                      {formatGbp(targetHit ? surplus : data.salaryRequired)}
+                      <span className="text-sm font-medium text-gray-500"> / year</span>
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {targetHit
+                        ? `${formatGbp(monthlyGapOrSurplus, 2)} / month above living costs`
+                        : `${formatGbp(
+                            monthlyGapOrSurplus != null ? Math.abs(monthlyGapOrSurplus) : null,
+                            2
+                          )} / month to cover living costs`}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-5 border-l-4 border-green-500">
                 <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Work Optional</div>
                 <div className="text-2xl font-bold text-green-700 dark:text-green-400">
@@ -334,11 +511,6 @@ export default function FreedomIncomePage() {
                 </div>
                 <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   {formatGbp(data.monthlySalary, 2)} / month
-                  {data.salarySource === 'Is247wage_fallback'
-                    ? ' · from 24/7 wage types (enter salary below to override)'
-                    : data.salarySource === 'salary_history'
-                      ? ' · from salary history'
-                      : ''}
                 </div>
               </div>
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-5">
@@ -383,13 +555,8 @@ export default function FreedomIncomePage() {
                 const yearEntries = (data.salaryHistory || [])
                   .filter((r) => Number(r.year) === activeYear)
                   .slice()
-                  .sort((a, b) => Number(a.month) - Number(b.month));
+                  .sort((a, b) => Number(a.month) - Number(b.month) || Number(a.id) - Number(b.id));
                 const addYear = addDraftYear ?? activeYear;
-                const usedMonthsForAddYear = new Set(
-                  (data.salaryHistory || [])
-                    .filter((r) => Number(r.year) === addYear)
-                    .map((r) => Number(r.month))
-                );
                 const yearTotal = yearEntries.reduce(
                   (sum, r) => sum + (Number(r.monthly_salary) || 0),
                   0
@@ -430,7 +597,7 @@ export default function FreedomIncomePage() {
                               Date
                             </th>
                             <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Monthly salary
+                              Amount
                             </th>
                             <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                               Actions
@@ -444,7 +611,7 @@ export default function FreedomIncomePage() {
                                 colSpan={3}
                                 className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center"
                               >
-                                No salary entries for {activeYear}. Add a month below.
+                                No salary entries for {activeYear}. Add a payment below.
                               </td>
                             </tr>
                           ) : (
@@ -454,16 +621,6 @@ export default function FreedomIncomePage() {
                               const year = Number(row.year);
                               const value = Number(row.monthly_salary);
                               const isEditing = editingId === id;
-                              const usedMonthsForRowYear = new Set(
-                                (data.salaryHistory || [])
-                                  .filter((r) => Number(r.year) === year && Number(r.id) !== id)
-                                  .map((r) => Number(r.month))
-                              );
-                              const takenYearsForMonth = new Set(
-                                (data.salaryHistory || [])
-                                  .filter((r) => Number(r.month) === month && Number(r.id) !== id)
-                                  .map((r) => Number(r.year))
-                              );
                               return (
                                 <tr key={id}>
                                   <td className="px-4 py-3 text-sm whitespace-nowrap">
@@ -478,18 +635,11 @@ export default function FreedomIncomePage() {
                                         }}
                                         className={DATE_SELECT_CLASS}
                                       >
-                                        {MONTH_NAMES.map((name, idx) => {
-                                          const m = idx + 1;
-                                          return (
-                                            <option
-                                              key={name}
-                                              value={m}
-                                              disabled={usedMonthsForRowYear.has(m)}
-                                            >
-                                              {name}
-                                            </option>
-                                          );
-                                        })}
+                                        {MONTH_NAMES.map((name, idx) => (
+                                          <option key={name} value={idx + 1}>
+                                            {name}
+                                          </option>
+                                        ))}
                                       </select>
                                       <select
                                         value={year}
@@ -502,11 +652,7 @@ export default function FreedomIncomePage() {
                                         className={DATE_SELECT_CLASS}
                                       >
                                         {yearChoices.map((y) => (
-                                          <option
-                                            key={y}
-                                            value={y}
-                                            disabled={takenYearsForMonth.has(y)}
-                                          >
+                                          <option key={y} value={y}>
                                             {y}
                                           </option>
                                         ))}
@@ -590,18 +736,11 @@ export default function FreedomIncomePage() {
                                     <option value="" disabled>
                                       Month
                                     </option>
-                                    {MONTH_NAMES.map((name, idx) => {
-                                      const m = idx + 1;
-                                      return (
-                                        <option
-                                          key={name}
-                                          value={m}
-                                          disabled={usedMonthsForAddYear.has(m)}
-                                        >
-                                          {name}
-                                        </option>
-                                      );
-                                    })}
+                                    {MONTH_NAMES.map((name, idx) => (
+                                      <option key={name} value={idx + 1}>
+                                        {name}
+                                      </option>
+                                    ))}
                                   </select>
                                   <select
                                     value={addYear}
@@ -610,7 +749,6 @@ export default function FreedomIncomePage() {
                                       const y = parseInt(e.target.value, 10);
                                       if (!Number.isFinite(y)) return;
                                       setAddDraftYear(y);
-                                      setAddDraftMonth(null);
                                       setSalaryMessage(null);
                                     }}
                                     className={DATE_SELECT_CLASS}
@@ -693,8 +831,8 @@ export default function FreedomIncomePage() {
               </h2>
               {data.breakdown.length === 0 ? (
                 <p className="text-sm text-gray-500">
-                  No non-salary income for {MONTH_NAMES[data.statementMonth - 1]}{' '}
-                  {data.statementYear}. Add entries on Cashflow / 24/7 Wage pages.
+                  No Stock Value, contributions, or Business Cash for{' '}
+                  {MONTH_NAMES[data.statementMonth - 1]} {data.statementYear}.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -714,11 +852,6 @@ export default function FreedomIncomePage() {
                         >
                           <td className="py-2 pr-4">
                             {row.name}
-                            {row.isBusiness ? (
-                              <span className="ml-2 text-[10px] uppercase text-gray-400">
-                                business
-                              </span>
-                            ) : null}
                           </td>
                           <td className="py-2 pr-4 text-right tabular-nums">
                             {formatGbp(row.annual)}
@@ -728,32 +861,99 @@ export default function FreedomIncomePage() {
                           </td>
                         </tr>
                       ))}
+                      <tr className="font-semibold text-gray-900 dark:text-white">
+                        <td className="py-2 pr-4">Freedom Income</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {formatGbp(data.freedomAnnual)}
+                        </td>
+                        <td className="py-2 text-right tabular-nums">100%</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
               )}
             </div>
 
-            {/* Chart */}
+            {/* Chart / table */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2
-                className={`text-lg font-semibold text-gray-900 dark:text-white ${
-                  data.workOptionalYear != null ? 'mb-1' : 'mb-4'
-                }`}
-              >
-                Projected Freedom Income vs expenses
-              </h2>
-              {data.workOptionalYear != null ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                  Work Optional marked at {data.workOptionalYear}.
-                </p>
-              ) : null}
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Projected Freedom Income vs expenses
+                  </h2>
+                  {data.workOptionalYear != null &&
+                  data.workOptionalYear <= new Date().getFullYear() ? (
+                    <span className="mt-2 inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/40 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:text-green-300">
+                      Target reached — Freedom Income covers living costs
+                    </span>
+                  ) : data.workOptionalYear != null ? (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Work Optional marked at {data.workOptionalYear}.
+                    </p>
+                  ) : null}
+                </div>
+                <div
+                  className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden shrink-0"
+                  role="group"
+                  aria-label="Projection view"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setProjectionView('chart')}
+                    title="Chart view"
+                    aria-label="Chart view"
+                    aria-pressed={projectionView === 'chart'}
+                    className={`inline-flex h-9 w-9 items-center justify-center transition-colors ${
+                      projectionView === 'chart'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                      <path
+                        d="M2 14.5V4M2 14.5h14"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M4 11.5 7.5 7l3 3L16 4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProjectionView('table')}
+                    title="Table view"
+                    aria-label="Table view"
+                    aria-pressed={projectionView === 'table'}
+                    className={`inline-flex h-9 w-9 items-center justify-center transition-colors ${
+                      projectionView === 'table'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                      <path
+                        d="M2 4.5h14M2 9h14M2 13.5h14M6 2v14M12 2v14"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
               {chartData.length === 0 ? (
                 <p className="text-sm text-gray-500">Not enough data to project.</p>
-              ) : (
+              ) : projectionView === 'chart' ? (
                 <div className="h-[360px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                    <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
                       <XAxis dataKey="year" tick={{ fontSize: 12 }} />
                       <YAxis
@@ -768,11 +968,26 @@ export default function FreedomIncomePage() {
                         }
                       />
                       <Legend />
-                      <Line
+                      {chartData.some((d) => d.year < nowYear) ? (
+                        <ReferenceLine
+                          x={nowYear}
+                          stroke="#9ca3af"
+                          strokeDasharray="2 2"
+                          label={{
+                            value: 'Now',
+                            position: 'insideTopLeft',
+                            fill: '#9ca3af',
+                            fontSize: 11,
+                          }}
+                        />
+                      ) : null}
+                      <Area
                         type="monotone"
                         dataKey="Freedom Income"
                         stroke="#16a34a"
                         strokeWidth={2}
+                        fill="#16a34a"
+                        fillOpacity={0.18}
                         dot={false}
                       />
                       <Line
@@ -782,15 +997,18 @@ export default function FreedomIncomePage() {
                         strokeWidth={2}
                         dot={false}
                       />
-                      <Line
-                        type="monotone"
-                        dataKey="Salary required"
-                        stroke="#ca8a04"
-                        strokeWidth={2}
-                        strokeDasharray="4 4"
-                        dot={false}
-                      />
-                      {data.workOptionalYear != null && (
+                      {salaryStillNeeded ? (
+                        <Line
+                          type="monotone"
+                          dataKey="Salary required"
+                          stroke="#ca8a04"
+                          strokeWidth={2}
+                          strokeDasharray="4 4"
+                          dot={false}
+                        />
+                      ) : null}
+                      {data.workOptionalYear != null &&
+                      data.workOptionalYear > new Date().getFullYear() ? (
                         <ReferenceLine
                           x={data.workOptionalYear}
                           stroke="#16a34a"
@@ -802,78 +1020,111 @@ export default function FreedomIncomePage() {
                             fontSize: 12,
                           }}
                         />
-                      )}
+                      ) : null}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[720px]">
+                    <thead>
+                      <tr className="text-left text-xs uppercase text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                        <th className="py-2 pr-3">Year</th>
+                        <th className="py-2 pr-3">Age</th>
+                        <th className="py-2 pr-3 text-right">Net worth</th>
+                        <th className="py-2 pr-3 text-right">Freedom Income</th>
+                        <th className="py-2 pr-3 text-right">Monthly</th>
+                        <th className="py-2 pr-3 text-right">Expenses</th>
+                        <th className="py-2 pr-3 text-right">Ratio</th>
+                        {salaryStillNeeded ? (
+                          <th className="py-2 text-right">Salary req.</th>
+                        ) : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.projections
+                        .filter((row) => row.year <= nowYear + 29)
+                        .map((row) => (
+                        <tr
+                          key={row.year}
+                          className={`border-b border-gray-100 dark:border-gray-800 ${
+                            row.isWorkOptional && row.year === data.workOptionalYear
+                              ? 'bg-green-50 dark:bg-green-900/20 font-medium'
+                              : 'text-gray-800 dark:text-gray-200'
+                          }`}
+                        >
+                          <td className="py-2 pr-3">
+                            {row.year}
+                            {row.year === data.workOptionalYear ? (
+                              <span className="ml-2 text-[10px] uppercase text-green-700 dark:text-green-400">
+                                Work Optional
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="py-2 pr-3">{row.age ?? '—'}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">
+                            {formatGbp(row.projectedNetWorth)}
+                          </td>
+                          <td className="py-2 pr-3 text-right tabular-nums">
+                            {formatGbp(row.projectedFreedomIncome)}
+                          </td>
+                          <td className="py-2 pr-3 text-right tabular-nums">
+                            {formatGbp(row.projectedFreedomMonthly)}
+                          </td>
+                          <td className="py-2 pr-3 text-right tabular-nums">
+                            {formatGbp(row.projectedAnnualExpenses)}
+                          </td>
+                          <td className="py-2 pr-3 text-right tabular-nums">
+                            {formatPct(row.freedomRatio, 0)}
+                          </td>
+                          {salaryStillNeeded ? (
+                            <td className="py-2 text-right tabular-nums">
+                              {formatGbp(row.salaryRequired)}
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Yearly take-home
+              </h2>
+              {yearlySalaryData.length === 0 ? (
+                <p className="text-sm text-gray-500">No salary history yet.</p>
+              ) : (
+                <div className="h-[320px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={yearlySalaryData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+                      <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(v) =>
+                          `£${Number(v).toLocaleString('en-GB', { notation: 'compact' })}`
+                        }
+                      />
+                      <Tooltip
+                        formatter={(value) =>
+                          formatGbp(typeof value === 'number' ? value : Number(value), 0)
+                        }
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="Take-home"
+                        stroke="#2563eb"
+                        strokeWidth={2}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 6 }}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               )}
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                Assumptions (from Settings): income growth{' '}
-                {data.assumptions.incomeGrowthRatePct}% · expense inflation{' '}
-                {data.assumptions.expenseInflationPct}% · portfolio return{' '}
-                {data.assumptions.portfolioReturnPct}%
-              </p>
-            </div>
-
-            {/* Projection table */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 overflow-x-auto">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Projected view
-              </h2>
-              <table className="w-full text-sm min-w-[720px]">
-                <thead>
-                  <tr className="text-left text-xs uppercase text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                    <th className="py-2 pr-3">Year</th>
-                    <th className="py-2 pr-3">Age</th>
-                    <th className="py-2 pr-3 text-right">Net worth</th>
-                    <th className="py-2 pr-3 text-right">Freedom Income</th>
-                    <th className="py-2 pr-3 text-right">Monthly</th>
-                    <th className="py-2 pr-3 text-right">Expenses</th>
-                    <th className="py-2 pr-3 text-right">Ratio</th>
-                    <th className="py-2 text-right">Salary req.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.projections.slice(0, 30).map((row) => (
-                    <tr
-                      key={row.year}
-                      className={`border-b border-gray-100 dark:border-gray-800 ${
-                        row.isWorkOptional && row.year === data.workOptionalYear
-                          ? 'bg-green-50 dark:bg-green-900/20 font-medium'
-                          : 'text-gray-800 dark:text-gray-200'
-                      }`}
-                    >
-                      <td className="py-2 pr-3">
-                        {row.year}
-                        {row.year === data.workOptionalYear ? (
-                          <span className="ml-2 text-[10px] uppercase text-green-700 dark:text-green-400">
-                            Work Optional
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="py-2 pr-3">{row.age ?? '—'}</td>
-                      <td className="py-2 pr-3 text-right tabular-nums">
-                        {formatGbp(row.projectedNetWorth)}
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums">
-                        {formatGbp(row.projectedFreedomIncome)}
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums">
-                        {formatGbp(row.projectedFreedomMonthly)}
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums">
-                        {formatGbp(row.projectedAnnualExpenses)}
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums">
-                        {formatPct(row.freedomRatio, 0)}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {formatGbp(row.salaryRequired)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </>
         )}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../utils/db';
 
-/** GET — list salary history (newest first). Optional ?year=&month= for one row. */
+/** GET — list salary history (newest first). Optional ?year=&month= for that month's payments. */
 export async function GET(request: NextRequest) {
   try {
     const year = request.nextUrl.searchParams.get('year');
@@ -11,16 +11,17 @@ export async function GET(request: NextRequest) {
       const result = await query(
         `SELECT id, year, month, monthly_salary, notes, created_at, updated_at
          FROM salary_history
-         WHERE year = $1 AND month = $2`,
+         WHERE year = $1 AND month = $2
+         ORDER BY id ASC`,
         [parseInt(year, 10), parseInt(month, 10)]
       );
-      return NextResponse.json({ data: result.rows[0] ?? null });
+      return NextResponse.json({ data: result.rows });
     }
 
     const result = await query(
       `SELECT id, year, month, monthly_salary, notes, created_at, updated_at
        FROM salary_history
-       ORDER BY year DESC, month DESC`
+       ORDER BY year DESC, month DESC, id ASC`
     );
     return NextResponse.json({ data: result.rows });
   } catch (error: unknown) {
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST — upsert monthly salary for a calendar month. */
+/** POST — add a salary payment for a calendar month (multiple per month allowed). */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -51,10 +52,6 @@ export async function POST(request: NextRequest) {
     const result = await query(
       `INSERT INTO salary_history (year, month, monthly_salary, notes)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (year, month) DO UPDATE SET
-         monthly_salary = EXCLUDED.monthly_salary,
-         notes = COALESCE(EXCLUDED.notes, salary_history.notes),
-         updated_at = NOW()
        RETURNING id, year, month, monthly_salary, notes, created_at, updated_at`,
       [year, month, monthlySalary, notes]
     );
@@ -98,19 +95,6 @@ export async function PUT(request: NextRequest) {
     const existing = await query(`SELECT id FROM salary_history WHERE id = $1`, [id]);
     if (existing.rows.length === 0) {
       return NextResponse.json({ error: 'Salary entry not found' }, { status: 404 });
-    }
-
-    if (year != null && month != null) {
-      const clash = await query(
-        `SELECT id FROM salary_history WHERE year = $1 AND month = $2 AND id <> $3`,
-        [year, month, id]
-      );
-      if (clash.rows.length > 0) {
-        return NextResponse.json(
-          { error: 'An entry already exists for that month' },
-          { status: 409 }
-        );
-      }
     }
 
     const result = await query(

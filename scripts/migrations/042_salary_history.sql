@@ -9,15 +9,14 @@ CREATE TABLE IF NOT EXISTS public.salary_history (
   monthly_salary NUMERIC(14, 2) NOT NULL CHECK (monthly_salary >= 0),
   notes TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (year, month)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_salary_history_year_month
   ON public.salary_history (year DESC, month DESC);
 
 COMMENT ON TABLE public.salary_history IS
-  'Declared monthly salary by calendar month for Freedom Income / salary growth reporting';
+  'Declared salary payments by calendar month (multiple rows per month allowed) for Freedom Income';
 
 CREATE OR REPLACE FUNCTION public.set_salary_history_updated_at()
 RETURNS TRIGGER AS $$

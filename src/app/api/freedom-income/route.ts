@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '../../utils/db';
 import { internalApiFetch } from '../../utils/internalApiFetch';
 import {
-  buildFreedomBreakdown,
-  latestFreedomStatementMonth,
+  computeAssetFreedomIncome,
+  currentSalaryFromHistory,
+  earliestSalaryYear,
+  netWorthFromReport,
   projectFreedomIncome,
   wageMonthlyTotal,
+  type FreedomIncomeProjectionRow,
 } from '../../utils/freedomIncome';
 
 function getSetting(
@@ -29,22 +32,6 @@ function pickLivingCostMonthly(
   );
 }
 
-function latestStatementMonth(
-  monthsWithData: number[] | undefined,
-  year: number,
-  currentYear: number,
-  currentMonth: number
-): { month: number; year: number } | null {
-  if (!monthsWithData?.length) return null;
-  const eligible = monthsWithData
-    .map(Number)
-    .filter((m) => Number.isFinite(m) && m >= 1 && m <= 12)
-    .filter((m) => year < currentYear || m <= currentMonth)
-    .sort((a, b) => b - a);
-  if (!eligible.length) return null;
-  return { month: eligible[0], year };
-}
-
 /** GET — Freedom Income dashboard payload (calculated from existing finance data). */
 export async function GET(request: NextRequest) {
   try {
@@ -59,8 +46,10 @@ export async function GET(request: NextRequest) {
       salaryRes,
       networthCurrRes,
       networthPrevRes,
+      networthStartRes,
       incomeCurrRes,
       incomePrevRes,
+      trackerRes,
     ] = await Promise.all([
       internalApiFetch(request, '/api/settings'),
       internalApiFetch(request, '/api/income-types'),
@@ -68,12 +57,14 @@ export async function GET(request: NextRequest) {
       query(
         `SELECT id, year, month, monthly_salary, notes, created_at, updated_at
          FROM salary_history
-         ORDER BY year DESC, month DESC`
+         ORDER BY year DESC, month DESC, id ASC`
       ).catch(() => ({ rows: [] as Array<Record<string, unknown>> })),
       internalApiFetch(request, `/api/networth-report?year=${currentYear}`),
       internalApiFetch(request, `/api/networth-report?year=${currentYear - 1}`),
+      internalApiFetch(request, `/api/networth-report?year=${currentYear - 2}`),
       internalApiFetch(request, `/api/income-entries?year=${currentYear}`),
       internalApiFetch(request, `/api/income-entries?year=${currentYear - 1}`),
+      internalApiFetch(request, '/api/investment-tracker'),
     ]);
 
     if (!settingsRes.ok) throw new Error('Failed to load settings');
@@ -93,56 +84,35 @@ export async function GET(request: NextRequest) {
 
     const networthCurr = networthCurrRes.ok ? await networthCurrRes.json() : null;
     const networthPrev = networthPrevRes.ok ? await networthPrevRes.json() : null;
+    const networthStart = networthStartRes.ok ? await networthStartRes.json() : null;
+    const trackerAll = trackerRes.ok ? await trackerRes.json() : { data: [] };
+    const trackerEntries = trackerAll.data || [];
 
-    // Statement month: latest month with non-zero Freedom Income, else networth statement
-    let statementYear = currentYear;
-    let statementMonth = currentMonth > 1 ? currentMonth - 1 : 12;
-    if (currentMonth === 1) statementYear = currentYear - 1;
-
-    const fromFreedom = latestFreedomStatementMonth(
-      types,
-      sources,
-      entries,
+    const assetFreedom = computeAssetFreedomIncome({
+      networthCurr,
+      networthPrev,
+      networthStart,
+      trackerCurr: trackerEntries,
+      trackerPrev: trackerEntries,
       currentYear,
-      currentMonth
-    );
-    if (fromFreedom) {
-      statementYear = fromFreedom.year;
-      statementMonth = fromFreedom.month;
-    } else {
-      const fromNw =
-        latestStatementMonth(
-          networthCurr?.monthsWithData,
-          networthCurr?.year ?? currentYear,
-          currentYear,
-          currentMonth
-        ) ||
-        latestStatementMonth(
-          networthPrev?.monthsWithData,
-          networthPrev?.year ?? currentYear - 1,
-          currentYear,
-          currentMonth
-        );
-      if (fromNw) {
-        statementYear = fromNw.year;
-        statementMonth = fromNw.month;
-      }
-    }
+      currentMonth,
+    });
+    const statementYear = assetFreedom.statementYear;
+    const statementMonth = assetFreedom.statementMonth;
+    const breakdown = assetFreedom.breakdown;
+    const freedomMonthly = assetFreedom.freedomMonthly;
+    const freedomAnnual = assetFreedom.freedomAnnual;
 
-    const breakdown = buildFreedomBreakdown(
-      types,
-      sources,
-      entries,
-      statementYear,
-      statementMonth
-    );
-    const freedomMonthly = breakdown.reduce((s, r) => s + r.monthly, 0);
-    const freedomAnnual = freedomMonthly * 12;
-
-    const salaryRows = salaryRes.rows || [];
-    const latestSalary = salaryRows[0] as
-      | { year: number; month: number; monthly_salary: string | number }
-      | undefined;
+    const salaryRows = (salaryRes.rows || []) as Array<{
+      id?: number;
+      year: number | string;
+      month: number | string;
+      monthly_salary: string | number;
+      notes?: string | null;
+      created_at?: string;
+      updated_at?: string;
+    }>;
+    const historySalary = currentSalaryFromHistory(salaryRows);
     const wageFallback = wageMonthlyTotal(
       types,
       sources,
@@ -151,14 +121,19 @@ export async function GET(request: NextRequest) {
       statementMonth
     );
     const monthlySalary =
-      latestSalary != null
-        ? parseFloat(String(latestSalary.monthly_salary))
+      historySalary != null
+        ? historySalary.monthly
         : wageFallback > 0
           ? wageFallback
           : null;
-    const annualSalary = monthlySalary != null ? monthlySalary * 12 : null;
+    const annualSalary =
+      historySalary != null
+        ? historySalary.annual
+        : monthlySalary != null
+          ? monthlySalary * 12
+          : null;
     const salarySource =
-      latestSalary != null
+      historySalary != null
         ? 'salary_history'
         : wageFallback > 0
           ? 'Is247wage_fallback'
@@ -180,34 +155,7 @@ export async function GET(request: NextRequest) {
         : statementYear === currentYear - 1
           ? networthPrev
           : networthCurr;
-    let currentNetWorth = 0;
-    if (nwData?.monthData) {
-      const monthTotals = nwData.monthData[statementMonth] || {};
-      let hnwiCategory = (nwData.categories || []).find(
-        (c: string) =>
-          c.toLowerCase().includes('hnwi') || c.toLowerCase().includes('high net worth')
-      );
-      if (!hnwiCategory && nwData.categoryRules) {
-        const networthName = (nwData.categories || []).find(
-          (c: string) =>
-            c.toLowerCase().includes('networth') || c.toLowerCase().includes('net worth')
-        );
-        if (networthName && nwData.categoryRules[networthName]) {
-          const rule = String(nwData.categoryRules[networthName]);
-          const parts = rule.split('+').map((s: string) => s.trim());
-          if (parts.length === 2) hnwiCategory = parts[1];
-        }
-      }
-      if (hnwiCategory != null && monthTotals[hnwiCategory] !== undefined) {
-        currentNetWorth = Number(monthTotals[hnwiCategory]) || 0;
-      } else {
-        const networthCat = (nwData.categories || []).find(
-          (c: string) =>
-            c.toLowerCase().includes('networth') || c.toLowerCase().includes('net worth')
-        );
-        if (networthCat) currentNetWorth = Number(monthTotals[networthCat]) || 0;
-      }
-    }
+    const currentNetWorth = netWorthFromReport(nwData, statementMonth);
 
     const assumptions = {
       incomeGrowthRatePct: getSetting(settings, 'retirement_cashflow_increase', 5) ?? 5,
@@ -220,11 +168,76 @@ export async function GET(request: NextRequest) {
       statementYear,
     };
 
+    const firstSalaryYear = earliestSalaryYear(salaryRows);
+    const networthByYear = new Map<number, typeof networthCurr>([
+      [currentYear, networthCurr],
+      [currentYear - 1, networthPrev],
+      [currentYear - 2, networthStart],
+    ]);
+    if (firstSalaryYear != null && firstSalaryYear < currentYear) {
+      const extraYears: number[] = [];
+      for (let year = firstSalaryYear - 1; year <= currentYear; year++) {
+        if (!networthByYear.has(year)) extraYears.push(year);
+      }
+      if (extraYears.length > 0) {
+        const extraRes = await Promise.all(
+          extraYears.map((year) =>
+            internalApiFetch(request, `/api/networth-report?year=${year}`)
+          )
+        );
+        for (let i = 0; i < extraYears.length; i++) {
+          const res = extraRes[i];
+          networthByYear.set(extraYears[i], res.ok ? await res.json() : null);
+        }
+      }
+    }
+
+    const inflation = assumptions.expenseInflationPct / 100;
+    const historicalRows: FreedomIncomeProjectionRow[] = [];
+    const historyFrom = firstSalaryYear != null ? firstSalaryYear : currentYear;
+    for (let year = historyFrom; year < currentYear; year++) {
+      const computed = computeAssetFreedomIncome({
+        networthCurr: networthByYear.get(year) ?? null,
+        networthPrev: networthByYear.get(year - 1) ?? null,
+        networthStart: networthByYear.get(year - 2) ?? null,
+        trackerCurr: trackerEntries,
+        trackerPrev: trackerEntries,
+        currentYear: year,
+        currentMonth: 12,
+        allowPriorYearFallback: false,
+      });
+      const netWorth = netWorthFromReport(
+        networthByYear.get(year) ?? null,
+        computed.statementMonth
+      );
+      const expenses =
+        annualExpenses != null
+          ? annualExpenses / Math.pow(1 + inflation, currentYear - year)
+          : 0;
+      const ratio = expenses > 0 ? (computed.freedomAnnual / expenses) * 100 : null;
+      const salaryRequired = Math.max(0, expenses - computed.freedomAnnual);
+      historicalRows.push({
+        year,
+        age:
+          assumptions.currentAge != null
+            ? assumptions.currentAge + (year - currentYear)
+            : null,
+        projectedNetWorth: Number(netWorth.toFixed(2)),
+        projectedFreedomIncome: Number(computed.freedomAnnual.toFixed(2)),
+        projectedFreedomMonthly: Number((computed.freedomAnnual / 12).toFixed(2)),
+        projectedAnnualExpenses: Number(expenses.toFixed(2)),
+        freedomRatio: ratio != null ? Number(ratio.toFixed(1)) : null,
+        salaryRequired: Number(salaryRequired.toFixed(2)),
+        isWorkOptional: ratio != null && ratio >= 100,
+      });
+    }
+
     const { rows: projections, workOptionalYear } = projectFreedomIncome({
       currentFreedomAnnual: freedomAnnual,
       currentNetWorth,
       annualExpenses: annualExpenses ?? 0,
       assumptions,
+      historicalRows,
     });
 
     return NextResponse.json({
@@ -242,12 +255,16 @@ export async function GET(request: NextRequest) {
       currentNetWorth,
       workOptionalYear,
       breakdown,
+      wageTypeNames: types
+        .filter((t: { Is247wage?: boolean | null }) => t.Is247wage === true)
+        .map((t: { name?: string }) => String(t.name || '').trim())
+        .filter(Boolean),
       projections,
       assumptions,
       salaryHistory: salaryRows,
       notes: {
         freedomDefinition:
-          'Freedom Income = sum of income types where Is247wage is not true (excludes wage/salary types). Annualised as statement-month total × 12.',
+          'Freedom Income = Stock Value change this year − investment tracker contributions this year + Business Cash change this year (networth-report categories). Work/salary is excluded.',
         expensesDefinition:
           'Annual expenses from MONTHLY_RETIERMENT_VALUE (or MONTHLY_RETIREMENT_VALUE / retirement_required_cashflow) × 12.',
         projectionDefinition:
