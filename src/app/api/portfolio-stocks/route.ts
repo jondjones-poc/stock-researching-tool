@@ -9,12 +9,82 @@ import {
 import { getUsdToGbpRate } from '../../utils/fxRates';
 import { loadResearchSymbolLinks } from '../../utils/researchSymbolLinks';
 
-// GET - All portfolio stocks (all-time)
-export async function GET() {
+type PortfolioRow = {
+  id: number;
+  slug: string;
+  name: string;
+  sort_order: number;
+  is_default: boolean;
+};
+
+function migrationHint(error: unknown): Record<string, unknown> {
+  const err = error as { code?: string };
+  if (err.code === '42P01' || err.code === '42703') {
+    return { hint: 'Run node scripts/apply-named-portfolios.mjs' };
+  }
+  return {};
+}
+
+async function listPortfolios(): Promise<PortfolioRow[]> {
+  const result = await query(
+    `SELECT id, slug, name, sort_order, is_default
+     FROM portfolios
+     ORDER BY sort_order ASC, id ASC`
+  );
+  return result.rows;
+}
+
+async function resolvePortfolio(opts: {
+  id?: number | null;
+  slug?: string | null;
+}): Promise<PortfolioRow | null> {
+  if (opts.id != null && Number.isFinite(opts.id)) {
+    const result = await query(
+      `SELECT id, slug, name, sort_order, is_default FROM portfolios WHERE id = $1 LIMIT 1`,
+      [opts.id]
+    );
+    return result.rows[0] ?? null;
+  }
+  if (opts.slug) {
+    const result = await query(
+      `SELECT id, slug, name, sort_order, is_default FROM portfolios WHERE slug = $1 LIMIT 1`,
+      [opts.slug]
+    );
+    return result.rows[0] ?? null;
+  }
+  const result = await query(
+    `SELECT id, slug, name, sort_order, is_default
+     FROM portfolios
+     WHERE is_default = TRUE
+     ORDER BY id
+     LIMIT 1`
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function GET(request: NextRequest) {
   try {
+    const searchParams = request.nextUrl.searchParams;
+    const slug = searchParams.get('portfolio') || searchParams.get('slug');
+    const portfolioIdParam = searchParams.get('portfolio_id');
+    const portfolioId = portfolioIdParam ? Number(portfolioIdParam) : null;
+
+    const [portfolios, portfolio] = await Promise.all([
+      listPortfolios(),
+      resolvePortfolio({
+        id: Number.isFinite(portfolioId) ? portfolioId : null,
+        slug,
+      }),
+    ]);
+
+    if (!portfolio) {
+      return NextResponse.json({ error: 'Portfolio not found', portfolios }, { status: 404 });
+    }
+
     const result = await query(
       `SELECT
          ps.id,
+         ps.portfolio_id,
          ps.stock_id,
          ps.created_at,
          ps.updated_at,
@@ -24,7 +94,9 @@ export async function GET() {
          sv.bear_case_low_price
        FROM portfolio_stocks ps
        JOIN stock_valuations sv ON ps.stock_id = sv.id
-       ORDER BY sv.stock ASC`
+       WHERE ps.portfolio_id = $1
+       ORDER BY sv.stock ASC`,
+      [portfolio.id]
     );
 
     const symbols = result.rows.map((row) => String(row.stock_symbol));
@@ -37,6 +109,8 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
+      portfolio,
+      portfolios,
       currency: fx ? 'GBP' : 'USD',
       fx: fx
         ? {
@@ -72,6 +146,7 @@ export async function GET() {
 
         return {
           id: row.id,
+          portfolio_id: Number(row.portfolio_id),
           stock_id: row.stock_id,
           stock_symbol: row.stock_symbol,
           active_price: activePrice,
@@ -92,11 +167,11 @@ export async function GET() {
     });
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };
-    if (err.code === '42P01') {
+    if (err.code === '42P01' || err.code === '42703') {
       return NextResponse.json(
         {
-          error: 'portfolio_stocks table does not exist',
-          hint: 'Run node scripts/apply-portfolio-stocks.mjs',
+          error: 'Named portfolios are not set up yet',
+          ...migrationHint(error),
         },
         { status: 500 }
       );
@@ -108,36 +183,45 @@ export async function GET() {
   }
 }
 
-// POST - Add stock to portfolio
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { stock_id } = body as { stock_id?: number };
+    const { stock_id } = body as { stock_id?: number; portfolio_id?: number; portfolio?: string };
+    const portfolio = await resolvePortfolio({
+      id: body.portfolio_id != null ? Number(body.portfolio_id) : null,
+      slug: typeof body.portfolio === 'string' ? body.portfolio : null,
+    });
 
+    if (!portfolio) {
+      return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+    }
     if (!stock_id) {
       return NextResponse.json({ error: 'stock_id is required' }, { status: 400 });
     }
 
-    const existing = await query('SELECT id FROM portfolio_stocks WHERE stock_id = $1', [stock_id]);
+    const existing = await query(
+      'SELECT id FROM portfolio_stocks WHERE portfolio_id = $1 AND stock_id = $2',
+      [portfolio.id, stock_id]
+    );
     if (existing.rows.length > 0) {
-      return NextResponse.json({ error: 'This stock is already in your portfolio' }, { status: 409 });
+      return NextResponse.json({ error: 'This stock is already in this portfolio' }, { status: 409 });
     }
 
     const result = await query(
-      `INSERT INTO portfolio_stocks (stock_id)
-       VALUES ($1)
-       RETURNING id, stock_id, created_at, updated_at`,
-      [stock_id]
+      `INSERT INTO portfolio_stocks (portfolio_id, stock_id)
+       VALUES ($1, $2)
+       RETURNING id, portfolio_id, stock_id, created_at, updated_at`,
+      [portfolio.id, stock_id]
     );
 
-    return NextResponse.json({ success: true, data: result.rows[0] }, { status: 201 });
+    return NextResponse.json({ success: true, data: result.rows[0], portfolio }, { status: 201 });
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string };
-    if (err.code === '42P01') {
+    if (err.code === '42P01' || err.code === '42703') {
       return NextResponse.json(
         {
-          error: 'portfolio_stocks table does not exist',
-          hint: 'Run node scripts/apply-portfolio-stocks.mjs',
+          error: 'Named portfolios are not set up yet',
+          ...migrationHint(error),
         },
         { status: 500 }
       );
@@ -149,7 +233,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Remove from portfolio
 export async function DELETE(request: NextRequest) {
   const id = request.nextUrl.searchParams.get('id');
   if (!id) {

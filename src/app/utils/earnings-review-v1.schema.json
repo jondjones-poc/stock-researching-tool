@@ -1,0 +1,1043 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "earnings-review-v1.schema.json",
+  "title": "Earnings Review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "company",
+    "earnings_period",
+    "revenue",
+    "profitability",
+    "costs",
+    "balance_sheet",
+    "outlook",
+    "earnings_quality",
+    "previous_comparison",
+    "competitor",
+    "analyst_sentiment",
+    "assessment",
+    "valuation",
+    "source"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "company": {
+      "$ref": "#/$defs/company"
+    },
+    "earnings_period": {
+      "$ref": "#/$defs/earnings_period"
+    },
+    "revenue": {
+      "$ref": "#/$defs/revenue"
+    },
+    "profitability": {
+      "$ref": "#/$defs/profitability"
+    },
+    "costs": {
+      "$ref": "#/$defs/costs"
+    },
+    "balance_sheet": {
+      "$ref": "#/$defs/balance_sheet"
+    },
+    "outlook": {
+      "$ref": "#/$defs/outlook"
+    },
+    "earnings_quality": {
+      "$ref": "#/$defs/earnings_quality"
+    },
+    "previous_comparison": {
+      "$ref": "#/$defs/previous_comparison"
+    },
+    "competitor": {
+      "$ref": "#/$defs/competitor"
+    },
+    "analyst_sentiment": {
+      "$ref": "#/$defs/analyst_sentiment"
+    },
+    "assessment": {
+      "$ref": "#/$defs/assessment"
+    },
+    "valuation": {
+      "$ref": "#/$defs/valuation"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    }
+  },
+  "$defs": {
+    "company": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "ticker",
+        "currency",
+        "industry"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ticker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "industry": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "earnings_period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fiscal_year",
+        "quarter",
+        "period_end",
+        "report_date"
+      ],
+      "properties": {
+        "fiscal_year": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "quarter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period_end": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "revenue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "yoy_growth_pct",
+        "qoq_growth_pct",
+        "analyst_estimate",
+        "surprise_pct",
+        "grade"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "yoy_growth_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "qoq_growth_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "analyst_estimate": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "surprise_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "profitability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eps",
+        "eps_estimate",
+        "eps_surprise_pct",
+        "gross_profit",
+        "gross_margin_pct",
+        "gross_margin_prior_pct",
+        "operating_income",
+        "operating_margin_pct",
+        "net_income",
+        "free_cash_flow",
+        "grade"
+      ],
+      "properties": {
+        "eps": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eps_estimate": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eps_surprise_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gross_profit": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gross_margin_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gross_margin_prior_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "operating_income": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "operating_margin_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "net_income": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "free_cash_flow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operating_expenses",
+        "operating_expenses_yoy_pct",
+        "cost_of_revenue",
+        "cost_of_revenue_yoy_pct",
+        "sales_marketing",
+        "sales_marketing_yoy_pct",
+        "research_development",
+        "research_development_yoy_pct",
+        "general_admin",
+        "general_admin_yoy_pct",
+        "one_off_expenses",
+        "grade"
+      ],
+      "properties": {
+        "operating_expenses": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "operating_expenses_yoy_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cost_of_revenue": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cost_of_revenue_yoy_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sales_marketing": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sales_marketing_yoy_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "research_development": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "research_development_yoy_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "general_admin": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "general_admin_yoy_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "one_off_expenses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value",
+              "impact"
+            ],
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "impact": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "positive",
+                  "negative",
+                  null
+                ]
+              }
+            }
+          }
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "balance_sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cash",
+        "short_term_investments",
+        "debt",
+        "net_cash",
+        "operating_cash_flow",
+        "free_cash_flow",
+        "inventory",
+        "accounts_receivable",
+        "shares_outstanding",
+        "share_count_yoy_growth_pct",
+        "grade"
+      ],
+      "properties": {
+        "cash": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "short_term_investments": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "debt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "net_cash": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "operating_cash_flow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "free_cash_flow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "inventory": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "accounts_receivable": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "shares_outstanding": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "share_count_yoy_growth_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "outlook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revenue_guidance_low",
+        "revenue_guidance_high",
+        "eps_guidance_low",
+        "eps_guidance_high",
+        "guidance_change",
+        "management_outlook",
+        "grade"
+      ],
+      "properties": {
+        "revenue_guidance_low": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "revenue_guidance_high": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eps_guidance_low": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eps_guidance_high": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "guidance_change": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "management_outlook": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Very Positive",
+            "Positive",
+            "Neutral",
+            "Negative",
+            "Very Negative",
+            null
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "earnings_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recurring_profit",
+        "one_off_income",
+        "one_off_income_description",
+        "stock_based_compensation",
+        "dilution_risk",
+        "grade"
+      ],
+      "properties": {
+        "recurring_profit": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "one_off_income": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "one_off_income_description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stock_based_compensation": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dilution_risk": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Low",
+            "Medium",
+            "High",
+            null
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "previous_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revenue_trend",
+        "margin_trend",
+        "cost_trend",
+        "cash_flow_trend",
+        "guidance_trend"
+      ],
+      "properties": {
+        "revenue_trend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "margin_trend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cost_trend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cash_flow_trend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "guidance_trend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "competitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "ticker",
+        "revenue_growth_pct",
+        "gross_margin_pct",
+        "operating_margin_pct",
+        "comparison_summary"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ticker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revenue_growth_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gross_margin_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "operating_margin_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "comparison_summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "analyst_sentiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consensus",
+        "buy_count",
+        "hold_count",
+        "sell_count",
+        "average_price_target",
+        "recent_rating_change",
+        "source_name",
+        "source_date"
+      ],
+      "properties": {
+        "consensus": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "buy_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hold_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sell_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "average_price_target": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "recent_rating_change": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overall_grade",
+        "business_direction",
+        "investment_view",
+        "key_positive",
+        "key_negative",
+        "key_risk",
+        "earnings_thesis"
+      ],
+      "properties": {
+        "overall_grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        },
+        "business_direction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Strongly Improving",
+            "Improving",
+            "Stable",
+            "Weakening",
+            "In Trouble",
+            null
+          ]
+        },
+        "investment_view": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Buy",
+            "Hold",
+            "Sell",
+            null
+          ]
+        },
+        "key_positive": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key_negative": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key_risk": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "earnings_thesis": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "valuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_price",
+        "market_cap",
+        "pe_ratio",
+        "price_to_sales",
+        "ev_to_sales",
+        "dcf_fair_value",
+        "valuation_grade"
+      ],
+      "properties": {
+        "current_price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "market_cap": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pe_ratio": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "price_to_sales": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ev_to_sales": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dcf_fair_value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "valuation_grade": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A*",
+            "A+",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D",
+            "E",
+            null
+          ]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_type",
+        "source_name",
+        "source_url"
+      ],
+      "properties": {
+        "source_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

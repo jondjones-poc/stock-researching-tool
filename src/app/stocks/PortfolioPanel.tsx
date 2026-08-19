@@ -46,7 +46,16 @@ interface StockValuation {
   stock: string;
 }
 
+interface NamedPortfolio {
+  id: number;
+  slug: string;
+  name: string;
+  is_default: boolean;
+}
+
 export default function PortfolioPanel() {
+  const [portfolios, setPortfolios] = useState<NamedPortfolio[]>([]);
+  const [activeSlug, setActiveSlug] = useState('main');
   const [portfolioStocks, setPortfolioStocks] = useState<PortfolioStock[]>([]);
   const [stockValuations, setStockValuations] = useState<StockValuation[]>([]);
   const [selectedStockId, setSelectedStockId] = useState('');
@@ -78,9 +87,14 @@ export default function PortfolioPanel() {
       setMessage(null);
     }
     try {
-      const response = await fetch('/api/portfolio-stocks');
+      const response = await fetch(
+        `/api/portfolio-stocks?portfolio=${encodeURIComponent(activeSlug)}`
+      );
       const result = await response.json();
       if (response.ok && result.data) {
+        if (Array.isArray(result.portfolios) && result.portfolios.length > 0) {
+          setPortfolios(result.portfolios);
+        }
         setPortfolioStocks(
           [...result.data].sort((a: PortfolioStock, b: PortfolioStock) =>
             a.stock_symbol.localeCompare(b.stock_symbol)
@@ -109,7 +123,7 @@ export default function PortfolioPanel() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [activeSlug]);
 
   const loadStockValuations = useCallback(async () => {
     try {
@@ -170,11 +184,14 @@ export default function PortfolioPanel() {
   };
 
   useEffect(() => {
-    loadPortfolio();
-    loadStockValuations();
-    loadCurrentWatchlist();
-    loadDcfEntries();
-  }, [loadPortfolio, loadStockValuations, loadCurrentWatchlist, loadDcfEntries]);
+    void loadPortfolio();
+  }, [loadPortfolio]);
+
+  useEffect(() => {
+    void loadStockValuations();
+    void loadCurrentWatchlist();
+    void loadDcfEntries();
+  }, [loadStockValuations, loadCurrentWatchlist, loadDcfEntries]);
 
   useEffect(() => {
     if (message?.type !== 'success') return;
@@ -192,7 +209,7 @@ export default function PortfolioPanel() {
     setMessage(null);
 
     if (portfolioStocks.some((s) => s.stock_id === parseInt(selectedStockId, 10))) {
-      setMessage({ type: 'error', text: 'This stock is already in your portfolio' });
+      setMessage({ type: 'error', text: 'This stock is already in this portfolio' });
       setSaving(false);
       return;
     }
@@ -201,7 +218,7 @@ export default function PortfolioPanel() {
       const response = await fetch('/api/portfolio-stocks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_id: parseInt(selectedStockId, 10) }),
+        body: JSON.stringify({ stock_id: parseInt(selectedStockId, 10), portfolio: activeSlug }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -210,7 +227,7 @@ export default function PortfolioPanel() {
       }
       await loadPortfolio({ silent: true });
       setSelectedStockId('');
-      setMessage({ type: 'success', text: 'Stock added to portfolio!' });
+      setMessage({ type: 'success', text: 'Stock added to this portfolio.' });
     } catch (error: unknown) {
       setMessage({
         type: 'error',
@@ -222,7 +239,7 @@ export default function PortfolioPanel() {
   };
 
   const handleDeleteStock = async (id: number) => {
-    if (!confirm('Remove this stock from your portfolio?')) return;
+    if (!confirm('Remove this stock from this portfolio?')) return;
 
     setSaving(true);
     setMessage(null);
@@ -234,7 +251,7 @@ export default function PortfolioPanel() {
         return;
       }
       await loadPortfolio({ silent: true });
-      setMessage({ type: 'success', text: 'Stock removed from portfolio.' });
+      setMessage({ type: 'success', text: 'Stock removed from this portfolio.' });
     } catch (error: unknown) {
       setMessage({
         type: 'error',
@@ -406,7 +423,7 @@ export default function PortfolioPanel() {
       const prompt = buildTrafficLightTestPrompt({
         symbol: stock.stock_symbol,
         activePrice: stock.active_price,
-        monthLabel: 'My Portfolio (all-time)',
+        monthLabel: activePortfolioName,
       });
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(prompt);
@@ -422,6 +439,9 @@ export default function PortfolioPanel() {
       });
     }
   };
+
+  const activePortfolioName =
+    portfolios.find((item) => item.slug === activeSlug)?.name || 'My Portfolio';
 
   const totalPositionValueGbp = usdToGbpRate
     ? portfolioStocks.reduce((sum, stock) => {
@@ -455,6 +475,24 @@ export default function PortfolioPanel() {
 
   return (
     <div>
+      {portfolios.length > 1 ? (
+        <div className="mb-6 flex flex-wrap gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900/60 p-1">
+          {portfolios.map((item) => (
+            <button
+              key={item.slug}
+              type="button"
+              onClick={() => setActiveSlug(item.slug)}
+              className={`flex-1 min-w-[8rem] px-4 py-2.5 text-sm font-medium rounded-md transition-colors ${
+                activeSlug === item.slug
+                  ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              {item.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
         <div className="flex items-center gap-4 flex-wrap">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
@@ -608,11 +646,11 @@ export default function PortfolioPanel() {
 
       {loading ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-600 dark:text-gray-400">
-          Loading portfolio…
+          Loading {activePortfolioName}…
         </div>
       ) : portfolioStocks.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-600 dark:text-gray-400">
-          No stocks in your portfolio yet — add one above.
+          No stocks in {activePortfolioName} yet — add one above.
         </div>
       ) : viewMode === 'table' ? (
         <PortfolioStockTable
