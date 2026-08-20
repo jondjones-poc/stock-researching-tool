@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 
 export default function StocksLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isPortfolio = pathname === '/stocks/portfolio' || pathname === '/stocks';
+  const isPortfolio = pathname === '/stocks/portfolio' || pathname === '/stocks' || pathname.startsWith('/stocks/portfolio/');
   const isWatchlist = pathname === '/stocks/watchlist';
 
   return (

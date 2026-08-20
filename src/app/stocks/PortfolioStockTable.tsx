@@ -26,7 +26,12 @@ interface PortfolioStockTableProps {
   addingWatchlistStockId: number | null;
   onTrafficLight: (stock: PortfolioStockCardData) => void;
   onAddToWatchlist: (stock: PortfolioStockCardData) => void;
-  onRemove: (id: number) => void;
+  onRemove?: (id: number) => void;
+  styleTagging?: boolean;
+  styleCategories?: Array<{ slug: string; label: string }>;
+  styleTagsBySymbol?: Record<string, string>;
+  taggingSymbol?: string | null;
+  onStyleTagChange?: (symbol: string, category: string | null) => void;
 }
 
 type SortKey =
@@ -153,6 +158,11 @@ export default function PortfolioStockTable({
   onTrafficLight,
   onAddToWatchlist,
   onRemove,
+  styleTagging = false,
+  styleCategories = [],
+  styleTagsBySymbol = {},
+  taggingSymbol = null,
+  onStyleTagChange,
 }: PortfolioStockTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -174,7 +184,7 @@ export default function PortfolioStockTable({
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px]">
+        <table className={`w-full ${styleTagging ? 'min-w-[1080px]' : 'min-w-[960px]'}`}>
           <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
             <tr>
               <SortHeader
@@ -184,6 +194,9 @@ export default function PortfolioStockTable({
                 direction={sortDir}
                 onSort={handleSort}
               />
+              {styleTagging ? (
+                <th className={`${thClass} w-[8.5rem]`}>Category</th>
+              ) : null}
               <SortHeader
                 label="Price"
                 sortKey="active_price"
@@ -243,7 +256,7 @@ export default function PortfolioStockTable({
               />
               <th className={`${thClass} text-center`}>Watchlist</th>
               <th className={`${thClass} text-center`}>Test</th>
-              <th className={`${thClass} text-center`}>Remove</th>
+              {onRemove ? <th className={`${thClass} text-center`}>Remove</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -256,6 +269,8 @@ export default function PortfolioStockTable({
                 stock.bear_case_low_price > 0;
               const watchlistAdded = watchlistStockIds.has(stock.stock_id);
               const adding = addingWatchlistStockId === stock.stock_id;
+              const symbolKey = stock.stock_symbol.toUpperCase();
+              const currentStyle = styleTagsBySymbol[symbolKey] || '';
 
               return (
                 <tr key={stock.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -267,6 +282,30 @@ export default function PortfolioStockTable({
                       {stock.stock_symbol}
                     </Link>
                   </td>
+                  {styleTagging ? (
+                    <td className={`${tdClass} w-[8.5rem] max-w-[8.5rem]`}>
+                      <select
+                        value={currentStyle}
+                        disabled={saving || taggingSymbol === symbolKey}
+                        onChange={(event) =>
+                          onStyleTagChange?.(
+                            stock.stock_symbol,
+                            event.target.value ? event.target.value : null
+                          )
+                        }
+                        title="Dashboard category"
+                        aria-label={`Category for ${stock.stock_symbol}`}
+                        className="box-border h-8 w-full max-w-[8.25rem] rounded-lg border border-gray-300 bg-white px-2 text-xs font-medium text-gray-800 shadow-none outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                      >
+                        <option value="">Untagged</option>
+                        {styleCategories.map((category) => (
+                          <option key={category.slug} value={category.slug}>
+                            {category.slug === 'DIVIDEND & VALUE' ? 'Div & Value' : category.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  ) : null}
                   <td className={`${tdClass} font-medium text-gray-900 dark:text-gray-100`}>
                     {formatGbpFromUsd(stock.active_price, usdToGbpRate)}
                   </td>
@@ -336,17 +375,19 @@ export default function PortfolioStockTable({
                       {trafficLightCopiedId === stock.id ? '✓' : '🚦'}
                     </button>
                   </td>
-                  <td className={`${tdClass} text-center`}>
-                    <button
-                      type="button"
-                      onClick={() => onRemove(stock.id)}
-                      disabled={saving}
-                      title="Remove from portfolio"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 text-sm disabled:opacity-50"
-                    >
-                      ✕
-                    </button>
-                  </td>
+                  {onRemove ? (
+                    <td className={`${tdClass} text-center`}>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(stock.id)}
+                        disabled={saving}
+                        title="Remove from portfolio"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 text-sm disabled:opacity-50"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}

@@ -1,16 +1,25 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import {
   dashboardConfig,
   WatchlistSymbol,
   CategoryFilter,
   WatchlistCategory,
-  WATCHLIST_CATEGORY_LABELS,
+  DASHBOARD_CATEGORY_ORDER,
+  STATIC_DASHBOARD_CATEGORIES,
+  DEFAULT_PORTFOLIO_STYLE_CATEGORIES,
   getAllWatchlistSymbols,
   mergeConfigSymbolsIntoWatchlistData,
+  mergeMonthlyStocksIntoWatchlistData,
+  mergeEtoroHoldingsIntoWatchlistData,
+  stripPortfolioDrivenCategories,
+  buildDashboardCategoryOrder,
+  dashboardCategoryLabel,
+  UNCATEGORIZED_CATEGORY,
 } from './config/dashboard';
 import { FearGreedGauge } from './components/FearGreedGauge';
+import DashboardCategoryHeatmap from './components/DashboardCategoryHeatmap';
 import { ConsumerSentimentGauge, getConsumerSentimentLabel, UMCSENT_MIN, UMCSENT_MAX } from './components/ConsumerSentimentGauge';
 import { VixVolatilityGauge } from './components/VixVolatilityGauge';
 import { WtiOilGauge } from './components/WtiOilGauge';
@@ -98,8 +107,8 @@ export default function DashboardPage() {
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [dashboardView, setDashboardView] = useState<'cards' | 'graphs'>(() =>
-    searchParams.get('symbol') ? 'graphs' : 'cards'
+  const [dashboardView, setDashboardView] = useState<'cards' | 'heatmap' | 'graphs'>(() =>
+    searchParams.get('symbol') ? 'graphs' : 'heatmap'
   );
   const [selectedSymbol, setSelectedSymbol] = useState<string>('GREED'); // Default to Fear & Greed Index
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1Y');
@@ -126,12 +135,17 @@ function DashboardContent() {
   const [newSymbolCategory, setNewSymbolCategory] = useState<WatchlistCategory>('WATCHLIST');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; symbol: string } | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('MARKETS');
+  const [dashboardCategoryOrder, setDashboardCategoryOrder] = useState<string[]>(DASHBOARD_CATEGORY_ORDER);
+  const [styleCategoryLabels, setStyleCategoryLabels] = useState<Record<string, string>>(() =>
+    Object.fromEntries(DEFAULT_PORTFOLIO_STYLE_CATEGORIES.map((item) => [item.slug, item.label]))
+  );
   const [showEarnings, setShowEarnings] = useState<boolean>(false);
   const [earningsData, setEarningsData] = useState<EarningsData[]>([]);
   const [earningsLoading, setEarningsLoading] = useState<boolean>(false);
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState<boolean>(false);
   const [stockValuationIds, setStockValuationIds] = useState<{ [symbol: string]: number }>({});
+  const [watchlistBuyPrices, setWatchlistBuyPrices] = useState<Record<string, number | null>>({});
   const [deletingStock, setDeletingStock] = useState<string | null>(null);
   const [deletingFromWatchlist, setDeletingFromWatchlist] = useState<string | null>(null);
   const [fearGreedData, setFearGreedData] = useState<FearGreedPoint[]>([]);
@@ -196,17 +210,122 @@ function DashboardContent() {
     }
   };
 
-  // Fetch watchlist symbols from database
+  // Fetch watchlist symbols from database + live eToro holdings + style tags
   const fetchWatchlistSymbols = async () => {
     setLoadingWatchlist(true);
+    const now = new Date();
+    const monthlyPromise = fetch(
+      `/api/monthly-stocks?month=${now.getMonth() + 1}&year=${now.getFullYear()}`
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          return { symbols: [] as string[], buyPrices: {} as Record<string, number | null> };
+        }
+        const result = await response.json();
+        const rows = Array.isArray(result.data) ? result.data : [];
+        const buyPrices: Record<string, number | null> = {};
+        const symbols: string[] = [];
+        for (const row of rows as Array<{
+          stock_symbol?: string;
+          buy_price?: number | null;
+        }>) {
+          const symbol = String(row.stock_symbol || '').trim().toUpperCase();
+          if (!symbol) continue;
+          symbols.push(symbol);
+          const buy =
+            row.buy_price != null && Number.isFinite(Number(row.buy_price))
+              ? Number(row.buy_price)
+              : null;
+          buyPrices[symbol] = buy;
+        }
+        return { symbols, buyPrices };
+      })
+      .catch(() => ({ symbols: [] as string[], buyPrices: {} as Record<string, number | null> }));
+
+    const etoroPromise = fetch('/api/etoro/portfolio/live', { credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) return [] as Array<{ symbol: string; name?: string }>;
+        const result = await response.json();
+        return Array.isArray(result.data)
+          ? result.data.map((row: { stock_symbol?: string }) => ({
+              symbol: String(row.stock_symbol || ''),
+              name: String(row.stock_symbol || ''),
+            }))
+          : [];
+      })
+      .catch(() => [] as Array<{ symbol: string; name?: string }>);
+
+    const tagsPromise = fetch('/api/portfolio-style-tags', { credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) {
+          return {
+            categories: DEFAULT_PORTFOLIO_STYLE_CATEGORIES,
+            tags: {} as Record<string, string>,
+          };
+        }
+        const result = await response.json();
+        return {
+          categories: Array.isArray(result.categories)
+            ? result.categories
+            : DEFAULT_PORTFOLIO_STYLE_CATEGORIES,
+          tags: (result.tags || {}) as Record<string, string>,
+        };
+      })
+      .catch(() => ({
+        categories: DEFAULT_PORTFOLIO_STYLE_CATEGORIES,
+        tags: {} as Record<string, string>,
+      }));
+
+    const applyDashboardSymbols = (
+      data: { [key: string]: WatchlistSymbol[] },
+      monthlySymbols: string[],
+      holdings: Array<{ symbol: string; name?: string }>,
+      tagsBySymbol: Record<string, string>,
+      styleSlugs: string[]
+    ) => {
+      const withMonthly = mergeMonthlyStocksIntoWatchlistData(data, monthlySymbols);
+      const stripped = stripPortfolioDrivenCategories(withMonthly, styleSlugs);
+      const withHoldings = mergeEtoroHoldingsIntoWatchlistData(
+        stripped,
+        holdings,
+        tagsBySymbol,
+        styleSlugs
+      );
+      setWatchlistSymbols(withHoldings);
+      setAllWatchlistSymbols(Object.values(withHoldings).flat());
+      return Object.values(withHoldings).flat();
+    };
+
     try {
-      const response = await fetch('/api/dashboard-watchlist', { credentials: 'include' });
+      const [response, monthlyPayload, holdings, stylePayload] = await Promise.all([
+        fetch('/api/dashboard-watchlist', { credentials: 'include' }),
+        monthlyPromise,
+        etoroPromise,
+        tagsPromise,
+      ]);
+      const monthlySymbols = monthlyPayload.symbols;
+      setWatchlistBuyPrices(monthlyPayload.buyPrices);
+
+      const styleSlugs = stylePayload.categories.map((item: { slug: string }) => item.slug);
+      setDashboardCategoryOrder(buildDashboardCategoryOrder(styleSlugs));
+      setStyleCategoryLabels(
+        Object.fromEntries(
+          stylePayload.categories.map((item: { slug: string; label: string }) => [
+            item.slug,
+            item.label,
+          ])
+        )
+      );
       
       if (!response.ok) {
         console.error('Failed to fetch watchlist symbols from database');
-        // Fallback to config if database fails
-        setWatchlistSymbols(dashboardConfig.watchlist);
-        setAllWatchlistSymbols(Object.values(dashboardConfig.watchlist).flat());
+        applyDashboardSymbols(
+          dashboardConfig.watchlist,
+          monthlySymbols,
+          holdings,
+          stylePayload.tags,
+          styleSlugs
+        );
         return;
       }
       
@@ -232,17 +351,21 @@ function DashboardContent() {
         }
 
         // Merge config symbols (category placement, new symbols like PRECIOUS METALS)
-        const { data: mergedData, symbols: mergedSymbols } = mergeConfigSymbolsIntoWatchlistData(
+        const { data: mergedData } = mergeConfigSymbolsIntoWatchlistData(
           data,
           symbols
         );
-
-        setWatchlistSymbols(mergedData);
-        setAllWatchlistSymbols(Object.values(mergedData).flat());
+        const finalSymbols = applyDashboardSymbols(
+          mergedData,
+          monthlySymbols,
+          holdings,
+          stylePayload.tags,
+          styleSlugs
+        );
         
         // Fetch stock_valuations IDs for these symbols
-        if (mergedSymbols.length > 0) {
-          const symbolList = mergedSymbols.map((s: WatchlistSymbol) => s.symbol.toUpperCase()).join(',');
+        if (finalSymbols.length > 0) {
+          const symbolList = finalSymbols.map((s: WatchlistSymbol) => s.symbol.toUpperCase()).join(',');
           try {
             const valuationsResponse = await fetch(`/api/stock-valuations/by-symbols?symbols=${symbolList}`);
             if (valuationsResponse.ok) {
@@ -257,15 +380,31 @@ function DashboardContent() {
           }
         }
       } else {
-        // Fallback to config
-        setWatchlistSymbols(dashboardConfig.watchlist);
-        setAllWatchlistSymbols(Object.values(dashboardConfig.watchlist).flat());
+        applyDashboardSymbols(
+          dashboardConfig.watchlist,
+          monthlySymbols,
+          holdings,
+          stylePayload.tags,
+          styleSlugs
+        );
       }
     } catch (error) {
       console.error('Error fetching watchlist symbols:', error);
-      // Fallback to config
-      setWatchlistSymbols(dashboardConfig.watchlist);
-      setAllWatchlistSymbols(Object.values(dashboardConfig.watchlist).flat());
+      const [monthlyPayload, holdings, stylePayload] = await Promise.all([
+        monthlyPromise,
+        etoroPromise,
+        tagsPromise,
+      ]);
+      const styleSlugs = stylePayload.categories.map((item: { slug: string }) => item.slug);
+      setDashboardCategoryOrder(buildDashboardCategoryOrder(styleSlugs));
+      setWatchlistBuyPrices(monthlyPayload.buyPrices);
+      applyDashboardSymbols(
+        dashboardConfig.watchlist,
+        monthlyPayload.symbols,
+        holdings,
+        stylePayload.tags,
+        styleSlugs
+      );
     } finally {
       setLoadingWatchlist(false);
     }
@@ -286,7 +425,7 @@ function DashboardContent() {
     try {
       let symbolsToFetch: WatchlistSymbol[] = [];
       
-      if (dashboardView === 'cards' || categoryFilter === 'ALL') {
+      if (dashboardView === 'cards' || dashboardView === 'heatmap' || categoryFilter === 'ALL') {
         symbolsToFetch = allWatchlistSymbolsRef.current;
       } else {
         const merged = mergeConfigSymbolsIntoWatchlistData(
@@ -786,7 +925,7 @@ function DashboardContent() {
   useEffect(() => {
     if (!loadingWatchlist) {
       fetchWatchlistData();
-      if (dashboardView === 'cards') {
+      if (dashboardView === 'cards' || dashboardView === 'heatmap') {
         void fetchFearGreedData(selectedPeriod);
         return;
       }
@@ -979,6 +1118,45 @@ function DashboardContent() {
   ).data;
   const graphOnlySymbols = new Set(['GREED', 'AII']);
   const graphOnlyChipSymbols = new Set(['AII']); // GREED is featured at top of cards view
+
+  const visibleDashboardCategories = useMemo(() => {
+    return dashboardCategoryOrder.filter((category) => {
+      if (category !== UNCATEGORIZED_CATEGORY) return true;
+      const symbols = (dashboardSections[category] ?? []).filter(
+        (symbol) => !graphOnlySymbols.has(symbol.symbol)
+      );
+      return symbols.length > 0;
+    });
+  }, [dashboardCategoryOrder, dashboardSections]);
+
+  const categoryDailySummaries = useMemo(() => {
+    return visibleDashboardCategories.map((category) => {
+      const symbols = (dashboardSections[category] ?? []).filter(
+        (symbol) => !graphOnlySymbols.has(symbol.symbol)
+      );
+      let sum = 0;
+      let counted = 0;
+      let up = 0;
+      let down = 0;
+      for (const symbol of symbols) {
+        const data = watchlistData.find((item) => item.symbol === symbol.symbol);
+        const pct = data?.changePercent;
+        if (pct == null || !Number.isFinite(pct)) continue;
+        sum += pct;
+        counted += 1;
+        if (pct > 0.05) up += 1;
+        else if (pct < -0.05) down += 1;
+      }
+      return {
+        category,
+        label: dashboardCategoryLabel(category, styleCategoryLabels),
+        avgPct: counted > 0 ? sum / counted : null,
+        up,
+        down,
+        counted,
+      };
+    });
+  }, [dashboardSections, watchlistData, visibleDashboardCategories, styleCategoryLabels]);
   const openGraph = (symbol: string) => {
     setSelectedSymbol(symbol);
     setDashboardView('graphs');
@@ -991,6 +1169,20 @@ function DashboardContent() {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <h1 className="text-base font-semibold">Market dashboard</h1>
           <div className="inline-flex rounded-lg border border-gray-300 bg-white p-1 dark:border-gray-600 dark:bg-gray-900">
+            <button
+              type="button"
+              onClick={() => {
+                setDashboardView('heatmap');
+                router.push('/');
+              }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                dashboardView === 'heatmap'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+              }`}
+            >
+              Heatmap
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -1023,8 +1215,8 @@ function DashboardContent() {
         </div>
       </div>
 
-      {dashboardView === 'cards' ? (
-        <main className="mx-auto max-w-7xl space-y-8 p-4 lg:p-6">
+      {dashboardView === 'cards' || dashboardView === 'heatmap' ? (
+        <main className={`mx-auto max-w-7xl p-4 lg:p-6 ${dashboardView === 'heatmap' ? 'space-y-5' : 'space-y-8'}`}>
           <section className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800 sm:p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1092,12 +1284,47 @@ function DashboardContent() {
             )}
           </section>
 
+          <section className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              {categoryDailySummaries.map((summary) => {
+                const backgroundColor =
+                  summary.avgPct == null ? '#9ca3af' : marketChangePctToColor(summary.avgPct);
+                const textColor =
+                  summary.avgPct == null ? '#ffffff' : marketChangePctToTextColor(summary.avgPct);
+                return (
+                  <button
+                    key={summary.category}
+                    type="button"
+                    onClick={() => {
+                      document
+                        .getElementById(`dashboard-category-${summary.category}`)
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    className="min-h-28 rounded-xl p-4 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    style={{ backgroundColor, color: textColor }}
+                    title={`Jump to ${summary.label}`}
+                  >
+                    <div className="text-sm font-bold">{summary.label}</div>
+                    <div className="mt-3 text-3xl font-bold tabular-nums">
+                      {summary.avgPct == null ? '—' : formatChangePercent(summary.avgPct)}
+                    </div>
+                    <div className="mt-2 text-xs font-medium opacity-80">
+                      {summary.counted > 0
+                        ? `${summary.up} up · ${summary.down} down`
+                        : 'Waiting for quotes'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           {loadingWatchlist ? (
             <div className="py-16 text-center text-gray-500 dark:text-gray-400">
               Loading dashboard cards...
             </div>
           ) : (
-            (Object.keys(WATCHLIST_CATEGORY_LABELS) as WatchlistCategory[]).map((category) => {
+            visibleDashboardCategories.map((category) => {
               const symbols = dashboardSections[category] ?? [];
               const cardSymbols = symbols.filter(
                 (symbol) => !graphOnlySymbols.has(symbol.symbol)
@@ -1105,19 +1332,64 @@ function DashboardContent() {
               const graphSymbols = symbols.filter((symbol) =>
                 graphOnlyChipSymbols.has(symbol.symbol)
               );
+              const categorySummary = categoryDailySummaries.find(
+                (item) => item.category === category
+              );
 
               return (
-                <section key={category}>
+                <section key={category} id={`dashboard-category-${category}`}>
                   <div className="mb-3 flex items-end justify-between gap-3">
                     <h2 className="text-lg font-bold">
-                      {WATCHLIST_CATEGORY_LABELS[category]}
+                      {dashboardCategoryLabel(category, styleCategoryLabels)}
+                      {category === UNCATEGORIZED_CATEGORY ? (
+                        <span className="ml-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                          Needs tagging
+                        </span>
+                      ) : null}
                     </h2>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Daily change
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        categorySummary?.avgPct == null ? 'text-gray-500 dark:text-gray-400' : ''
+                      }`}
+                      style={
+                        categorySummary?.avgPct == null
+                          ? undefined
+                          : { color: marketChangePctToColor(categorySummary.avgPct) }
+                      }
+                    >
+                      {categorySummary?.avgPct == null
+                        ? 'Daily change'
+                        : formatChangePercent(categorySummary.avgPct)}
                     </span>
                   </div>
 
                   {cardSymbols.length > 0 ? (
+                    dashboardView === 'heatmap' ? (
+                      <DashboardCategoryHeatmap
+                        tiles={cardSymbols.map((symbol) => {
+                          const data = getWatchlistData(symbol.symbol);
+                          const symbolKey = symbol.symbol.toUpperCase();
+                          const buyPrice = watchlistBuyPrices[symbolKey];
+                          let buySignal: boolean | null = null;
+                          if (category === 'WATCHLIST' && symbolKey in watchlistBuyPrices) {
+                            const last = data?.last;
+                            buySignal =
+                              buyPrice != null &&
+                              last != null &&
+                              Number.isFinite(last) &&
+                              last < buyPrice;
+                          }
+                          return {
+                            symbol: symbol.symbol,
+                            name: symbol.name,
+                            changePercent: data?.changePercent ?? null,
+                            marketCap: data?.marketCap ?? null,
+                            buySignal,
+                          };
+                        })}
+                        onSelect={openGraph}
+                      />
+                    ) : (
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                       {cardSymbols.map((symbol) => {
                         const data = getWatchlistData(symbol.symbol);
@@ -1164,9 +1436,12 @@ function DashboardContent() {
                         );
                       })}
                     </div>
+                    )
                   ) : (
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      No card-compatible items in this section.
+                      {category === 'GROWTH' || category === 'DIVIDEND & VALUE'
+                        ? 'No eToro holdings tagged in this category yet.'
+                        : 'No card-compatible items in this section.'}
                     </p>
                   )}
 
@@ -2498,9 +2773,9 @@ function DashboardContent() {
               className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="ALL">All Categories</option>
-              {(Object.keys(WATCHLIST_CATEGORY_LABELS) as WatchlistCategory[]).map((category) => (
+              {visibleDashboardCategories.map((category) => (
                 <option key={category} value={category}>
-                  {WATCHLIST_CATEGORY_LABELS[category]}
+                  {dashboardCategoryLabel(category, styleCategoryLabels)}
                 </option>
               ))}
             </select>
@@ -2518,7 +2793,18 @@ function DashboardContent() {
                   Object.values(watchlistSymbols).flat()
                 ).data
               )
-                .filter(([category]) => categoryFilter === 'ALL' || category === categoryFilter)
+                .filter(([category, symbols]) => {
+                  if (categoryFilter !== 'ALL' && category !== categoryFilter) return false;
+                  if (category === UNCATEGORIZED_CATEGORY && symbols.length === 0) return false;
+                  return true;
+                })
+                .sort(([a], [b]) => {
+                  const ai = visibleDashboardCategories.indexOf(a);
+                  const bi = visibleDashboardCategories.indexOf(b);
+                  const aRank = ai === -1 ? Number.MAX_SAFE_INTEGER : ai;
+                  const bRank = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
+                  return aRank - bRank || a.localeCompare(b);
+                })
                 .map(([category, symbols]) => {
                   // Sort symbols alphabetically by name
                   const sortedSymbols = [...symbols].sort((a, b) => {
@@ -2686,9 +2972,9 @@ function DashboardContent() {
                   onChange={(e) => setNewSymbolCategory(e.target.value as WatchlistCategory)}
                   className="w-full px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white"
                 >
-                  {(Object.keys(WATCHLIST_CATEGORY_LABELS) as WatchlistCategory[]).map((category) => (
+                  {STATIC_DASHBOARD_CATEGORIES.map((category) => (
                     <option key={category} value={category}>
-                      {category}
+                      {dashboardCategoryLabel(category, styleCategoryLabels)}
                     </option>
                   ))}
                 </select>

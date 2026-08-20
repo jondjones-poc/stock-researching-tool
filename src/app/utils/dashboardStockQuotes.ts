@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { query } from './db';
+import { fetchEtoroLiveHoldings } from './etoroLiveHoldings';
+import { isUsableEtoroTicker } from './etoroTicker';
 
 export interface DashboardStockQuote {
   symbol: string;
@@ -50,6 +52,19 @@ export async function loadDashboardStockSymbols(): Promise<
     seen.add(symbol);
     out.push({ symbol, name: row.name || symbol });
   }
+
+  try {
+    const holdings = await fetchEtoroLiveHoldings();
+    for (const holding of holdings) {
+      const symbol = String(holding.symbol || '').trim().toUpperCase();
+      if (!symbol || seen.has(symbol) || !isUsableEtoroTicker(symbol)) continue;
+      seen.add(symbol);
+      out.push({ symbol, name: holding.ticker || symbol });
+    }
+  } catch (error) {
+    console.warn('dashboard quotes: skipped eToro holdings', error);
+  }
+
   return out;
 }
 

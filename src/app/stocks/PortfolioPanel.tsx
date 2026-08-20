@@ -1,19 +1,22 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildPortfolioReviewPrompt } from '../utils/buildPortfolioReviewPrompt';
 import { buildPortfolioTrafficLightTestPrompt, buildTrafficLightTestPrompt } from '../utils/buildTrafficLightTestPrompt';
-import { formatGbpPrice } from '../utils/formatPriceMove';
-import { isActiveSavedEtoroStock } from '../utils/etoroPositionFilter';
-import { findEtoroHoldingsMissingFromPortfolio, type MissingEtoroHolding } from '../utils/portfolioSymbolMatch';
-import { deserializeResearchSymbolLinks } from '../utils/symbolMatch';
+import { formatPositionValue, formatPriceMovePercent, priceMoveBoxClass } from '../utils/formatPriceMove';
 import PortfolioStockCard from './PortfolioStockCard';
 import PortfolioStockTable from './PortfolioStockTable';
-import PortfolioEtoroSyncDialog from './PortfolioEtoroSyncDialog';
 
 type PortfolioViewMode = 'cards' | 'table';
+type PortfolioBook = 'main' | 'contrarian';
 
 const VIEW_MODE_KEY = 'portfolio-view-mode-v2';
+
+const PORTFOLIO_BOOKS: Array<{ slug: PortfolioBook; name: string; href: string }> = [
+  { slug: 'main', name: 'My Portfolio', href: '/stocks/portfolio' },
+  { slug: 'contrarian', name: 'The Contrarian Portfolio', href: '/stocks/portfolio/contrarian' },
+];
 
 function readViewMode(): PortfolioViewMode {
   if (typeof window === 'undefined') return 'table';
@@ -46,19 +49,13 @@ interface StockValuation {
   stock: string;
 }
 
-interface NamedPortfolio {
-  id: number;
-  slug: string;
-  name: string;
-  is_default: boolean;
-}
-
-export default function PortfolioPanel() {
-  const [portfolios, setPortfolios] = useState<NamedPortfolio[]>([]);
-  const [activeSlug, setActiveSlug] = useState('main');
+export default function PortfolioPanel({ book = 'main' }: { book?: PortfolioBook }) {
+  const activeSlug = book;
+  const isTrading212 = book === 'contrarian';
+  const isEtoroLive = book === 'main';
+  const isLiveBroker = isTrading212 || isEtoroLive;
   const [portfolioStocks, setPortfolioStocks] = useState<PortfolioStock[]>([]);
   const [stockValuations, setStockValuations] = useState<StockValuation[]>([]);
-  const [selectedStockId, setSelectedStockId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -71,12 +68,9 @@ export default function PortfolioPanel() {
   const [usdToGbpRate, setUsdToGbpRate] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<PortfolioViewMode>('table');
   const [reloadingEtoro, setReloadingEtoro] = useState(false);
-  const [etoroSyncDialog, setEtoroSyncDialog] = useState<{
-    open: boolean;
-    savedCount: number;
-    removedCount: number;
-    holdings: MissingEtoroHolding[];
-  }>({ open: false, savedCount: 0, removedCount: 0, holdings: [] });
+  const [styleCategories, setStyleCategories] = useState<Array<{ slug: string; label: string }>>([]);
+  const [styleTagsBySymbol, setStyleTagsBySymbol] = useState<Record<string, string>>({});
+  const [taggingSymbol, setTaggingSymbol] = useState<string | null>(null);
 
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
@@ -88,13 +82,14 @@ export default function PortfolioPanel() {
     }
     try {
       const response = await fetch(
-        `/api/portfolio-stocks?portfolio=${encodeURIComponent(activeSlug)}`
+        isTrading212
+          ? '/api/trading212/portfolio'
+          : isEtoroLive
+            ? '/api/etoro/portfolio/live'
+            : `/api/portfolio-stocks?portfolio=${encodeURIComponent(activeSlug)}`
       );
       const result = await response.json();
       if (response.ok && result.data) {
-        if (Array.isArray(result.portfolios) && result.portfolios.length > 0) {
-          setPortfolios(result.portfolios);
-        }
         setPortfolioStocks(
           [...result.data].sort((a: PortfolioStock, b: PortfolioStock) =>
             a.stock_symbol.localeCompare(b.stock_symbol)
@@ -123,7 +118,7 @@ export default function PortfolioPanel() {
         setLoading(false);
       }
     }
-  }, [activeSlug]);
+  }, [activeSlug, isEtoroLive, isTrading212]);
 
   const loadStockValuations = useCallback(async () => {
     try {
@@ -154,6 +149,70 @@ export default function PortfolioPanel() {
       // optional
     }
   }, [currentMonth, currentYear]);
+
+  const loadStyleTags = useCallback(async () => {
+    if (!isEtoroLive) {
+      setStyleCategories([]);
+      setStyleTagsBySymbol({});
+      return;
+    }
+    try {
+      const response = await fetch('/api/portfolio-style-tags', { credentials: 'include' });
+      const result = await response.json();
+      if (response.ok) {
+        setStyleCategories(
+          Array.isArray(result.categories)
+            ? result.categories.map((item: { slug: string; label: string }) => ({
+                slug: item.slug,
+                label: item.label,
+              }))
+            : []
+        );
+        setStyleTagsBySymbol((result.tags || {}) as Record<string, string>);
+      }
+    } catch {
+      // optional until migration applied
+    }
+  }, [isEtoroLive]);
+
+  const handleStyleTagChange = useCallback(
+    async (symbol: string, category: string | null) => {
+      const normalized = symbol.trim().toUpperCase();
+      if (!normalized) return;
+      setTaggingSymbol(normalized);
+      setMessage(null);
+      try {
+        const response = await fetch('/api/portfolio-style-tags', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ symbol: normalized, category }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          setMessage({
+            type: 'error',
+            text: result.hint ? `${result.error}. ${result.hint}` : result.error || 'Failed to save tag',
+          });
+          return;
+        }
+        setStyleTagsBySymbol((prev) => {
+          const next = { ...prev };
+          if (category) next[normalized] = category;
+          else delete next[normalized];
+          return next;
+        });
+      } catch (error: unknown) {
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Failed to save tag',
+        });
+      } finally {
+        setTaggingSymbol(null);
+      }
+    },
+    []
+  );
 
   const loadDcfEntries = useCallback(async () => {
     try {
@@ -194,52 +253,27 @@ export default function PortfolioPanel() {
   }, [loadStockValuations, loadCurrentWatchlist, loadDcfEntries]);
 
   useEffect(() => {
+    void loadStyleTags();
+  }, [loadStyleTags]);
+
+  useEffect(() => {
     if (message?.type !== 'success') return;
     const timer = window.setTimeout(() => setMessage(null), 5000);
     return () => window.clearTimeout(timer);
   }, [message]);
 
-  const handleAddStock = async () => {
-    if (!selectedStockId) {
-      setMessage({ type: 'error', text: 'Please select a stock' });
-      return;
-    }
-
-    setSaving(true);
-    setMessage(null);
-
-    if (portfolioStocks.some((s) => s.stock_id === parseInt(selectedStockId, 10))) {
-      setMessage({ type: 'error', text: 'This stock is already in this portfolio' });
-      setSaving(false);
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/portfolio-stocks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_id: parseInt(selectedStockId, 10), portfolio: activeSlug }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        setMessage({ type: 'error', text: result.error || 'Failed to add stock' });
-        return;
-      }
-      await loadPortfolio({ silent: true });
-      setSelectedStockId('');
-      setMessage({ type: 'success', text: 'Stock added to this portfolio.' });
-    } catch (error: unknown) {
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to add stock',
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleDeleteStock = async (id: number) => {
     if (!confirm('Remove this stock from this portfolio?')) return;
+
+    if (isLiveBroker) {
+      setMessage({
+        type: 'error',
+        text: isTrading212
+          ? 'The Contrarian Portfolio is loaded live from Trading 212, so holdings cannot be removed here.'
+          : 'My Portfolio is loaded live from eToro, so holdings cannot be removed here.',
+      });
+      return;
+    }
 
     setSaving(true);
     setMessage(null);
@@ -263,24 +297,32 @@ export default function PortfolioPanel() {
   };
 
   const handleAddToWatchlist = async (stock: PortfolioStock) => {
-    if (watchlistStockIds.has(stock.stock_id)) return;
+    const stockId =
+      stock.stock_id ||
+      stockValuations.find((item) => item.stock.toUpperCase() === stock.stock_symbol.toUpperCase())?.id ||
+      0;
+    if (!stockId) {
+      setMessage({ type: 'error', text: `${stock.stock_symbol} is not in Companies Research yet.` });
+      return;
+    }
+    if (watchlistStockIds.has(stockId)) return;
 
     const investmentDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-    setAddingWatchlistStockId(stock.stock_id);
+    setAddingWatchlistStockId(stockId);
     setMessage(null);
 
     try {
       const response = await fetch('/api/monthly-stocks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_id: stock.stock_id, investment_date: investmentDate }),
+        body: JSON.stringify({ stock_id: stockId, investment_date: investmentDate }),
       });
       const result = await response.json();
       if (!response.ok) {
         setMessage({ type: 'error', text: result.error || 'Failed to add to watchlist' });
         return;
       }
-      setWatchlistStockIds((prev) => new Set([...prev, stock.stock_id]));
+      setWatchlistStockIds((prev) => new Set([...prev, stockId]));
       setMessage({ type: 'success', text: `${stock.stock_symbol} added to watchlist!` });
     } catch (error: unknown) {
       setMessage({
@@ -323,70 +365,45 @@ export default function PortfolioPanel() {
     }
   };
 
-  const handleReloadFromEtoro = async () => {
-    setReloadingEtoro(true);
-    setMessage(null);
-
-    try {
-      const fetchRes = await fetch('/api/etoro/dividends?directOnly=true');
-      const fetchData = await fetchRes.json();
-
-      if (!fetchRes.ok) {
-        const details = fetchData.details ? ` — ${fetchData.details}` : '';
-        throw new Error((fetchData.error || 'Failed to fetch from eToro') + details);
-      }
-
-      const etoroStocks = (Array.isArray(fetchData.stocks) ? fetchData.stocks : []).filter(
-        (s: { sharesOwned?: number; isDetached?: boolean }) => isActiveSavedEtoroStock(s)
-      );
-      if (etoroStocks.length === 0) {
-        throw new Error('No active stock positions returned from eToro');
-      }
-
-      const saveRes = await fetch('/api/etoro/portfolio/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stocks: etoroStocks }),
-      });
-      const saveData = await saveRes.json();
-
-      if (!saveRes.ok) {
-        throw new Error(saveData.error || 'Failed to save eToro data');
-      }
-
-      const portfolioSymbols = portfolioStocks.map((s) => s.stock_symbol);
-      const linksRes = await fetch('/api/etoro/research-symbol-links');
-      const linksData = linksRes.ok ? await linksRes.json() : { links: {} };
-      const symbolLinks = deserializeResearchSymbolLinks(linksData.links ?? {});
-      const missingHoldings = findEtoroHoldingsMissingFromPortfolio(etoroStocks, portfolioSymbols, symbolLinks);
-
-      await loadPortfolio({ silent: true });
-
-      setEtoroSyncDialog({
-        open: true,
-        savedCount: saveData.saved ?? etoroStocks.length,
-        removedCount: saveData.removed ?? 0,
-        holdings: missingHoldings,
-      });
-
-      if (missingHoldings.length === 0) {
+  const handleReloadHoldings = async () => {
+    if (isLiveBroker) {
+      setReloadingEtoro(true);
+      setMessage(null);
+      try {
+        const response = await fetch(
+          isTrading212
+            ? '/api/trading212/portfolio?refresh=1'
+            : '/api/etoro/portfolio/live?refresh=1'
+        );
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to reload holdings');
+        }
+        setPortfolioStocks(
+          [...(result.data || [])].sort((a: PortfolioStock, b: PortfolioStock) =>
+            a.stock_symbol.localeCompare(b.stock_symbol)
+          )
+        );
+        if (result.fx?.usd_to_gbp && Number.isFinite(result.fx.usd_to_gbp)) {
+          setUsdToGbpRate(result.fx.usd_to_gbp);
+        }
         setMessage({
           type: 'success',
-          text: `eToro holdings synced — ${saveData.saved ?? etoroStocks.length} active positions saved.`,
+          text: isTrading212 ? 'Trading 212 holdings reloaded.' : 'eToro holdings reloaded.',
         });
-      } else {
+      } catch (error: unknown) {
         setMessage({
-          type: 'success',
-          text: `eToro synced. ${missingHoldings.length} holding${missingHoldings.length === 1 ? '' : 's'} not in your portfolio list.`,
+          type: 'error',
+          text:
+            error instanceof Error
+              ? error.message
+              : isTrading212
+                ? 'Failed to reload from Trading 212'
+                : 'Failed to reload from eToro',
         });
+      } finally {
+        setReloadingEtoro(false);
       }
-    } catch (error: unknown) {
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to reload from eToro',
-      });
-    } finally {
-      setReloadingEtoro(false);
     }
   };
 
@@ -441,18 +458,48 @@ export default function PortfolioPanel() {
   };
 
   const activePortfolioName =
-    portfolios.find((item) => item.slug === activeSlug)?.name || 'My Portfolio';
+    PORTFOLIO_BOOKS.find((item) => item.slug === activeSlug)?.name || 'My Portfolio';
 
-  const totalPositionValueGbp = usdToGbpRate
-    ? portfolioStocks.reduce((sum, stock) => {
-        if (stock.position_value == null || !Number.isFinite(stock.position_value)) return sum;
-        return sum + stock.position_value * usdToGbpRate;
-      }, 0)
-    : null;
+  const totalPositionValueUsd = useMemo(() => {
+    let sum = 0;
+    let hasValue = false;
+    for (const stock of portfolioStocks) {
+      if (stock.position_value == null || !Number.isFinite(stock.position_value)) continue;
+      sum += stock.position_value;
+      hasValue = true;
+    }
+    return hasValue ? sum : null;
+  }, [portfolioStocks]);
+
+  const totalDayChangePct = useMemo(() => {
+    let weightedSum = 0;
+    let weight = 0;
+    for (const stock of portfolioStocks) {
+      const value = stock.position_value;
+      const dayChange = stock.day_change_pct;
+      if (value == null || !Number.isFinite(value) || value <= 0) continue;
+      if (dayChange == null || !Number.isFinite(dayChange)) continue;
+      weightedSum += value * dayChange;
+      weight += value;
+    }
+    return weight > 0 ? weightedSum / weight : null;
+  }, [portfolioStocks]);
+
+  const resolvedPortfolioStocks = useMemo(
+    () =>
+      portfolioStocks.map((stock) => {
+        if (stock.stock_id) return stock;
+        const match = stockValuations.find(
+          (item) => item.stock.toUpperCase() === stock.stock_symbol.toUpperCase()
+        );
+        return match ? { ...stock, stock_id: match.id } : stock;
+      }),
+    [portfolioStocks, stockValuations]
+  );
 
   const dcfByStockId = useMemo(() => {
     const map = new Map<number, { hasDcfEntry: boolean; dcfHref: string }>();
-    for (const stock of portfolioStocks) {
+    for (const stock of resolvedPortfolioStocks) {
       const symbol = stock.stock_symbol.toUpperCase();
       const dcfEntry = dcfBySymbol.get(symbol);
       const hasDcfEntry = Boolean(dcfEntry);
@@ -464,10 +511,16 @@ export default function PortfolioPanel() {
       });
     }
     return map;
-  }, [portfolioStocks, dcfBySymbol]);
+  }, [resolvedPortfolioStocks, dcfBySymbol]);
 
+  const barBoxClass =
+    'h-16 min-w-[8.5rem] px-4 inline-flex flex-col items-center justify-center rounded-lg border-2';
+  const barButtonClass =
+    'h-16 px-4 inline-flex items-center justify-center rounded-lg border-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap';
+  const barIconButtonClass =
+    'h-16 w-16 inline-flex items-center justify-center rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
   const viewToggleClass = (active: boolean) =>
-    `inline-flex h-9 w-9 items-center justify-center transition-colors ${
+    `inline-flex h-full w-16 items-center justify-center transition-colors ${
       active
         ? 'bg-blue-600 text-white'
         : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
@@ -475,126 +528,103 @@ export default function PortfolioPanel() {
 
   return (
     <div>
-      {portfolios.length > 1 ? (
-        <div className="mb-6 flex flex-wrap gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900/60 p-1">
-          {portfolios.map((item) => (
-            <button
-              key={item.slug}
-              type="button"
-              onClick={() => setActiveSlug(item.slug)}
-              className={`flex-1 min-w-[8rem] px-4 py-2.5 text-sm font-medium rounded-md transition-colors ${
-                activeSlug === item.slug
-                  ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              {item.name}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className="mb-6 flex flex-wrap gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900/60 p-1">
+        {PORTFOLIO_BOOKS.map((item) => (
+          <Link
+            key={item.slug}
+            href={item.href}
+            className={`flex-1 min-w-[8rem] px-4 py-2.5 text-sm font-medium rounded-md text-center transition-colors ${
+              activeSlug === item.slug
+                ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            {item.name}
+          </Link>
+        ))}
+      </div>
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-        <div className="flex items-center gap-4 flex-wrap">
-          <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
-            {portfolioStocks.length} {portfolioStocks.length === 1 ? 'stock' : 'stocks'}
-            {totalPositionValueGbp != null && totalPositionValueGbp > 0 && (
-              <span className="ml-2 text-gray-900 dark:text-gray-100 font-semibold">
-                · {formatGbpPrice(totalPositionValueGbp)}
-              </span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className={`${barBoxClass} border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 text-center`}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Total value
+            </div>
+            <div className="text-base font-semibold tabular-nums leading-tight text-gray-900 dark:text-gray-100">
+              {totalPositionValueUsd != null
+                ? formatPositionValue(totalPositionValueUsd, usdToGbpRate)
+                : '—'}
+            </div>
+          </div>
+          <div className={`${barBoxClass} text-center ${priceMoveBoxClass(totalDayChangePct)}`}>
+            <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Today</div>
+            <div className="text-base font-semibold tabular-nums leading-tight">
+              {formatPriceMovePercent(totalDayChangePct)}
+            </div>
+          </div>
+          <div className={`${barBoxClass} border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 text-center`}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Holdings
+            </div>
+            <div className="text-base font-semibold tabular-nums leading-tight text-gray-900 dark:text-gray-100">
+              {resolvedPortfolioStocks.length}{' '}
+              {resolvedPortfolioStocks.length === 1 ? 'stock' : 'stocks'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handlePortfolioReview()}
+            disabled={loading || portfolioStocks.length === 0}
+            className={`${barButtonClass} ${
+              portfolioReviewCopied
+                ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                : 'border-sky-300 dark:border-sky-600 bg-sky-50 dark:bg-sky-900/20 text-sky-800 dark:text-sky-200 hover:bg-sky-100 dark:hover:bg-sky-900/40'
+            }`}
+          >
+            {portfolioReviewCopied ? '✓ Copied!' : 'Portfolio Review'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handlePortfolioTrafficLightTest()}
+            disabled={loading || portfolioStocks.length === 0}
+            className={`${barButtonClass} ${
+              portfolioTrafficLightCopied
+                ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                : 'border-violet-300 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40'
+            }`}
+          >
+            {portfolioTrafficLightCopied ? '✓ Copied!' : '🚦 Traffic Light Test'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleReloadHoldings()}
+            disabled={loading || reloadingEtoro}
+            title={isTrading212 ? 'Reload holdings from Trading 212' : 'Reload holdings from eToro'}
+            aria-label={isTrading212 ? 'Reload holdings from Trading 212' : 'Reload holdings from eToro'}
+            className={barIconButtonClass}
+          >
+            {reloadingEtoro ? (
+              <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            ) : (
+              <svg className="h-5 w-5" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path
+                  d="M15 9a6 6 0 1 1-1.76-4.24M15 3v4h-4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             )}
-          </span>
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <select
-              value={selectedStockId}
-              onChange={(e) => setSelectedStockId(e.target.value)}
-              disabled={saving || loading}
-              className="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            >
-              <option value="">-- Add Stock --</option>
-              {stockValuations.map((stock) => (
-                <option key={stock.id} value={stock.id}>
-                  {stock.stock}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => void handleAddStock()}
-              disabled={saving || loading || !selectedStockId}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium whitespace-nowrap"
-            >
-              {saving ? 'Adding…' : 'Add'}
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handlePortfolioReview()}
-              disabled={loading || portfolioStocks.length === 0}
-              className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${
-                portfolioReviewCopied
-                  ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                  : 'border-sky-300 dark:border-sky-600 bg-sky-50 dark:bg-sky-900/20 text-sky-800 dark:text-sky-200 hover:bg-sky-100 dark:hover:bg-sky-900/40'
-              }`}
-            >
-              {portfolioReviewCopied ? '✓ Copied!' : 'Portfolio Review'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePortfolioTrafficLightTest()}
-              disabled={loading || portfolioStocks.length === 0}
-              className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${
-                portfolioTrafficLightCopied
-                  ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-                  : 'border-violet-300 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40'
-              }`}
-            >
-              {portfolioTrafficLightCopied ? '✓ Copied!' : '🚦 Traffic Light Test'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleReloadFromEtoro()}
-              disabled={loading || reloadingEtoro}
-              title="Reload holdings from eToro"
-              aria-label="Reload holdings from eToro"
-              className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {reloadingEtoro ? (
-                <svg
-                  className="h-4 w-4 animate-spin"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <path
-                    d="M15 9a6 6 0 1 1-1.76-4.24M15 3v4h-4"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              )}
-            </button>
-          </div>
+          </button>
           <div
-            className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden shrink-0 ml-auto"
+            className="flex h-16 rounded-lg border-2 border-gray-300 dark:border-gray-600 overflow-hidden shrink-0"
             role="group"
             aria-label="Portfolio view"
           >
@@ -605,7 +635,7 @@ export default function PortfolioPanel() {
               aria-label="Table view"
               className={viewToggleClass(viewMode === 'table')}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <svg className="h-5 w-5" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                 <path
                   d="M2 4.5h14M2 9h14M2 13.5h14M6 2v14M12 2v14"
                   stroke="currentColor"
@@ -621,7 +651,7 @@ export default function PortfolioPanel() {
               aria-label="Card view"
               className={viewToggleClass(viewMode === 'cards')}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <svg className="h-5 w-5" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                 <rect x="2" y="2" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
                 <rect x="10" y="2" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
                 <rect x="2" y="10" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
@@ -648,13 +678,13 @@ export default function PortfolioPanel() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-600 dark:text-gray-400">
           Loading {activePortfolioName}…
         </div>
-      ) : portfolioStocks.length === 0 ? (
+      ) : resolvedPortfolioStocks.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center text-gray-600 dark:text-gray-400">
-          No stocks in {activePortfolioName} yet — add one above.
+          No stocks in {activePortfolioName} yet.
         </div>
       ) : viewMode === 'table' ? (
         <PortfolioStockTable
-          stocks={portfolioStocks}
+          stocks={resolvedPortfolioStocks}
           usdToGbpRate={usdToGbpRate}
           dcfByStockId={dcfByStockId}
           saving={saving}
@@ -663,11 +693,18 @@ export default function PortfolioPanel() {
           addingWatchlistStockId={addingWatchlistStockId}
           onTrafficLight={(stock) => void handleTrafficLightTest(stock)}
           onAddToWatchlist={(stock) => void handleAddToWatchlist(stock)}
-          onRemove={(id) => void handleDeleteStock(id)}
+          onRemove={
+            isLiveBroker ? undefined : (id) => void handleDeleteStock(id)
+          }
+          styleTagging={isEtoroLive}
+          styleCategories={styleCategories}
+          styleTagsBySymbol={styleTagsBySymbol}
+          taggingSymbol={taggingSymbol}
+          onStyleTagChange={(symbol, category) => void handleStyleTagChange(symbol, category)}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {portfolioStocks.map((stock) => {
+          {resolvedPortfolioStocks.map((stock) => {
             const symbol = stock.stock_symbol.toUpperCase();
             const dcfEntry = dcfBySymbol.get(symbol);
             const hasDcfEntry = Boolean(dcfEntry);
@@ -686,21 +723,21 @@ export default function PortfolioPanel() {
                 trafficLightCopied={trafficLightCopiedId === stock.id}
                 onTrafficLight={() => void handleTrafficLightTest(stock)}
                 onAddToWatchlist={() => void handleAddToWatchlist(stock)}
-                onRemove={() => void handleDeleteStock(stock.id)}
+                onRemove={
+                  isLiveBroker ? undefined : () => void handleDeleteStock(stock.id)
+                }
                 watchlistAdded={watchlistStockIds.has(stock.stock_id)}
                 addingToWatchlist={addingWatchlistStockId === stock.stock_id}
+                styleTagging={isEtoroLive}
+                styleCategories={styleCategories}
+                styleTag={styleTagsBySymbol[symbol] || null}
+                tagging={taggingSymbol === symbol}
+                onStyleTagChange={(category) => void handleStyleTagChange(symbol, category)}
               />
             );
           })}
         </div>
       )}
-      <PortfolioEtoroSyncDialog
-        open={etoroSyncDialog.open}
-        onClose={() => setEtoroSyncDialog((prev) => ({ ...prev, open: false }))}
-        savedCount={etoroSyncDialog.savedCount}
-        removedCount={etoroSyncDialog.removedCount}
-        holdings={etoroSyncDialog.holdings}
-      />
     </div>
   );
 }

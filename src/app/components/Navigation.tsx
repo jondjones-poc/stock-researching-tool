@@ -10,7 +10,12 @@ export default function Navigation() {
   
   // Determine which tab is active based on pathname
   const isFinancesTab = pathname?.startsWith('/finances') || false;
-  const isResearchTab = pathname?.startsWith('/research') && pathname !== '/research/dividend-fcf-analysis' || false;
+  const isResearchTab =
+    Boolean(
+      pathname?.startsWith('/research') &&
+        pathname !== '/research/dividend-fcf-analysis' &&
+        pathname !== '/research/stock-search'
+    );
   const isReportingTab = pathname?.startsWith('/reporting') || false;
   const isStocksTab = !isFinancesTab && !isReportingTab && (
     pathname === '/companies' ||
@@ -21,7 +26,8 @@ export default function Navigation() {
     pathname === '/' ||
     pathname === '/stocks' ||
     pathname?.startsWith('/stocks/') ||
-    pathname === '/research/dividend-fcf-analysis'
+    pathname === '/research/dividend-fcf-analysis' ||
+    pathname === '/research/stock-search'
   ) || false;
 
 
@@ -242,16 +248,6 @@ export default function Navigation() {
                 >
                   🗺️ Sectors
                 </Link>
-                <Link
-                  href="/research/stock-search"
-                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/research/stock-search'
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
-                  }`}
-                >
-                  📊 Stock Search
-                </Link>
                 <Link 
                   href="/research/world-alerts" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
@@ -323,12 +319,22 @@ export default function Navigation() {
                 <Link 
                   href="/stocks/portfolio" 
                   className={`text-sm font-semibold whitespace-nowrap transition-colors ${
-                    pathname === '/stocks' || pathname === '/stocks/portfolio'
+                    pathname === '/stocks' || pathname === '/stocks/portfolio' || pathname.startsWith('/stocks/portfolio/')
                       ? 'text-blue-600 dark:text-blue-400' 
                       : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                 >
                   📈 My Portfolio
+                </Link>
+                <Link
+                  href="/research/stock-search"
+                  className={`text-sm font-semibold whitespace-nowrap transition-colors ${
+                    pathname === '/research/stock-search'
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                >
+                  📊 Stock Search
                 </Link>
                 <Link 
                   href="/companies" 

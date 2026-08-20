@@ -1,20 +1,61 @@
 // Dashboard configuration for watchlist symbols and layout
 export type WatchlistCategory =
+  | 'WATCHLIST'
   | 'GROWTH'
   | 'DIVIDEND & VALUE'
+  | 'UNCATEGORIZED'
   | 'MARKETS'
-  | 'PRECIOUS METALS'
-  | 'WATCHLIST';
+  | 'PRECIOUS METALS';
 
-export type CategoryFilter = 'ALL' | WatchlistCategory;
+export type CategoryFilter = 'ALL' | string;
+
+export const UNCATEGORIZED_CATEGORY = 'UNCATEGORIZED' as const;
+
+export const STATIC_DASHBOARD_CATEGORIES: WatchlistCategory[] = [
+  'WATCHLIST',
+  'MARKETS',
+  'PRECIOUS METALS',
+];
+
+export const DEFAULT_PORTFOLIO_STYLE_CATEGORIES: Array<{
+  slug: string;
+  label: string;
+  sort_order: number;
+}> = [
+  { slug: 'GROWTH', label: 'Growth', sort_order: 1 },
+  { slug: 'DIVIDEND & VALUE', label: 'Dividend & Value', sort_order: 2 },
+];
+
+export const DASHBOARD_CATEGORY_ORDER: WatchlistCategory[] = [
+  'WATCHLIST',
+  'GROWTH',
+  'DIVIDEND & VALUE',
+  'UNCATEGORIZED',
+  'MARKETS',
+  'PRECIOUS METALS',
+];
 
 export const WATCHLIST_CATEGORY_LABELS: Record<WatchlistCategory, string> = {
+  WATCHLIST: 'Watchlist',
   GROWTH: 'Growth',
   'DIVIDEND & VALUE': 'Dividend & Value',
+  UNCATEGORIZED: 'Untagged',
   MARKETS: 'Markets',
   'PRECIOUS METALS': 'Precious Metals',
-  WATCHLIST: 'Watchlist',
 };
+
+export function buildDashboardCategoryOrder(styleSlugs: string[]): string[] {
+  const uniqueStyles = [...new Set(styleSlugs.map((slug) => slug.trim()).filter(Boolean))];
+  return ['WATCHLIST', ...uniqueStyles, UNCATEGORIZED_CATEGORY, 'MARKETS', 'PRECIOUS METALS'];
+}
+
+export function dashboardCategoryLabel(
+  category: string,
+  styleLabels?: Record<string, string>
+): string {
+  if (styleLabels?.[category]) return styleLabels[category];
+  return WATCHLIST_CATEGORY_LABELS[category as WatchlistCategory] || category;
+}
 
 export interface WatchlistSymbol {
   symbol: string;
@@ -40,143 +81,9 @@ export interface DashboardConfig {
 
 export const dashboardConfig: DashboardConfig = {
   watchlist: {
-    GROWTH: [
-      {
-        symbol: 'CRM',
-        name: 'Salesforce (CRM)',
-        category: 'GROWTH',
-        icon: '☁️',
-        color: 'blue'
-      },
-      {
-        symbol: 'AMD',
-        name: 'Advanced Micro Devices (AMD)',
-        category: 'GROWTH',
-        icon: '💻',
-        color: 'red'
-      },
-      {
-        symbol: 'AMZN',
-        name: 'Amazon (AMZN)',
-        category: 'GROWTH',
-        icon: '📦',
-        color: 'orange'
-      },
-      {
-        symbol: 'AAPL',
-        name: 'Apple (AAPL)',
-        category: 'GROWTH',
-        icon: '🍎',
-        color: 'gray'
-      },
-      {
-        symbol: 'CELH',
-        name: 'Celsius Holdings (CELH)',
-        category: 'GROWTH',
-        icon: '🥤',
-        color: 'orange'
-      },
-      {
-        symbol: 'ELF',
-        name: 'e.l.f. Beauty (ELF)',
-        category: 'GROWTH',
-        icon: '💄',
-        color: 'pink'
-      },
-      {
-        symbol: 'SHOP',
-        name: 'Shopify (SHOP)',
-        category: 'GROWTH',
-        icon: '🛍️',
-        color: 'green'
-      },
-      {
-        symbol: 'GOOGL',
-        name: 'Alphabet (GOOGL)',
-        category: 'GROWTH',
-        icon: '🔍',
-        color: 'blue'
-      },
-      {
-        symbol: 'NVDA',
-        name: 'NVIDIA (NVDA)',
-        category: 'GROWTH',
-        icon: '🎮',
-        color: 'green'
-      },
-      {
-        symbol: 'PYPL',
-        name: 'PayPal (PYPL)',
-        category: 'GROWTH',
-        icon: '💳',
-        color: 'blue'
-      },
-      {
-        symbol: 'SOFI',
-        name: 'SoFi Technologies (SOFI)',
-        category: 'GROWTH',
-        icon: '🏦',
-        color: 'purple'
-      },
-      {
-        symbol: 'PLTR',
-        name: 'Palantir (PLTR)',
-        category: 'GROWTH',
-        icon: '🔮',
-        color: 'purple'
-      }
-    ],
-    'DIVIDEND & VALUE': [
-      {
-        symbol: 'EL',
-        name: 'Estée Lauder (EL)',
-        category: 'DIVIDEND & VALUE',
-        icon: '✏️',
-        color: 'purple'
-      },
-      {
-        symbol: 'JPM',
-        name: 'JPMorgan Chase (JPM)',
-        category: 'DIVIDEND & VALUE',
-        icon: '🏦',
-        color: 'blue'
-      },
-      {
-        symbol: 'MA',
-        name: 'Mastercard (MA)',
-        category: 'DIVIDEND & VALUE',
-        icon: '💳',
-        color: 'orange'
-      },
-      {
-        symbol: 'NKE',
-        name: 'Nike (NKE)',
-        category: 'DIVIDEND & VALUE',
-        icon: '✅',
-        color: 'black'
-      },
-      {
-        symbol: 'MSFT',
-        name: 'Microsoft (MSFT)',
-        category: 'DIVIDEND & VALUE',
-        icon: '🪟',
-        color: 'blue'
-      },
-      {
-        symbol: 'TGT',
-        name: 'Target (TGT)',
-        category: 'DIVIDEND & VALUE',
-        icon: '🎯',
-        color: 'red'
-      },
-      {
-        symbol: 'CAKE',
-        name: 'Cheesecake Factory (CAKE)',
-        category: 'DIVIDEND & VALUE',
-        icon: '🍰',
-        color: 'orange'
-      }
-    ],
+    GROWTH: [],
+    'DIVIDEND & VALUE': [],
+    UNCATEGORIZED: [],
     MARKETS: [
       {
         symbol: 'SPX',
@@ -323,7 +230,7 @@ export const dashboardConfig: DashboardConfig = {
       }
     ]
   },
-  defaultSymbol: 'CRM',
+  defaultSymbol: 'VICI',
   timePeriods: [
     { value: 'ALL', label: 'ALL', days: undefined },
     { value: 'YTD', label: 'YTD', days: undefined },
@@ -336,9 +243,11 @@ export const dashboardConfig: DashboardConfig = {
   ]
 };
 
-// Helper function to get all watchlist symbols
+// Static dashboard symbols only (Watchlist / Markets / Precious Metals).
 export function getAllWatchlistSymbols(): WatchlistSymbol[] {
-  return Object.values(dashboardConfig.watchlist).flat();
+  return STATIC_DASHBOARD_CATEGORIES.flatMap(
+    (category) => dashboardConfig.watchlist[category] || []
+  );
 }
 
 // Helper function to get symbol by symbol string
@@ -381,4 +290,82 @@ export function mergeConfigSymbolsIntoWatchlistData(
   ];
 
   return { data: merged, symbols };
+}
+
+export function mergeMonthlyStocksIntoWatchlistData(
+  data: { [category: string]: WatchlistSymbol[] },
+  monthlySymbols: string[]
+): { [category: string]: WatchlistSymbol[] } {
+  const merged: { [category: string]: WatchlistSymbol[] } = {
+    ...data,
+    WATCHLIST: [...(data.WATCHLIST || [])],
+  };
+  const existing = new Set(
+    merged.WATCHLIST.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean)
+  );
+
+  for (const raw of monthlySymbols) {
+    const symbol = String(raw || '').trim().toUpperCase();
+    if (!symbol || existing.has(symbol)) continue;
+    existing.add(symbol);
+    merged.WATCHLIST.push({
+      symbol,
+      name: symbol,
+      category: 'WATCHLIST',
+      icon: '📌',
+    });
+  }
+
+  return merged;
+}
+
+export function stripPortfolioDrivenCategories(
+  data: { [category: string]: WatchlistSymbol[] },
+  styleSlugs: string[] = DEFAULT_PORTFOLIO_STYLE_CATEGORIES.map((item) => item.slug)
+): { [category: string]: WatchlistSymbol[] } {
+  const stripped = { ...data };
+  for (const slug of [...styleSlugs, UNCATEGORIZED_CATEGORY, 'GROWTH', 'DIVIDEND & VALUE']) {
+    delete stripped[slug];
+  }
+  return stripped;
+}
+
+export function mergeEtoroHoldingsIntoWatchlistData(
+  data: { [category: string]: WatchlistSymbol[] },
+  holdings: Array<{ symbol: string; name?: string | null }>,
+  tagsBySymbol: Record<string, string>,
+  styleSlugs: string[] = DEFAULT_PORTFOLIO_STYLE_CATEGORIES.map((item) => item.slug)
+): { [category: string]: WatchlistSymbol[] } {
+  const reserved = new Set<string>();
+  for (const category of ['MARKETS', 'PRECIOUS METALS'] as const) {
+    for (const item of data[category] || []) {
+      const symbol = String(item.symbol || '').trim().toUpperCase();
+      if (symbol) reserved.add(symbol);
+    }
+  }
+
+  const merged: { [category: string]: WatchlistSymbol[] } = { ...data };
+  for (const slug of styleSlugs) {
+    merged[slug] = [];
+  }
+  merged[UNCATEGORIZED_CATEGORY] = [];
+
+  const seen = new Set<string>();
+  for (const holding of holdings) {
+    const symbol = String(holding.symbol || '').trim().toUpperCase();
+    if (!symbol || seen.has(symbol) || reserved.has(symbol)) continue;
+    if (symbol.startsWith('INSTRUMENT_') || symbol === 'UNKNOWN' || symbol === '—') continue;
+    seen.add(symbol);
+
+    const tag = String(tagsBySymbol[symbol] || '').trim();
+    const category = tag && styleSlugs.includes(tag) ? tag : UNCATEGORIZED_CATEGORY;
+    merged[category].push({
+      symbol,
+      name: String(holding.name || symbol),
+      category,
+      icon: category === UNCATEGORIZED_CATEGORY ? '🏷️' : '📌',
+    });
+  }
+
+  return merged;
 }

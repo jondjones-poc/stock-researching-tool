@@ -32,9 +32,14 @@ interface PortfolioStockCardProps {
   trafficLightCopied: boolean;
   onTrafficLight: () => void;
   onAddToWatchlist: () => void;
-  onRemove: () => void;
+  onRemove?: () => void;
   watchlistAdded: boolean;
   addingToWatchlist: boolean;
+  styleTagging?: boolean;
+  styleCategories?: Array<{ slug: string; label: string }>;
+  styleTag?: string | null;
+  tagging?: boolean;
+  onStyleTagChange?: (category: string | null) => void;
 }
 
 const valueBoxClass =
@@ -58,6 +63,11 @@ export default function PortfolioStockCard({
   onRemove,
   watchlistAdded,
   addingToWatchlist,
+  styleTagging = false,
+  styleCategories = [],
+  styleTag = null,
+  tagging = false,
+  onStyleTagChange,
 }: PortfolioStockCardProps) {
   const showBearCase =
     hasDcfEntry &&
@@ -161,7 +171,32 @@ export default function PortfolioStockCard({
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
+      {styleTagging ? (
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
+          Category
+          <select
+            value={styleTag || ''}
+            disabled={saving || tagging}
+            onChange={(event) =>
+              onStyleTagChange?.(event.target.value ? event.target.value : null)
+            }
+            className="mt-1 box-border h-9 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+          >
+            <option value="">Untagged</option>
+            {styleCategories.map((category) => (
+              <option key={category.slug} value={category.slug}>
+                {category.slug === 'DIVIDEND & VALUE' ? 'Div & Value' : category.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      <div
+        className={`grid gap-2 pt-1 border-t border-gray-100 dark:border-gray-700 ${
+          onRemove ? 'grid-cols-2' : 'grid-cols-1'
+        }`}
+      >
         <button
           type="button"
           onClick={onAddToWatchlist}
@@ -180,16 +215,18 @@ export default function PortfolioStockCard({
         >
           {addingToWatchlist ? '…' : watchlistAdded ? '✓' : '+'}
         </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={saving}
-          title="Remove from portfolio"
-          aria-label="Remove from portfolio"
-          className={`${valueBoxClass} text-lg border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          ✕
-        </button>
+        {onRemove ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={saving}
+            title="Remove from portfolio"
+            aria-label="Remove from portfolio"
+            className={`${valueBoxClass} text-lg border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            ✕
+          </button>
+        ) : null}
       </div>
     </div>
   );
