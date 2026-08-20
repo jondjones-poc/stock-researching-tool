@@ -9,6 +9,7 @@ export type HeatmapTile = {
   symbol: string;
   name: string;
   changePercent: number | null;
+  price?: number | null;
   marketCap?: number | null;
   /** Watchlist buy signal: true=below buy price, false=not, null=hide indicator */
   buySignal?: boolean | null;
@@ -40,6 +41,17 @@ function formatPct(value: number | null): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+function formatPrice(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  if (Math.abs(value) >= 1000) {
+    return `$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  }
+  if (Math.abs(value) >= 100) {
+    return `$${value.toFixed(1)}`;
+  }
+  return `$${value.toFixed(2)}`;
+}
+
 export default function DashboardCategoryHeatmap({
   tiles,
   onSelect,
@@ -62,14 +74,14 @@ export default function DashboardCategoryHeatmap({
             key={tile.symbol}
             type="button"
             onClick={() => onSelect(tile.symbol)}
-            title={`${tile.name} · ${formatPct(tile.changePercent)}${
+            title={`${tile.name} · ${formatPct(tile.changePercent)} · ${formatPrice(tile.price)}${
               tile.buySignal == null
                 ? ''
                 : tile.buySignal
                   ? ' · Buy (below buy price)'
                   : ' · Hold (at/above buy price)'
             }`}
-            className="relative flex min-h-[4.25rem] min-w-[4.75rem] flex-col items-center justify-center px-1.5 py-1.5 text-center transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-white/70 focus:ring-inset"
+            className="relative flex min-h-[4.75rem] min-w-[4.75rem] flex-col items-center justify-center px-1.5 py-1.5 text-center transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-white/70 focus:ring-inset"
             style={{
               flexGrow: weight,
               flexBasis: `${Math.min(240, 56 + weight * 14)}px`,
@@ -94,6 +106,9 @@ export default function DashboardCategoryHeatmap({
             </span>
             <span className="mt-0.5 text-[11px] font-semibold tabular-nums leading-tight sm:text-xs">
               {formatPct(tile.changePercent)}
+            </span>
+            <span className="mt-0.5 text-[10px] font-medium tabular-nums leading-tight opacity-90 sm:text-[11px]">
+              {formatPrice(tile.price)}
             </span>
           </button>
         );

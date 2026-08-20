@@ -1383,6 +1383,7 @@ function DashboardContent() {
                             symbol: symbol.symbol,
                             name: symbol.name,
                             changePercent: data?.changePercent ?? null,
+                            price: data?.last ?? null,
                             marketCap: data?.marketCap ?? null,
                             buySignal,
                           };

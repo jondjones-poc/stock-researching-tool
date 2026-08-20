@@ -93,6 +93,15 @@ export async function GET(request: NextRequest) {
   } catch (error: unknown) {
     const err = error as { message?: string };
     const message = err.message || 'Failed to load eToro portfolio';
+    if (message.includes('ETORO_PUBLIC_KEY')) {
+      return NextResponse.json(
+        {
+          error: message,
+          hint: 'Add ETORO_PUBLIC_KEY and ETORO_PRIVATE_KEY (and optional ETORO_ACCOUNT_TYPE) to the production environment, then redeploy.',
+        },
+        { status: 503 }
+      );
+    }
     const status = message.includes('rate limit') ? 429 : 500;
     return NextResponse.json({ error: message }, { status });
   }

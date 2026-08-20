@@ -99,6 +99,10 @@ export function aggregateEtoroPositions(
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
+export function hasEtoroCredentials(): boolean {
+  return Boolean(process.env.ETORO_PUBLIC_KEY?.trim() && process.env.ETORO_PRIVATE_KEY?.trim());
+}
+
 function etoroCredentials(): { publicKey: string; privateKey: string; accountType: 'real' | 'demo' } {
   const publicKey = process.env.ETORO_PUBLIC_KEY?.trim() || '';
   const privateKey = process.env.ETORO_PRIVATE_KEY?.trim() || '';
@@ -392,6 +396,8 @@ function holdingsToSymbols(holdings: EtoroLiveHolding[]): EtoroHoldingSymbol[] {
 /**
  * Dashboard-friendly symbol list: serve DB cache when fresher than maxAgeMs.
  * Falls back to live eToro fetch (and refreshes the cache) when stale/missing.
+ * If live fetch fails or API keys are unset, returns any cached holdings (even stale)
+ * instead of throwing — so the homepage still loads.
  */
 export async function loadEtoroHoldingSymbols(options?: {
   force?: boolean;
@@ -401,38 +407,70 @@ export async function loadEtoroHoldingSymbols(options?: {
   fromCache: boolean;
   fetchedAt: string | null;
   cacheAgeMs: number | null;
+  warning?: string;
 }> {
   const maxAgeMs = options?.maxAgeMs ?? ETORO_HOLDINGS_DASHBOARD_MAX_AGE_MS;
   const now = Date.now();
+  let staleDb: HoldingsCacheEntry | null = null;
+
+  const fromEntry = (entry: HoldingsCacheEntry, fromCache: boolean, warning?: string) => ({
+    symbols: holdingsToSymbols(entry.holdings),
+    fromCache,
+    fetchedAt: new Date(entry.fetchedAt).toISOString(),
+    cacheAgeMs: now - entry.fetchedAt,
+    warning,
+  });
 
   if (!options?.force) {
     if (holdingsCache && isHoldingsCacheFresh(holdingsCache.fetchedAt, maxAgeMs, now)) {
-      return {
-        symbols: holdingsToSymbols(holdingsCache.holdings),
-        fromCache: true,
-        fetchedAt: new Date(holdingsCache.fetchedAt).toISOString(),
-        cacheAgeMs: now - holdingsCache.fetchedAt,
-      };
+      return fromEntry(holdingsCache, true);
     }
 
-    const dbCache = await readHoldingsDbCache();
-    if (dbCache && isHoldingsCacheFresh(dbCache.fetchedAt, maxAgeMs, now)) {
-      holdingsCache = dbCache;
-      return {
-        symbols: holdingsToSymbols(dbCache.holdings),
-        fromCache: true,
-        fetchedAt: new Date(dbCache.fetchedAt).toISOString(),
-        cacheAgeMs: now - dbCache.fetchedAt,
-      };
+    staleDb = await readHoldingsDbCache();
+    if (staleDb && isHoldingsCacheFresh(staleDb.fetchedAt, maxAgeMs, now)) {
+      holdingsCache = staleDb;
+      return fromEntry(staleDb, true);
     }
+  } else {
+    staleDb = await readHoldingsDbCache();
   }
 
-  const holdings = await fetchEtoroLiveHoldings({ force: true });
-  const fetchedAt = holdingsCache?.fetchedAt ?? Date.now();
-  return {
-    symbols: holdingsToSymbols(holdings),
-    fromCache: false,
-    fetchedAt: new Date(fetchedAt).toISOString(),
-    cacheAgeMs: 0,
-  };
+  const stale = holdingsCache ?? staleDb;
+
+  if (!hasEtoroCredentials()) {
+    if (stale) {
+      holdingsCache = stale;
+      return fromEntry(
+        stale,
+        true,
+        'Using cached eToro holdings — set ETORO_PUBLIC_KEY and ETORO_PRIVATE_KEY to refresh live.'
+      );
+    }
+    return {
+      symbols: [],
+      fromCache: false,
+      fetchedAt: null,
+      cacheAgeMs: null,
+      warning:
+        'ETORO_PUBLIC_KEY and ETORO_PRIVATE_KEY must be set to load eToro holdings (and seed the cache).',
+    };
+  }
+
+  try {
+    const holdings = await fetchEtoroLiveHoldings({ force: true });
+    const fetchedAt = holdingsCache?.fetchedAt ?? Date.now();
+    return {
+      symbols: holdingsToSymbols(holdings),
+      fromCache: false,
+      fetchedAt: new Date(fetchedAt).toISOString(),
+      cacheAgeMs: 0,
+    };
+  } catch (error: unknown) {
+    if (stale) {
+      holdingsCache = stale;
+      const message = error instanceof Error ? error.message : 'Live eToro fetch failed';
+      return fromEntry(stale, true, `Using cached eToro holdings — ${message}`);
+    }
+    throw error;
+  }
 }

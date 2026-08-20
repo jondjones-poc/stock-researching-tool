@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       fetchedAt: result.fetchedAt,
       cacheAgeMs: result.cacheAgeMs,
       maxAgeMs,
+      warning: result.warning ?? null,
     });
   } catch (error: unknown) {
     const err = error as { message?: string; code?: string };
@@ -44,6 +45,17 @@ export async function GET(request: NextRequest) {
       );
     }
     const message = err.message || 'Failed to load eToro holding symbols';
+    if (message.includes('ETORO_PUBLIC_KEY')) {
+      return NextResponse.json(
+        {
+          data: [],
+          fromCache: false,
+          warning: message,
+          hint: 'Set ETORO_PUBLIC_KEY and ETORO_PRIVATE_KEY in the production host env, then open My Portfolio once to seed the cache.',
+        },
+        { status: 200 }
+      );
+    }
     const status = message.includes('rate limit') ? 429 : 500;
     return NextResponse.json({ error: message }, { status });
   }
