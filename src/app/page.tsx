@@ -242,14 +242,14 @@ function DashboardContent() {
       })
       .catch(() => ({ symbols: [] as string[], buyPrices: {} as Record<string, number | null> }));
 
-    const etoroPromise = fetch('/api/etoro/portfolio/live', { credentials: 'include' })
+    const etoroPromise = fetch('/api/etoro/portfolio/symbols', { credentials: 'include' })
       .then(async (response) => {
         if (!response.ok) return [] as Array<{ symbol: string; name?: string }>;
         const result = await response.json();
         return Array.isArray(result.data)
-          ? result.data.map((row: { stock_symbol?: string }) => ({
-              symbol: String(row.stock_symbol || ''),
-              name: String(row.stock_symbol || ''),
+          ? result.data.map((row: { symbol?: string; name?: string }) => ({
+              symbol: String(row.symbol || ''),
+              name: String(row.name || row.symbol || ''),
             }))
           : [];
       })

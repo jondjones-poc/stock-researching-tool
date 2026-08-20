@@ -4,7 +4,10 @@ import { query } from './db';
 import { isActiveEtoroStockPosition } from './etoroPositionFilter';
 import { isUsableEtoroTicker } from './etoroTicker';
 
-const HOLDINGS_CACHE_TTL_MS = 45_000;
+/** Short in-process cache for repeated live portfolio calls. */
+const MEMORY_CACHE_TTL_MS = 45_000;
+/** Dashboard symbol list: holdings rarely change; skip eToro API when cache is fresh. */
+export const ETORO_HOLDINGS_DASHBOARD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type EtoroLiveHolding = {
   instrumentId: number;
@@ -33,7 +36,12 @@ type TickerRow = {
   symbol: string;
 };
 
-let holdingsCache: { fetchedAt: number; holdings: EtoroLiveHolding[] } | null = null;
+type HoldingsCacheEntry = {
+  fetchedAt: number;
+  holdings: EtoroLiveHolding[];
+};
+
+let holdingsCache: HoldingsCacheEntry | null = null;
 let holdingsInFlight: Promise<EtoroLiveHolding[]> | null = null;
 
 export function displaySymbolFromEtoroTicker(ticker: string, researchSymbol?: string | null): string {
@@ -99,6 +107,85 @@ function etoroCredentials(): { publicKey: string; privateKey: string; accountTyp
   }
   const accountType = process.env.ETORO_ACCOUNT_TYPE?.trim().toLowerCase() === 'demo' ? 'demo' : 'real';
   return { publicKey, privateKey, accountType };
+}
+
+function normalizeHolding(raw: unknown): EtoroLiveHolding | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const instrumentId = Number(row.instrumentId);
+  const ticker = String(row.ticker || '').trim();
+  const symbol = String(row.symbol || '').trim();
+  const shares = Number(row.shares);
+  const avgBuyCost = Number(row.avgBuyCost);
+  const currentPrice =
+    row.currentPrice == null || row.currentPrice === ''
+      ? null
+      : Number(row.currentPrice);
+  if (!Number.isFinite(instrumentId) || instrumentId <= 0) return null;
+  if (!symbol && !ticker) return null;
+  return {
+    instrumentId,
+    ticker: ticker || symbol,
+    symbol: symbol || displaySymbolFromEtoroTicker(ticker),
+    shares: Number.isFinite(shares) ? shares : 0,
+    avgBuyCost: Number.isFinite(avgBuyCost) ? avgBuyCost : 0,
+    currentPrice:
+      currentPrice != null && Number.isFinite(currentPrice) && currentPrice > 0
+        ? currentPrice
+        : null,
+  };
+}
+
+export function isHoldingsCacheFresh(fetchedAtMs: number, maxAgeMs: number, nowMs = Date.now()): boolean {
+  return Number.isFinite(fetchedAtMs) && nowMs - fetchedAtMs < maxAgeMs;
+}
+
+async function readHoldingsDbCache(): Promise<HoldingsCacheEntry | null> {
+  try {
+    const result = await query(
+      `SELECT holdings_json, fetched_at FROM etoro_holdings_cache WHERE id = 1 LIMIT 1`
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const raw = row.holdings_json;
+    const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) return null;
+    const holdings = list
+      .map((item) => normalizeHolding(item))
+      .filter((item): item is EtoroLiveHolding => item != null);
+    const fetchedAt =
+      row.fetched_at instanceof Date
+        ? row.fetched_at.getTime()
+        : new Date(String(row.fetched_at)).getTime();
+    if (!Number.isFinite(fetchedAt)) return null;
+    return { holdings, fetchedAt };
+  } catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err.code === '42P01') return null;
+    throw error;
+  }
+}
+
+async function writeHoldingsDbCache(holdings: EtoroLiveHolding[]): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO etoro_holdings_cache (id, holdings_json, fetched_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         holdings_json = EXCLUDED.holdings_json,
+         fetched_at = EXCLUDED.fetched_at`,
+      [JSON.stringify(holdings)]
+    );
+  } catch (error: unknown) {
+    const err = error as { code?: string; message?: string };
+    if (err.code === '42P01') {
+      console.warn(
+        'etoro_holdings_cache missing — run: node scripts/apply-etoro-holdings-cache.mjs'
+      );
+      return;
+    }
+    console.warn('Failed to persist eToro holdings cache:', err.message || error);
+  }
 }
 
 async function resolveInstrumentTickers(instrumentIds: number[]): Promise<Map<number, TickerRow>> {
@@ -254,18 +341,23 @@ async function fetchEtoroLiveHoldingsUncached(): Promise<EtoroLiveHolding[]> {
   return aggregateEtoroPositions(mapped);
 }
 
+/**
+ * Live eToro holdings. Uses a short memory cache unless force=true.
+ * Always persists a successful fetch to the DB holdings cache for dashboard use.
+ */
 export async function fetchEtoroLiveHoldings(
   options?: { force?: boolean }
 ): Promise<EtoroLiveHolding[]> {
   const now = Date.now();
-  if (!options?.force && holdingsCache && now - holdingsCache.fetchedAt < HOLDINGS_CACHE_TTL_MS) {
+  if (!options?.force && holdingsCache && now - holdingsCache.fetchedAt < MEMORY_CACHE_TTL_MS) {
     return holdingsCache.holdings;
   }
   if (holdingsInFlight) return holdingsInFlight;
 
   holdingsInFlight = fetchEtoroLiveHoldingsUncached()
-    .then((holdings) => {
+    .then(async (holdings) => {
       holdingsCache = { fetchedAt: Date.now(), holdings };
+      void writeHoldingsDbCache(holdings);
       return holdings;
     })
     .finally(() => {
@@ -273,4 +365,74 @@ export async function fetchEtoroLiveHoldings(
     });
 
   return holdingsInFlight;
+}
+
+export type EtoroHoldingSymbol = {
+  symbol: string;
+  name: string;
+  instrumentId: number;
+};
+
+function holdingsToSymbols(holdings: EtoroLiveHolding[]): EtoroHoldingSymbol[] {
+  const out: EtoroHoldingSymbol[] = [];
+  const seen = new Set<string>();
+  for (const holding of holdings) {
+    const symbol = String(holding.symbol || '').trim().toUpperCase();
+    if (!symbol || seen.has(symbol) || !isUsableEtoroTicker(symbol)) continue;
+    seen.add(symbol);
+    out.push({
+      symbol,
+      name: holding.ticker || symbol,
+      instrumentId: holding.instrumentId,
+    });
+  }
+  return out;
+}
+
+/**
+ * Dashboard-friendly symbol list: serve DB cache when fresher than maxAgeMs.
+ * Falls back to live eToro fetch (and refreshes the cache) when stale/missing.
+ */
+export async function loadEtoroHoldingSymbols(options?: {
+  force?: boolean;
+  maxAgeMs?: number;
+}): Promise<{
+  symbols: EtoroHoldingSymbol[];
+  fromCache: boolean;
+  fetchedAt: string | null;
+  cacheAgeMs: number | null;
+}> {
+  const maxAgeMs = options?.maxAgeMs ?? ETORO_HOLDINGS_DASHBOARD_MAX_AGE_MS;
+  const now = Date.now();
+
+  if (!options?.force) {
+    if (holdingsCache && isHoldingsCacheFresh(holdingsCache.fetchedAt, maxAgeMs, now)) {
+      return {
+        symbols: holdingsToSymbols(holdingsCache.holdings),
+        fromCache: true,
+        fetchedAt: new Date(holdingsCache.fetchedAt).toISOString(),
+        cacheAgeMs: now - holdingsCache.fetchedAt,
+      };
+    }
+
+    const dbCache = await readHoldingsDbCache();
+    if (dbCache && isHoldingsCacheFresh(dbCache.fetchedAt, maxAgeMs, now)) {
+      holdingsCache = dbCache;
+      return {
+        symbols: holdingsToSymbols(dbCache.holdings),
+        fromCache: true,
+        fetchedAt: new Date(dbCache.fetchedAt).toISOString(),
+        cacheAgeMs: now - dbCache.fetchedAt,
+      };
+    }
+  }
+
+  const holdings = await fetchEtoroLiveHoldings({ force: true });
+  const fetchedAt = holdingsCache?.fetchedAt ?? Date.now();
+  return {
+    symbols: holdingsToSymbols(holdings),
+    fromCache: false,
+    fetchedAt: new Date(fetchedAt).toISOString(),
+    cacheAgeMs: 0,
+  };
 }

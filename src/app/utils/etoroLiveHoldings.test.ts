@@ -1,4 +1,8 @@
-import { aggregateEtoroPositions, displaySymbolFromEtoroTicker } from './etoroLiveHoldings';
+import {
+  aggregateEtoroPositions,
+  displaySymbolFromEtoroTicker,
+  isHoldingsCacheFresh,
+} from './etoroLiveHoldings';
 
 describe('displaySymbolFromEtoroTicker', () => {
   it('prefers research symbol and strips exchange suffixes', () => {
@@ -33,5 +37,13 @@ describe('aggregateEtoroPositions', () => {
     expect(holdings[0].shares).toBe(4);
     expect(holdings[0].avgBuyCost).toBe(120);
     expect(holdings[0].symbol).toBe('AAPL');
+  });
+});
+
+describe('isHoldingsCacheFresh', () => {
+  it('treats cache within max age as fresh', () => {
+    const now = 1_000_000;
+    expect(isHoldingsCacheFresh(now - 1000, 5000, now)).toBe(true);
+    expect(isHoldingsCacheFresh(now - 6000, 5000, now)).toBe(false);
   });
 });
